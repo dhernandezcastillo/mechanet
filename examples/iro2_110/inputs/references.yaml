@@ -1,0 +1,34 @@
+# Molecular references for the computational hydrogen electrode (and the Cl2/Cl- couple for CER).
+#
+# Compute each molecule with the SAME functional, PAW datasets, ENCUT, dispersion and solvation
+# settings as the slab (no +U on these molecules), in a large box at the Gamma point with small
+# smearing and all atoms free: `mechanet references --molecules DIR` writes ready-to-run inputs,
+# and `mechanet references --collect DIR` reads the energies back into this file.
+#
+# A value is used only when it is given here; mechanet never substitutes literature numbers.
+temperature_K: 298.15
+protocol_id: null            # describe the reference protocol, e.g. "PBE-D3(BJ), 500 eV, PAW PBE 54"
+
+H2:
+  energy_e0_eV: null         # E0 (energy sigma -> 0) of the relaxed molecule
+  free_energy_correction_eV: null   # ZPE + int Cp dT - TS at temperature_K and 1 bar
+  phase: gas
+
+H2O:
+  energy_e0_eV: null
+  free_energy_correction_eV: null
+  phase: liquid
+  # Pressure (bar) at which free_energy_correction_eV was evaluated for the vapour. The analysis
+  # moves it to thermodynamics.water_equilibrium_pressure_bar (0.035 bar, the CHE liquid-water
+  # convention); leave null only if the value already represents liquid water.
+  Gcorr_pressure_bar: null
+
+oxygen_reference:            # O2 through the water-formation free energy (CHE convention)
+  method: water_formation
+  delta_G_2H2O_to_O2_2H2_eV: 4.92
+  temperature_K: 298.15
+
+provenance:
+  temperature_verified: false
+  water_standard_state_verified: false
+  DFT_protocol_compatibility_verified: false

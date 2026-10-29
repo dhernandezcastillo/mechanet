@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use mechanet, please cite it as below, together with the papers behind the mechanisms and descriptors you use."
+title: "mechanet: reaction networks for electrocatalysis on surfaces"
+type: software
+authors:
+  - family-names: "Hernández Castillo"
+    given-names: "David"
+version: 0.1.0
+repository-code: "https://github.com/dhernandezcastillo/mechanet"
+date-released: 2026-10-29
+license: MIT
+keywords:
+  - electrocatalysis
+  - oxygen evolution
+  - chlorine evolution
+  - density functional theory
+  - computational hydrogen electrode
+  - reaction networks

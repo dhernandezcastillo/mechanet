@@ -1,0 +1,60 @@
+# mechanet project. Every value is used as written; [auto] marks values detected by
+# `mechanet init` that should be checked once ([confirmed]/[overridden]: answered at init).
+mechanet: 1
+name: RuO2_110_CER
+reaction: cer                     # `mechanet plugins` lists the reactions
+
+slab:
+  file: slab/RuO2_110.vasp
+  vacuum_axis: 2                  # [auto] lattice vector across the vacuum (0, 1, 2)
+  surface_sign: 1                 # [auto] +1: the active side faces +normal
+  fixed: {source: file}         # [file] selective dynamics of the slab file
+  frequency_atoms: [a0016, a0019]   # [auto] partial-Hessian region (added atoms join it)
+  roles: {}                      # element role overrides, e.g. {Mg: spectator, La: metal}
+
+sites:                           # [auto] reactive sites; delete an entry to exclude it
+  - {id: a0016, kind: bridge, native: O}
+  - {id: a0019, kind: bridge, native: O}
+  - {id: m0038, kind: open_metal, native: empty, metal: a0038}
+  - {id: m0046, kind: open_metal, native: empty, metal: a0046}
+
+scope:
+  families: [cer_volmer_heyrovsky, cer_ocl]   # [auto]
+  pair_max_distance_A: 3.3       # two-site families pair sites within this distance
+
+inputs:                          # DFT templates; INCAR tags are used as written
+  incar_loose: inputs/INCAR_loose
+  incar_final: inputs/INCAR_final
+  kpoints: inputs/KPOINTS         # [auto 5x4x1]
+
+vasp:
+  potcar_variants: {O: O, Ru: Ru_pv, H: H, Cl: Cl}   # [auto] Materials Project PAW choices
+  magmom_by_element: {O: 0.0, Ru: 1.0, H: 0.0, Cl: 0.0}   # [auto] starting moments (muB)
+  dft_u: null                    # e.g. {Ni: {L: 2, U: 6.2, J: 0}} (or LDAU tags in the INCARs)
+  common_overrides: {}           # tags for every stage, e.g. {NCORE: 16, KPAR: 2}
+  max_attempts: 2
+  max_continuations: 8
+
+frequency:                       # partial Hessian by finite differences
+  central: final                 # 04_static and 05_freq at the 02_final geometry (or: refine)
+  ediff: 1.0e-06
+  potim: 0.015
+  nfree: 2
+
+thermodynamics:
+  references: inputs/references.yaml
+  potentials_V: [1.36, 1.46, 1.56]   # vs SHE
+  pH: 0
+  temperature_K: 298.15
+
+cluster: null                   # set to a profile from `mechanet cluster list`
+plugins: []                      # local plugin files, e.g. [./my_families.py]
+
+origins:                         # how each value was decided at init
+  inputs: preset pbe-d3
+  inputs.kpoints: auto 5x4x1
+  sites: auto
+  slab.fixed: file
+  slab.frequency_atoms: auto
+  slab.surface_sign: auto
+  slab.vacuum_axis: auto
