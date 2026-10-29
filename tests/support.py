@@ -86,6 +86,8 @@ model = json.loads((state / "harmonic.json").read_text()) if (state / "harmonic.
 # another electronic solution: shifted energies and a different Fe moment in this stage
 eshift = float((ctl / f"eshift_{stage}").read_text()) if flag(f"eshift_{stage}") else 0.0
 fe_moment = float((ctl / f"moment_{stage}").read_text()) if flag(f"moment_{stage}") else 4.0
+# moments.json: local moment of every atom (POSCAR order); moment_<stage> still sets atom 1
+local = json.loads((state / "moments.json").read_text()) if (state / "moments.json").exists() else None
 
 def forces(p):
     if model is not None:
@@ -134,7 +136,10 @@ def tail(ionic, p):
             f"  energy  without entropy=     {e - 0.002:.8f}  energy(sigma->0) =     {e - 0.001:.8f}\n\n",
             " magnetization (x)\n\n# of ion       s       p       d       tot\n------------------------------------------\n"]
     for a in range(n):
-        moment = fe_moment if a == 0 else 0.0
+        if local is not None and not (a == 0 and flag(f"moment_{stage}")):
+            moment = local[a]
+        else:
+            moment = fe_moment if a == 0 else 0.0
         out.append(f"    {a + 1}        0.000   0.000   {moment:.3f}   {moment:.3f}\n")
     out += ["--------------------------------------------------\n", "tot          0.000   0.000   4.000   4.000\n\n"]
     return out

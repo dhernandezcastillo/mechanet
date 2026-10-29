@@ -141,6 +141,11 @@ intermediate continue to 04_static and 05_freq (`mechanet select`).
 
 `analysis.require_input_hashes` (true): refuse results whose inputs changed after the run.
 `analysis.max_eentro_eV` (0.02): flag stages with a large electronic entropy.
+`analysis.moment_change_muB` (0.5): spin check of a cycle and comparison of variants: a local
+moment of at least this size that changes sign, or a change larger than this (away from the
+active site, or between variants), is flagged.
+`analysis.moment_site_radius_A` (3.6): atoms within this distance of a site metal belong to
+the active site, where moment changes are the chemistry and are not flagged.
 `topology.shared_proton_max_OH_A` (1.6): O···H distance of a proton shared between two O.
 `topology.hysteresis_A`: bond-formation/breaking thresholds of the relaxed-structure check
 (`O-H [1.20, 1.35]`, `O-O [1.75, 1.95]`, `M-O [2.20, 2.50]`, `O-Cl`, `M-Cl`).

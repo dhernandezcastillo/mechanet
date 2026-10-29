@@ -778,6 +778,17 @@ def rank(
     )
     scale = thermo["scale"]
     network = read_json(campaign / "network.json")
+    from .magnetism import MomentTracker
+
+    tracker = MomentTracker.from_analysis(campaign, campaign / "pathways" / "analysis", network, thermo)
+    spin_checks = {}
+
+    def spin(node_ids):
+        key = tuple(node_ids)
+        if key not in spin_checks:
+            spin_checks[key] = tracker.check(node_ids)
+        return spin_checks[key]
+
     edges = {e["id"]: e for e in network["edges"]}
     new_edge_ids = {e["id"] for e in report.get("new_edges", [])} - set(edges)
     edges.update({e["id"]: e for e in report.get("new_edges", []) if e["id"] in new_edge_ids})
@@ -833,6 +844,7 @@ def rank(
             ranked += 1
             vectors = [edge_vector(edges[e]) for e in cycle["edge_ids"]]
             zero = [delta_zero[e] for e in cycle["edge_ids"]]
+            check = spin(cycle["node_ids"])
             for potential in thermo["potentials_V"]:
                 m = cycle_metrics(
                     [{"reservoirs": v} for v in vectors],
@@ -858,6 +870,8 @@ def rank(
                         "largest_step_deltaG_eV": m["largest_step_deltaG_eV"],
                         "length": cycle["length"],
                         "node_ids": cycle["node_ids"],
+                        "spin_check": check["status"],
+                        "spin_flags": len(check["flags"]),
                     }
                 )
         usable = [
@@ -893,6 +907,7 @@ def rank(
                     "node_ids": list(top_row["node_ids"]),
                     "curated": bool(top_row["curated"]),
                     "symmetry_image_found": None,
+                    "spin_check": spin(top_row["node_ids"])["status"],
                     "note": "Best enumerated cycle; the exact potential sweep was skipped (see reactions.sweep).",
                 }
             continue
@@ -939,6 +954,7 @@ def rank(
             "curated": bool(chosen["curated"]),
             "in_network": bool(chosen.get("in_network")) or _rotation_key(chosen["edge_ids"]) in curated,
             "symmetry_image_found": match["id"] if chosen is not match else None,
+            "spin_check": spin(chosen["node_ids"])["status"],
             "note": (
                 f"Exact minimum over every cycle, of any length, formed by the {with_energy} of {len(usable)} "
                 f"{name} steps whose two ends have energies"
@@ -968,6 +984,12 @@ def rank(
         "best_by_Gmax": by_gmax,
         "best_by_overpotential": by_eta,
         "global_minimum_limiting_potential": global_best,
+        "spin_check": {
+            "stage": tracker.stage,
+            "settings": tracker.settings,
+            "note": "spin_check of each row: see thermodynamics.json magnetism.note; `mechanet show-cycle ID` "
+            "lists the moments and flags of a cycle.",
+        },
         "warnings": thermo.get("warnings", []),
         "notes": thermo.get("notes", []),
         "rows": rows,
@@ -1107,6 +1129,10 @@ def register_command(subparsers, registry):
     p.set_defaults(handler=_cli)
 
 
+def _spin_note(status):
+    return " [spin check: needs review]" if status == "needs_review" else ""
+
+
 def _text(result):
     s = result["summary"]
     sites = s["max_sites"] or "any number of"
@@ -1134,13 +1160,15 @@ def _text(result):
                 lines.append(
                     f"  {name}: lowest limiting potential {best['limiting_potential_V']:.3f} V (eta_TD "
                     f"{best['thermodynamic_overpotential_V']:.3f} V), {best['cycle_id']}, {len(best['edge_ids'])} "
-                    f"steps{', curated' if best['curated'] else ''}; {scope}"
+                    f"steps{', curated' if best['curated'] else ''}; {scope}" + _spin_note(best.get("spin_check"))
                 )
             else:
                 lines.append(f"  {name}: {info.get('sweep') or 'no cycle with energies'}")
             for potential, rows in ranking["best_by_Gmax"].get(name, {}).items():
                 if rows:
-                    shown = "; ".join(f"{r['cycle_id']} {r['Gmax_U_eV']:.3f} eV" for r in rows[:3])
+                    shown = "; ".join(
+                        f"{r['cycle_id']} {r['Gmax_U_eV']:.3f} eV{_spin_note(r.get('spin_check'))}" for r in rows[:3]
+                    )
                     lines.append(f"    lowest Gmax at {potential} V: {shown}")
         lines += [f"  warning: {w}" for w in ranking.get("warnings", [])]
         lines += [f"  note: {n}" for n in ranking.get("notes", [])]

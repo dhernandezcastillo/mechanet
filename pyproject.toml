@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mechanet"
-version = "0.1.0"
+version = "0.1.1"
 description = "Reaction networks for electrocatalysis on surfaces: site detection, starting structures, staged VASP runs on any SLURM cluster, pathway discovery and CHE thermodynamics (OER, CER, surface Pourbaix)."
 readme = "README.md"
 requires-python = ">=3.10"

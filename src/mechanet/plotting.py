@@ -7,6 +7,7 @@ pourbaix/pourbaix.json), so nothing is read from colour alone.
 from __future__ import annotations
 
 import json
+import textwrap
 from pathlib import Path
 
 INK = "#0b0b0b"
@@ -16,6 +17,12 @@ AXIS = "#c3c2b7"
 GRID = "#e1e0d9"
 SURFACE = "#fcfcfb"
 SERIES_1 = "#2a78d6"
+# Moments panel: five categorical slots that stay apart pairwise (aqua, yellow, green, violet, red;
+# all-pairs normal-vision dE >= 15, colour-blind dE >= 6.9 with the role markers as second encoding).
+# Slot 1 (blue) is the energy profile. At most five atoms are drawn; the tables keep every one.
+MOMENT_COLORS = ("#1baf7a", "#eda100", "#008300", "#6250d6", "#e34948")
+ROLE_MARKERS = {"site metal": "o", "bound": "s", "outer": "^", "flagged": "D", "largest change": "D"}
+WARNING = "#fab219"
 
 
 def _pyplot():
@@ -58,8 +65,13 @@ def _short(node_id, release):
     return core.replace("_", "\n")
 
 
-def plot_profile(campaign, cycle_id, potential_V, output_path, scale=None):
-    """Cumulative free energy along one cycle at one potential (from analysis/thermodynamics.json)."""
+def plot_profile(campaign, cycle_id, potential_V, output_path, scale=None, moments=True):
+    """Cumulative free energy along one cycle at one potential (from analysis/thermodynamics.json).
+
+    When the analysis has local moments for the cycle (thermodynamics.json ``magnetism``) and
+    ``moments`` is true, a second panel shows the moments of the active-site atoms of every
+    intermediate and shades the steps the spin check flags.
+    """
     plt = _pyplot()
     root = Path(campaign)
     path = root / "analysis" / "thermodynamics.json"
@@ -88,12 +100,26 @@ def plot_profile(campaign, cycle_id, potential_V, output_path, scale=None):
     reaction = chosen.get("reaction", "oer")
     release = {"oer": "O2", "cer": "Cl2"}.get(reaction, "product")
     labels = (
-        [_short(n, release) for n in nodes] + [f"native\n+ {release}"]
+        [_short(n, release) for n in nodes] + [f"{_short(nodes[0], release)}\n+ {release}"]
         if len(nodes) == len(y) - 1
         else [str(i) for i in range(len(y))]
     )
+    magnetism = result.get("magnetism") or {}
+    panel = (magnetism.get("cycles") or {}).get(cycle_id) if moments else None
+    if panel is not None and (not panel.get("atoms") or panel.get("node_ids") != nodes or len(nodes) != len(y) - 1):
+        panel = None
     rest = chosen.get("resting_state_index")
-    fig, ax = plt.subplots(figsize=(max(7.0, 1.15 * len(y)), 4.6))
+    width = max(7.0, 1.15 * len(y))
+    if panel:
+        fig, (ax, bx) = plt.subplots(
+            2,
+            1,
+            sharex=True,
+            figsize=(width, 8.2),
+            gridspec_kw={"height_ratios": [3, 2]},
+        )
+    else:
+        fig, ax = plt.subplots(figsize=(width, 4.6))
     _clean(ax)
     ax.axhline(0.0, color=GRID, lw=0.8, zorder=0)
     for i, value in enumerate(y):
@@ -135,7 +161,10 @@ def plot_profile(campaign, cycle_id, potential_V, output_path, scale=None):
             ha="center",
             va="bottom",
         )
-    ax.set_xticks(range(len(y)), labels, fontsize=8, color=INK_2)
+    axis = bx if panel else ax
+    axis.set_xticks(range(len(y)), labels, fontsize=8, color=INK_2)
+    if panel:
+        ax.tick_params(labelbottom=False)
     scale = scale or chosen.get("scale", "RHE")
     ax.set_ylabel("Cumulative free energy (eV)")
     descriptor = [f"U = {float(potential_V):g} V vs {scale}"]
@@ -144,14 +173,14 @@ def plot_profile(campaign, cycle_id, potential_V, output_path, scale=None):
     if chosen.get("thermodynamic_overpotential_V") is not None:
         descriptor.append(f"eta_TD {chosen['thermodynamic_overpotential_V']:.2f} V")
     ax.set_title(f"{cycle_id}\n" + " | ".join(descriptor), fontsize=9.5, loc="left")
-    fig.text(
-        0.01,
-        0.01,
-        "Computational hydrogen electrode profile; dotted connectors are not barriers.",
-        fontsize=8,
-        color=MUTED,
-    )
-    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    notes = ["Computational hydrogen electrode profile; dotted connectors are not barriers."]
+    if panel:
+        notes += _moments_panel(bx, panel, len(y), magnetism)
+    fig_width, fig_height = fig.get_size_inches()
+    size = 7.5 if panel else 8.0
+    wrapped = [line for note in notes for line in textwrap.wrap(note, width=int(fig_width * 15))]
+    fig.text(0.01, 0.01, "\n".join(wrapped), fontsize=size, color=MUTED, va="bottom")
+    fig.tight_layout(rect=(0, (len(wrapped) * size * 1.3 / 72 + 0.1) / fig_height, 1, 1), h_pad=0.6)
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=200)
@@ -163,7 +192,96 @@ def plot_profile(campaign, cycle_id, potential_V, output_path, scale=None):
         "cycle": cycle_id,
         "potential_V": float(potential_V),
         "scale": scale,
+        "moments_panel": bool(panel),
+        "spin_check": (panel or {}).get("status")
+        or ((magnetism.get("cycles") or {}).get(cycle_id) or {}).get("status", "not_available"),
     }
+
+
+def _moments_panel(ax, panel, n_points, magnetism):
+    """Local moments of the tracked atoms per intermediate; returns the footnote lines."""
+    from .magnetism import flag_text, short_label
+
+    _clean(ax)
+    ax.axhline(0.0, color=GRID, lw=0.8, zorder=0)
+    steps = sorted({flag["step"] for flag in panel["flags"]})
+    for step in steps:  # step s goes from position s - 1 to position s
+        ax.axvspan(step - 1 + 0.08, step - 0.08, color=WARNING, alpha=0.22, lw=0, zorder=0)
+        ax.text(
+            step - 0.5,
+            0.97,
+            "spin flag",
+            transform=ax.get_xaxis_transform(),
+            ha="center",
+            va="top",
+            fontsize=7.5,
+            color=INK_2,
+        )
+    xs = list(range(n_points))
+    drawn = panel["atoms"][: len(MOMENT_COLORS)]
+    for k, atom in enumerate(drawn):
+        values = list(atom["moments_muB"]) + [atom["moments_muB"][0]]  # the cycle returns to its start
+        ax.plot(
+            xs,
+            [float("nan") if v is None else v for v in values],
+            color=MOMENT_COLORS[k],
+            lw=1.6,
+            marker=ROLE_MARKERS.get(atom["role"], "o"),
+            ms=6.0,
+            mec=SURFACE,
+            mew=0.9,
+            zorder=3,
+            label=f"{atom['element']} {atom['atom_id']} ({atom['role']})",
+        )
+    ax.set_ylabel(r"Local moment ($\mu_\mathrm{B}$)")
+    if steps:  # room above the data for the step labels
+        low, high = ax.get_ylim()
+        ax.set_ylim(low, high + 0.16 * (high - low))
+    handles, names = ax.get_legend_handles_labels()
+    columns = min(len(handles), 3)
+    rows = -(-len(handles) // columns)
+    # matplotlib fills legend columns first: reorder so that the entries read row by row
+    order = [r * columns + c for c in range(columns) for r in range(rows) if r * columns + c < len(handles)]
+    ax.legend(
+        [handles[i] for i in order],
+        [names[i] for i in order],
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.16),
+        ncol=columns,
+        frameon=False,
+        fontsize=8,
+        labelcolor=INK_2,
+        handlelength=2.4,
+        columnspacing=1.6,
+    )
+    settings = magnetism.get("settings") or {}
+    notes = [
+        f"Lower panel: projected local moments ({magnetism.get('stage', '')}) of the structure each energy comes "
+        "from; the last column repeats the first intermediate."
+        + (
+            f" {len(panel['atoms']) - len(drawn)} more tracked atoms are in analysis/cycle_moments.csv."
+            if len(panel["atoms"]) > len(drawn)
+            else ""
+        )
+    ]
+    status = panel["status"]
+    if status == "needs_review":
+        shown = "; ".join(flag_text(flag, short_label) for flag in panel["flags"][:2])
+        more = len(panel["flags"]) - 2
+        notes.append(
+            "Spin check: needs review. "
+            + shown
+            + (f" (+{more} more; `mechanet show-cycle` lists them)" if more > 0 else "")
+        )
+    elif status == "incomplete":
+        missing = ", ".join(short_label(m["node_id"]) for m in panel.get("missing", []))
+        notes.append(f"Spin check incomplete: no moments for {missing or 'some intermediates'}.")
+    else:
+        notes.append(
+            f"Spin check: consistent (no moment of {settings.get('moment_change_muB', 0.5):g} muB or more changes "
+            f"sign; none farther than {settings.get('site_radius_A', 3.6):g} A from the site metals changes by more)."
+        )
+    return [note.replace("muB", "\u03bcB").replace(" -> ", " \u2192 ") for note in notes]
 
 
 def plot_pourbaix(result, output_path):

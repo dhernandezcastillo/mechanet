@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.1 (2026-10-29)
+
+Local magnetic moments become part of the analysis.
+
+- **Moments along cycles**: `thermo` follows the projected local moments (LORBIT) of the
+  structures the energies come from, atom by atom through every cycle, symmetry images
+  relabelled through their lattice translation: the site metals, the bound and outer atoms
+  of every site the cycle changes, and the atoms whose moments change most. They are written
+  to `analysis/cycle_moments.csv` and `thermodynamics.json` (`magnetism`), printed by
+  `show-cycle` and the report, and drawn by `plot-profile` in a panel under the free-energy
+  profile (`--no-moments` leaves it out).
+- **Spin check of cycles**: a step is flagged when a moment of at least
+  `analysis.moment_change_muB` (0.5 μB) changes sign, or when a moment farther than
+  `analysis.moment_site_radius_A` (3.6 Å) from the site metals changes by more than that.
+  `cycles.csv` (`spin_check`, `spin_flags`), the pathway ranking and the report carry it.
+- **Magnetic solutions of variants**: `select` and `thermo` report the variants of an
+  intermediate whose 02_final moments differ in the same way, with their energy gap
+  (`magnetic_solutions` in `thermo_selection.json` and `nodes.csv`).
+- `plot-profile` labels the last point of a cycle with its first intermediate plus the
+  released product; it read "native + O2" also for cycles that start elsewhere.
+- Documentation: magnetic states are not sampled (the README said they were); every
+  structure starts from the same MAGMOM.
+
 ## 0.1.0 (2026-10-29)
 
 First release.

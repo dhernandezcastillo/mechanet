@@ -114,7 +114,7 @@ SECTION_KEYS = {
         "water_equilibrium_pressure_bar",
         "electronic_mode_corrections",
     },
-    "analysis": {"require_input_hashes", "max_eentro_eV"},
+    "analysis": {"require_input_hashes", "max_eentro_eV", "moment_change_muB", "moment_site_radius_A"},
     "topology": {"shared_proton_max_OH_A", "hysteresis_A"},
     "geometry": {
         "symmetry_reduction",
@@ -409,6 +409,11 @@ def _value_problems(data):
     for key, allowed in (("central", CENTRAL_MODES), ("method", FREQUENCY_METHODS)):
         if key in frequency and frequency[key] not in allowed:
             errors.append(_unknown(f"frequency.{key} values", [frequency[key]], allowed))
+    analysis = data.get("analysis") if isinstance(data.get("analysis"), dict) else {}
+    for key in ("moment_change_muB", "moment_site_radius_A"):
+        value = analysis.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0):
+            errors.append(f"analysis.{key} must be a positive number, not {value!r}")
     thermo = data.get("thermodynamics") if isinstance(data.get("thermodynamics"), dict) else {}
     scale = thermo.get("potential_scale")
     if scale is not None and str(scale).upper() not in ("RHE", "SHE"):

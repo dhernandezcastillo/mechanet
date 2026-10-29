@@ -26,7 +26,7 @@ from mechanet.builder import Builder  # noqa: E402
 from mechanet.fileio import read_json, write_json  # noqa: E402
 from mechanet.project import load_project, resolve_config  # noqa: E402
 from mechanet.runner import prepare, run_state  # noqa: E402
-from mechanet.structure import read_poscar  # noqa: E402
+from mechanet.structure import distance_matrix, read_poscar  # noqa: E402
 
 # Molecular references in the full format (meaningless here, since the synthetic energies
 # only test the bookkeeping and the closure of every cycle).
@@ -67,13 +67,29 @@ class EndToEndTests(unittest.TestCase):
             campaign = root / "campaign"
             report = Builder(cfg, campaign).finish()
             self.assertGreaterEqual(report["unique_initial_structures"], 5)
+            site_metal = read_json(campaign / "sites.json")["sites"][0]["metal_neighbors"][0]["id"]
+            seed = read_poscar(campaign / "inputs" / "seed.vasp")
+            # the Ni farthest from the site metal, to break the spin check on purpose
+            gaps = distance_matrix(seed)[seed.index(site_metal)]
+            remote = max(
+                (aid for aid, s in zip(seed.ids, seed.symbols) if s == "Ni"), key=lambda a: gaps[seed.index(a)]
+            )
             # A stiff harmonic model around each start: relaxations stay put, Hessians are K.
+            # Local moments: Fe 4.1, Ni 1.6; *O carries an oxyl-like site O; the remote Ni flips in *OOH.
             for state_dir in sorted((campaign / "states").glob("*")):
                 st = read_poscar(state_dir / "POSCAR")
                 (state_dir / "ctl").mkdir()
                 masses = np.repeat([POMASS[s] for s in st.symbols], 3)
                 k = np.diag(25.0 * np.sqrt(masses))
                 write_json(state_dir / "harmonic.json", {"x0": st.positions.reshape(-1).tolist(), "K": k.tolist()})
+                meta = read_json(state_dir / "state.json")
+                moments = [{"Fe": 4.1, "Ni": 1.6}.get(s, 0.0) for s in meta["symbols"]]
+                status = meta["occupancy"].get("a0065")
+                if status == "O":
+                    moments[meta["atom_ids"].index("a0065")] = 0.65
+                if status == "OOH":
+                    moments[meta["atom_ids"].index(remote)] = -1.6
+                write_json(state_dir / "moments.json", moments)
             prepare(campaign, with_potcars=True)
             for state_dir in sorted((campaign / "states").glob("*")):
                 result = run_state(state_dir, through="final", execute=True)
@@ -132,6 +148,20 @@ class EndToEndTests(unittest.TestCase):
             self.assertAlmostEqual(row["net_deltaG_eV"], 4.92 - 4 * 1.6, places=6)
             for key in ("Gmax_U_eV", "cyclic_span_eV", "lowest_intermediate_node", "network_resting_state_node"):
                 self.assertIn(key, row)
+            # Local moments along the cycle: the site metal and the site O are tracked, the remote
+            # Ni that flips in *OOH is flagged, from the stage whose energy the analysis uses.
+            spin = full["magnetism"]["cycles"]["aem_a0065_AEM"]
+            self.assertEqual(full["magnetism"]["stage"], "02_final" if final_mode else "04_static")
+            self.assertEqual(spin["node_ids"], row["node_ids"])
+            atoms = {a["atom_id"]: a for a in spin["atoms"]}
+            self.assertEqual(atoms[site_metal]["role"], "site metal")
+            site_o = atoms["a0065"]["moments_muB"]
+            self.assertEqual(site_o[row["node_ids"].index(next(n for n in row["node_ids"] if "0065O_" in n))], 0.65)
+            self.assertEqual(spin["status"], "needs_review")
+            self.assertEqual({(f["atom_id"], f["kind"]) for f in spin["flags"]}, {(remote, "sign_flip")})
+            self.assertEqual(row["spin_check"], "needs_review")
+            self.assertIn("aem_a0065_AEM", full["magnetism"]["cycles_needing_review"])
+            self.assertTrue((campaign / "analysis" / "cycle_moments.csv").is_file())
             screening = analyze_thermodynamics(
                 campaign, refs, out_dir=root / "screening", include_vibrations=False, energy_source="final"
             )
@@ -144,6 +174,10 @@ class EndToEndTests(unittest.TestCase):
 
             plot = plot_profile(campaign, "aem_a0065_AEM", 1.6, root / "profile.png")
             self.assertTrue(Path(plot["figure"]).is_file())
+            self.assertTrue(plot["moments_panel"])
+            self.assertEqual(plot["spin_check"], "needs_review")
+            plain = plot_profile(campaign, "aem_a0065_AEM", 1.6, root / "plain.png", moments=False)
+            self.assertFalse(plain["moments_panel"])
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ import numpy as np
 
 from . import elements
 from .fileio import file_hash, read_json
+from .magnetism import NOTE as MAGNETISM_NOTE, MomentTracker, magnetic_solutions
 from .plugins import campaign_registry, default_registry
 from .reactions import SPECIES, clean, electrons as vector_electrons
 from .results import FREQUENCY_CM1_PER_SQRT_EV_A2_AMU, parse_run, read_incar, same_solution
@@ -1161,7 +1162,7 @@ def select_for_thermo(
     computed = [n for n in network.get("nodes", []) if not n.get("computed_by")]
     wanted = _cycle_nodes(network, list(cycles)) if cycles else None
     selected, per_node, waiting, unresolved = [], [], [], []
-    evaluated, own_variants = {}, {}
+    evaluated, own_variants, moment_rows = {}, {}, []
     for node in computed:
         own_variants[node["id"]] = []
         for sid in node.get("state_ids", []):
@@ -1203,8 +1204,17 @@ def select_for_thermo(
                     ):
                         latest = topology_check(state_dir, meta, config, registry=registry)
                         record["latest_assigned_node_id"] = latest.get("assigned_node_id") if _usable(latest) else None
+                    moment_rows.append(
+                        {
+                            "state_id": sid,
+                            "stages": {STAGE_FINAL: {"magmoms": final.get("magmoms")}},
+                            "final_topology": topology,
+                        }
+                    )
                 evaluated[sid] = record
             own_variants[node["id"]].append(evaluated[sid])
+    moments = MomentTracker(campaign, network, moment_rows, {}, STAGE_FINAL, "final_topology", config)
+    several_solutions = []
     for node in computed:
         if wanted is not None and node["id"] not in wanted:
             continue
@@ -1264,6 +1274,17 @@ def select_for_thermo(
         for v in accepted:
             v["relative_eV"] = v["energy_final_e0_eV"] - minimum
         selected.extend(v["state_id"] for v in chosen)
+        if len(accepted) > 1:
+            solutions = magnetic_solutions(
+                [
+                    (v["state_id"], v["energy_final_e0_eV"], moments.state_moments(v["state_id"], node["id"])[0])
+                    for v in accepted
+                ],
+                moments.threshold,
+            )
+            if len(solutions) > 1:
+                extra["magnetic_solutions"] = solutions
+                several_solutions.append(node["id"])
         per_node.append(
             {
                 "node_id": node["id"],
@@ -1287,10 +1308,17 @@ def select_for_thermo(
         "n_selected": len(set(selected)),
         "waiting_nodes": waiting,
         "unresolved_nodes": unresolved,
+        "nodes_with_several_magnetic_solutions": several_solutions,
         "nodes": per_node,
         "note": (
             "Re-run after more 02_final results arrive (or use --include-partial to select from the variants "
             "finished so far); selection never removes states that already ran later stages."
+        ),
+        "magnetic_solutions_note": (
+            "Variants whose 02_final local moments differ (a moment of at least analysis.moment_change_muB "
+            f"(here {moments.threshold:g} muB) changing sign, or any heavy atom differing by more than that) "
+            "converged to different magnetic solutions; nodes.magnetic_solutions lists them, lowest first. "
+            "Selection is by energy only."
         ),
     }
     previous = _load(campaign / "thermo_selection.json")
@@ -1648,6 +1676,21 @@ def analyze_thermodynamics(
     refs_path, refs, reservoirs = data["references_path"], data["references"], data["reservoirs"]
     corrections, selected, node_rows = data["corrections"], data["selected"], data["node_rows"]
     assignment_key, level = data["assignment_key"], data["level"]
+    tracker = MomentTracker(
+        campaign,
+        network,
+        collected["states"],
+        {row["node_id"]: row.get("selected_state_id") for row in node_rows},
+        STAGE_FINAL if energy_source == "final" else STAGE_STATIC,
+        "final_topology" if assignment_key == "final_assigned_node_id" else "topology",
+        data["config"],
+    )
+    variant_solutions = {}
+    for row in node_rows:
+        solutions = tracker.variants(row["node_id"]) if row["computed_by"] is None else None
+        row["magnetic_solutions"] = len(solutions) if solutions else None
+        if solutions and len(solutions) > 1:
+            variant_solutions[row["node_id"]] = {"selected_state_id": row["selected_state_id"], "solutions": solutions}
     scale = (scale or thermo_cfg.get("potential_scale") or main.potential_scale).upper()
     conditions = Conditions(
         settings["temperature_K"],
@@ -1752,7 +1795,7 @@ def analyze_thermodynamics(
                         "delta_atoms": nodes[nid]["delta_atoms"],
                     }
                 )
-    cycle_rows, cycles_full = [], []
+    cycle_rows, cycles_full, cycle_moments = [], [], {}
     for cycle in network.get("cycles", []):
         rx = registry.reaction(cycle.get("reaction") or main.name)
         declared = cycle["edge_ids"]
@@ -1771,6 +1814,9 @@ def analyze_thermodynamics(
             else None
         )
         equilibrium = net_zero / rx.electrons if net_zero is not None else None
+        moments = tracker.cycle(node_ids)
+        if moments["status"] != "not_available":
+            cycle_moments[cycle["id"]] = moments
         for potential in potentials:
             row = {
                 "cycle_id": cycle["id"],
@@ -1784,6 +1830,8 @@ def analyze_thermodynamics(
                 "discovered": bool(cycle.get("discovered")),
                 "node_ids": node_ids,
                 "missing_edges": missing,
+                "spin_check": moments["status"],
+                "spin_flags": len(moments["flags"]),
             }
             if complete:
                 metrics = cycle_metrics(
@@ -1830,6 +1878,7 @@ def analyze_thermodynamics(
             "selected_state_id",
             "node_energy_eV",
             "status",
+            "magnetic_solutions",
             "reassigned_in",
             "reassigned_out",
         ],
@@ -1863,9 +1912,31 @@ def analyze_thermodynamics(
             "thermodynamic_overpotential_V",
             "potential_independent_uphill_step",
             "contains_condensed_multi_electron_step",
+            "spin_check",
+            "spin_flags",
             "symmetry_equivalent_cycles",
             "missing_edges",
         ],
+    )
+    _csv(
+        out_dir / "cycle_moments.csv",
+        [
+            {
+                "cycle_id": cycle_id,
+                "position": k,
+                "node_id": entry["node_ids"][k],
+                "state_id": entry["state_ids"][k],
+                "atom_id": atom["atom_id"],
+                "element": atom["element"],
+                "role": atom["role"],
+                "local_moment_muB": value,
+            }
+            for cycle_id, entry in cycle_moments.items()
+            for atom in entry["atoms"]
+            for k, value in enumerate(atom["moments_muB"])
+            if value is not None
+        ],
+        ["cycle_id", "position", "node_id", "state_id", "atom_id", "element", "role", "local_moment_muB"],
     )
     _csv(
         out_dir / "resting_states.csv",
@@ -1932,6 +2003,18 @@ def analyze_thermodynamics(
             for s in collected["states"]
             if s.get(assignment_key) is None and (s["energy_e0_eV"] is not None or s["energy_final_e0_eV"] is not None)
         ],
+        "magnetism": {
+            "stage": tracker.stage,
+            "topology_key": tracker.topology_key,
+            "settings": tracker.settings,
+            "cycles_needing_review": sorted(
+                cycle_id for cycle_id, entry in cycle_moments.items() if entry["status"] == "needs_review"
+            ),
+            "nodes_with_several_solutions": sorted(variant_solutions),
+            "cycles": cycle_moments,
+            "variants": variant_solutions,
+            "note": MAGNETISM_NOTE,
+        },
         "variant_selection": "lowest accepted energy among the calculated structures whose relaxed site occupancy "
         "matches each node (including structures built for another node that relaxed into "
         "it); symmetry twins take their representative's value; a thermodynamic envelope, "
