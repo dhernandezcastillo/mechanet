@@ -372,6 +372,68 @@ def progress(campaign):
     return {"by_status": dict(sorted(counts.items())), "states": rows}
 
 
+def _magnetism_section(result):
+    """Report lines on local moments: spin checks, variant solutions, moments of the best cycles."""
+    from .magnetism import flag_text, short_label
+
+    magnetism = result.get("magnetism") or {}
+    cycles, variants = magnetism.get("cycles") or {}, magnetism.get("variants") or {}
+    if not cycles and not variants:
+        return []
+    settings = magnetism["settings"]
+    lines = [
+        "## Magnetic moments",
+        "",
+        f"Projected local moments of the {magnetism['stage']} structures the energies come from. A step is "
+        f"flagged when a moment of at least {settings['moment_change_muB']:g} muB changes sign, or when a moment "
+        f"farther than {settings['site_radius_A']:g} A from every site metal changes by more than "
+        f"{settings['moment_change_muB']:g} muB.",
+        "",
+    ]
+    review = magnetism.get("cycles_needing_review") or []
+    lines.append(
+        f"- spin check: {len(review)} of {len(cycles)} cycles with moments need review"
+        + (f": {', '.join(review[:10])}{', ...' if len(review) > 10 else ''}" if review else "")
+    )
+    for node_id, entry in sorted(variants.items())[:10]:
+        solutions = entry["solutions"]
+        second = solutions[1]
+        differences = ", ".join(
+            f"{d['element']} {d['atom_id']} {d['lowest_muB']:+.1f} -> {d['this_muB']:+.1f}"
+            for d in second["differs_from_lowest"][:2]
+        )
+        lines.append(
+            f"- variants of {node_id} converged to {len(solutions)} magnetic solutions; the next lies "
+            f"{second['relative_eV']:+.3f} eV above the lowest ({differences})"
+        )
+    if len(variants) > 10:
+        lines.append(f"- ... {len(variants) - 10} more intermediates with several solutions (thermodynamics.json)")
+    shown = []
+    for by_reaction in (result.get("best_cycles") or {}).values():
+        for best in by_reaction.values():
+            cycle_id = best["lowest_Gmax"]["cycle_id"]
+            if cycle_id in cycles and cycle_id not in shown:
+                shown.append(cycle_id)
+    for cycle_id in shown[:3]:
+        entry = cycles[cycle_id]
+        heads = [short_label(n) for n in entry["node_ids"]]
+        lines += [
+            "",
+            f"### {cycle_id} (spin check: {entry['status'].replace('_', ' ')})",
+            "",
+            "| atom (muB) | " + " | ".join(heads) + " |",
+            "|---|" + "---|" * len(heads),
+        ]
+        for atom in entry["atoms"]:
+            cells = ["–" if v is None else f"{v:+.2f}" for v in atom["moments_muB"]]
+            lines.append(f"| {atom['element']} {atom['atom_id']} ({atom['role']}) | " + " | ".join(cells) + " |")
+        if entry["flags"]:
+            lines.append("")
+            lines += [f"- flag: {flag_text(flag, short_label)}" for flag in entry["flags"][:6]]
+    lines.append("")
+    return lines
+
+
 def report(campaign):
     """Markdown summary of the campaign and every analysis written so far."""
     campaign = Path(campaign)
@@ -441,6 +503,7 @@ def report(campaign):
             )
         lines += [f"- warning: {w}" for w in result.get("warnings", [])]
         lines.append("")
+        lines += _magnetism_section(result)
     ranking = campaign / "pathways" / "ranking.json"
     if ranking.is_file():
         data = read_json(ranking)

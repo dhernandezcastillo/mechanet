@@ -383,7 +383,22 @@ def cmd_show_cycle(args, registry):
         )
     if cycle.get("evidence_scope"):
         lines.append(f"  evidence: {cycle['evidence_scope']}")
-    return {"cycle": cycle, "steps": steps}, "\n".join(lines)
+    out = {"cycle": cycle, "steps": steps}
+    analysis = campaign / "analysis"
+    if (analysis / "thermodynamics.json").is_file() and (analysis / "states.json").is_file():
+        from .magnetism import MomentTracker, flag_text, moments_table, short_label
+
+        tracker = MomentTracker.from_analysis(campaign, analysis, network, read_json(analysis / "thermodynamics.json"))
+        moments = tracker.cycle([step["from"] for step in steps])
+        out["moments"] = moments
+        if moments["status"] != "not_available":
+            lines.append(f"  local moments (muB, {tracker.stage}); spin check: {moments['status'].replace('_', ' ')}")
+            lines += ["    " + line for line in moments_table(moments, short_label)]
+            lines += [f"    flag: {flag_text(flag, short_label)}" for flag in moments["flags"][:8]]
+            if len(moments["flags"]) > 8:
+                lines.append(f"    ... {len(moments['flags']) - 8} more flags")
+            lines += [f"    no moments for {short_label(m['node_id'])}: {m['reason']}" for m in moments["missing"]]
+    return out, "\n".join(lines)
 
 
 def cmd_cycles(args, registry):
@@ -608,6 +623,28 @@ def cmd_select(args, registry):
         f"{len(result['waiting_nodes'])} node(s) wait for 02_final results, "
         f"{len(result['unresolved_nodes'])} have no accepted variant"
     )
+    several = result.get("nodes_with_several_magnetic_solutions") or []
+    if several:
+        lines = [
+            text,
+            f"  variants of {len(several)} {_plural(len(several), 'intermediate')} converged to different "
+            "magnetic solutions (02_final moments):",
+        ]
+        for entry in result["nodes"]:
+            if entry["node_id"] not in several:
+                continue
+            solutions = entry["magnetic_solutions"]
+            others = "; ".join(
+                f"{', '.join(s['state_ids'])} +{s['relative_eV']:.3f} eV ("
+                + ", ".join(
+                    f"{d['element']} {d['atom_id']} {d['lowest_muB']:+.1f} -> {d['this_muB']:+.1f}"
+                    for d in s["differs_from_lowest"][:2]
+                )
+                + ")"
+                for s in solutions[1:]
+            )
+            lines.append(f"    {entry['node_id']}: lowest {', '.join(solutions[0]['state_ids'])}; {others}")
+        text = "\n".join(lines[:12] + ([f"    ... {len(several) - 10} more"] if len(several) > 10 else []))
     return result, text
 
 
@@ -674,6 +711,7 @@ def cmd_thermo(args, registry):
         pH=args.pH,
         activities=activities or None,
     )
+    magnetism = result.get("magnetism") or {}
     out = {
         "out_dir": str(Path(args.out) if args.out else campaign / "analysis"),
         "analysis_level": result["analysis_level"],
@@ -690,7 +728,20 @@ def cmd_thermo(args, registry):
         "cycles_available": len({c["cycle_id"] for c in result["cycles"] if c["status"] == "available"}),
         "cycles": len({c["cycle_id"] for c in result["cycles"]}),
         "best_cycles": result["best_cycles"],
-        "files": ["nodes.csv", "edges.csv", "cycles.csv", "resting_states.csv", "thermodynamics.json"],
+        "magnetism": {
+            "stage": magnetism.get("stage"),
+            "cycles_checked": len(magnetism.get("cycles") or {}),
+            "cycles_needing_review": magnetism.get("cycles_needing_review") or [],
+            "nodes_with_several_solutions": magnetism.get("nodes_with_several_solutions") or [],
+        },
+        "files": [
+            "nodes.csv",
+            "edges.csv",
+            "cycles.csv",
+            "cycle_moments.csv",
+            "resting_states.csv",
+            "thermodynamics.json",
+        ],
     }
     lines = [
         f"{out['analysis_level']}; potentials vs {out['scale']}, pH {out['conditions']['pH']}",
@@ -709,6 +760,21 @@ def cmd_thermo(args, registry):
                 f"{best['lowest_Gmax']['Gmax_U_eV']:.3f} eV"
                 + (f"; lowest eta_TD {eta['cycle_id']} {eta['thermodynamic_overpotential_V']:.3f} V" if eta else "")
             )
+    spin = out["magnetism"]
+    if spin["cycles_checked"]:
+        review = spin["cycles_needing_review"]
+        lines.append(
+            f"  spin check ({spin['stage']} moments): {len(review)} of {spin['cycles_checked']} cycles with moments "
+            "need review"
+            + (f" ({', '.join(review[:5])}{', ...' if len(review) > 5 else ''})" if review else "")
+            + "; `mechanet show-cycle ID` lists the moments"
+        )
+    several = spin["nodes_with_several_solutions"]
+    if several:
+        lines.append(
+            f"  variants of {len(several)} {_plural(len(several), 'intermediate')} converged to different magnetic "
+            f"solutions: {', '.join(several[:5])}{', ...' if len(several) > 5 else ''} (thermodynamics.json magnetism)"
+        )
     lines.append(f"  tables in {out['out_dir']}")
     return out, "\n".join(lines)
 
@@ -718,8 +784,12 @@ def cmd_plot_profile(args, registry):
 
     campaign = _campaign(args)
     out = args.out or str(campaign / "analysis" / f"profile_{args.cycle}_{args.potential:g}V.png")
-    result = plot_profile(campaign, args.cycle, args.potential, out)
-    return result, f"wrote {result['figure']} and {result['vector']}"
+    result = plot_profile(campaign, args.cycle, args.potential, out, moments=not args.no_moments)
+    text = f"wrote {result['figure']} and {result['vector']}"
+    if result["moments_panel"]:
+        status = result["spin_check"].replace("_", " ")
+        text += f"\n  lower panel: local moments of the active-site atoms; spin check: {status}"
+    return result, text
 
 
 def cmd_report(args, registry):
@@ -1091,7 +1161,9 @@ def build_parser(registry):
     p.add_argument("--limit", type=int, default=40)
     p.set_defaults(handler=cmd_cycles)
 
-    p = sub.add_parser("show-cycle", help="Print the steps of one catalytic cycle")
+    p = sub.add_parser(
+        "show-cycle", help="Print the steps of one catalytic cycle (and its local moments once thermo has run)"
+    )
     p.add_argument("cycle_id")
     p.add_argument("campaign", nargs="?")
     p.set_defaults(handler=cmd_show_cycle)
@@ -1189,11 +1261,16 @@ def build_parser(registry):
     _frequency_options(p)
     p.set_defaults(handler=cmd_thermo)
 
-    p = sub.add_parser("plot-profile", help="Free-energy profile of one cycle (needs matplotlib)")
+    p = sub.add_parser(
+        "plot-profile", help="Free-energy profile of one cycle, with local moments when available (needs matplotlib)"
+    )
     p.add_argument("cycle")
     p.add_argument("campaign", nargs="?")
     p.add_argument("--potential", type=float, required=True)
     p.add_argument("--out")
+    p.add_argument(
+        "--no-moments", action="store_true", help="Leave out the panel of local magnetic moments under the profile"
+    )
     p.set_defaults(handler=cmd_plot_profile)
 
     p = sub.add_parser("report", help="Write report.md: network, progress and every analysis so far")

@@ -748,6 +748,44 @@ Cartesian
         self.assertEqual(result["waiting_nodes"], [])
         self.assertEqual(result["state_ids"], ["reference"])
 
+    def test_variants_in_other_magnetic_solutions_are_reported(self):
+        second = self.campaign / "states" / "reference_v2"
+        shutil.copytree(self.state, second)
+        meta = json.loads((second / "state.json").read_text())
+        meta["id"] = "reference_v2"
+        (second / "state.json").write_text(json.dumps(meta))
+        (second / "02_final" / "OUTCAR").write_text(
+            outcar_text(ionic=True)
+            .replace("energy(sigma->0) = -10.00000000", "energy(sigma->0) = -9.95000000")
+            .replace("1 0.0 0.1 0.0 0.1", "1 0.0 -0.9 0.0 -0.9")
+        )
+        self._network_with_twin()
+        network = json.loads((self.campaign / "network.json").read_text())
+        network["nodes"][0]["state_ids"].append("reference_v2")
+        (self.campaign / "network.json").write_text(json.dumps(network))
+        result = select_for_thermo(self.campaign)
+        self.assertEqual(result["nodes_with_several_magnetic_solutions"], ["reference"])
+        solutions = next(n for n in result["nodes"] if n["node_id"] == "reference")["magnetic_solutions"]
+        self.assertEqual([s["state_ids"] for s in solutions], [["reference"], ["reference_v2"]])
+        self.assertAlmostEqual(solutions[1]["relative_eV"], 0.05)
+        self.assertEqual(
+            solutions[1]["differs_from_lowest"][0],
+            {"atom_id": "a0001", "element": "O", "lowest_muB": 0.1, "this_muB": -0.9},
+        )
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(["select", str(self.campaign)]), 0)
+        self.assertIn("different magnetic solutions", out.getvalue())
+        # thermo compares the same variants from the collected tables
+        result = analyze_thermodynamics(self.campaign, self.campaign / "references.json", include_vibrations=False)
+        nodes = {n["node_id"]: n for n in result["nodes"]}
+        self.assertEqual(nodes["reference"]["magnetic_solutions"], 2)
+        self.assertEqual(result["magnetism"]["nodes_with_several_solutions"], ["reference"])
+        # the twin has no recorded translation, so the toy cycle is checked only where it can be
+        self.assertEqual(result["magnetism"]["cycles"]["toy"]["status"], "incomplete")
+        self.assertIn("translation", result["magnetism"]["cycles"]["toy"]["missing"][0]["reason"])
+        rows = (self.campaign / "analysis" / "cycles.csv").read_text().splitlines()
+        self.assertIn("spin_check", rows[0])
+
     def test_select_for_thermo_can_be_restricted_to_cycles(self):
         nodes = {"reference": "reference", "a": "a_v1", "b": "b_v1", "c": "c_v1"}
         for node_id, sid in nodes.items():

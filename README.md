@@ -70,9 +70,9 @@ before generating. Every value `init` detected is marked `[auto]` in `project.ya
 | 3 | `mechanet plan` / `cycles` / `show-cycle` | Counts nodes, cycles, starts, DFT runs and displacement single points (node-hours once pilot timings exist); writes the method card. |
 | 4 | `mechanet submit --pilot --execute` | The reference, one start per adsorbate type and the most crowded start: checks the protocol and gives timings. |
 | 5 | `mechanet submit --execute` | All states through `02_final` (repeat the command to continue jobs stopped at the walltime; `--max-active N --refill` keeps N jobs running). |
-| 6 | `mechanet collect` then `mechanet select` | Parses results (convergence, forces, moments, topology), assigns relaxed structures to the intermediates they became, and selects the variants that continue to frequencies. |
+| 6 | `mechanet collect` then `mechanet select` | Parses results (convergence, forces, moments, topology), assigns relaxed structures to the intermediates they became, and selects the variants that continue to frequencies; variants of one intermediate that converged to different magnetic solutions are reported. |
 | 7 | `mechanet submit --selected --through freq --execute` | `04_static` and the partial Hessian by restartable finite displacements. |
-| 8 | `mechanet thermo` | Free energies of every intermediate, step and cycle at the analysis potentials; Gmax(U), limiting potential, overpotential, resting states. `--electronic-only` gives a screening estimate before frequencies exist. |
+| 8 | `mechanet thermo` | Free energies of every intermediate, step and cycle at the analysis potentials; Gmax(U), limiting potential, overpotential, resting states; the local moments of the active-site atoms along each cycle, with a spin check. `--electronic-only` gives a screening estimate before frequencies exist. `mechanet plot-profile CYCLE --potential U` draws the profile with the moments underneath. |
 | 9 | `mechanet pathways --rank` | Every balanced cycle of the network, curated or not, ranked per reaction with the project's references; the lowest limiting potential over all cycles, of any length, whose steps have energies. |
 | 10 | `mechanet pourbaix --plot` | The most stable computed termination over pH and potential. |
 | 11 | `mechanet report` | `report.md` with the network, progress and every analysis so far. |
@@ -168,6 +168,27 @@ also discover new *intermediates*, use the `enumerated` family at generation tim
 On RuO2(110) with the core families, every one of the 100 curated cycles is recovered and
 6,198 further balanced cycles of up to six steps are found (3,099 symmetry-unique).
 
+## Magnetic moments along a cycle
+
+`thermo` follows the projected local moments (VASP with LORBIT) of the structures the energies
+come from, atom by atom through each cycle:
+
+* the moments of the active-site atoms (the site metal, the bound atom, the outer atom of
+  *OOH) and of the atoms whose moment changes most, per intermediate:
+  `analysis/cycle_moments.csv`, `mechanet show-cycle ID`, the report, and a panel under the
+  free-energy profile of `mechanet plot-profile` (leave it out with `--no-moments`);
+* a **spin check**: between consecutive intermediates, a moment that changes sign, or a
+  moment farther than `analysis.moment_site_radius_A` (3.6 Å) from the site metals that
+  changes by more than `analysis.moment_change_muB` (0.5 μB), is flagged. A flagged step
+  compares intermediates whose spectator atoms (subsurface, bulk, a remote metal) are in
+  different magnetic solutions, and its ΔG contains that difference. `cycles.csv` and the
+  pathway ranking carry the result per cycle;
+* variants of one intermediate that converged to different magnetic solutions, with their
+  energy gap (`select` and `thermo`).
+
+Moments are not oxidation states, and a consistent cycle does not prove the magnetic ground
+state.
+
 ## Surface Pourbaix diagrams
 
 ```bash
@@ -213,8 +234,10 @@ mechanet computes thermodynamics under the computational hydrogen electrode: fre
 of proposed intermediates and the descriptors derived from them. It does not compute
 activation barriers, rates, constant-potential or explicit-field energetics, and a
 favourable descriptor does not establish a mechanism. Every edge stays *proposed* until
-someone investigates the path. Placements, spin states and solvent configurations are
-sampled, not exhausted; partial Hessians neglect vibrations of the frozen region. The
+someone investigates the path. Placements and explicit-water arrangements are sampled, not
+exhausted; magnetic states are not sampled: every structure starts from the same MAGMOM, and
+mechanet only reports when intermediates or variants ended in different magnetic solutions.
+Partial Hessians neglect vibrations of the frozen region. The
 execution layer drives VASP; other codes would need a calculator plugin (not yet available).
 [docs/science.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/science.md) states what each number means.
 

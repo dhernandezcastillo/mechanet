@@ -5,7 +5,7 @@ type: software
 authors:
   - family-names: "Hernández Castillo"
     given-names: "David"
-version: 0.1.0
+version: 0.1.1
 repository-code: "https://github.com/dhernandezcastillo/mechanet"
 date-released: 2026-10-29
 license: MIT

@@ -310,16 +310,39 @@ M–Cl analogous). When it changed, the relaxed structure is classified site by 
 adsorbate signatures of the registry and assigned to the node with that occupancy, where it
 competes with that node's own variants. Ambiguous structures (a proton in transit, a
 detached O–O fragment, an occupancy outside the network) are not assigned automatically and
-are listed for review. Local magnetic moments are reported per atom; they are not converted
-to oxidation states, and a moment change is a diagnostic, not proof of an electronic
-transition. Large electronic entropies (|EENTRO| above `analysis.max_eentro_eV`) are
-flagged, since E(σ→0) still depends on SIGMA for partially occupied states.
+are listed for review. Large electronic entropies (|EENTRO| above `analysis.max_eentro_eV`)
+are flagged, since E(σ→0) still depends on SIGMA for partially occupied states.
+
+Local magnetic moments (the projected moments VASP prints with LORBIT) are reported per atom
+and stage, and used in three diagnostics; none of them changes an energy:
+
+* within one state, the moments of 04_static and of every displacement are compared with the
+  central structure's (`frequency.max_moment_change_muB`): another electronic solution there
+  excludes the free energy;
+* along a cycle, the moments of the structures whose energies the analysis uses (02_final
+  or 04_static, the energy's own stage) are matched atom by atom through their stable IDs
+  (a symmetry image's atoms are relabelled through its lattice translation). The active-site
+  atoms are followed per intermediate. Between consecutive intermediates, a moment of at
+  least `analysis.moment_change_muB` (0.5 μB) that changes sign anywhere, or a moment that
+  changes by more than that farther than `analysis.moment_site_radius_A` (3.6 Å) from every
+  metal of the cycle's sites, flags the step: its two intermediates have their spectator
+  atoms in different magnetic solutions, or the oxidation went away from the site, and the
+  step's free energy contains that difference;
+* among the accepted 02_final variants of one intermediate, those whose moments differ in
+  the same way are reported as separate magnetic solutions with their energy gap, since the
+  gap is then partly a spin-state gap.
+
+Every structure starts from the same MAGMOM (`vasp.magmom_by_element`, `magmom_by_id`);
+magnetic states are not enumerated. Moments are not converted to oxidation states, a moment
+change is a diagnostic rather than proof of an electronic transition, and a consistent cycle
+does not prove the magnetic ground state.
 
 ## 9. What is not included
 
 * Activation barriers, constant-potential or explicit-field energetics, microkinetics.
-* A complete ensemble of solvent configurations, proton wires, spin states or
-  reconstructions; placements and spin states are sampled, not exhausted.
+* A complete ensemble of solvent configurations, proton wires or reconstructions;
+  placements and explicit-water arrangements are sampled, not exhausted.
+* Spin-state or magnetic-order enumeration: one starting MAGMOM per structure (§8).
 * Bulk phase changes, dissolution, intercalant exchange, alkaline hypochlorite chemistry.
 * Lattice or buried oxygen unless its atom is added as a site.
 

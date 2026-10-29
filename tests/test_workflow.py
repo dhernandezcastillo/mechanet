@@ -134,6 +134,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(list(thermo["network_resting_states"]["0.0"]["transient_nodes"]), [nodes[(("m0038", "OO"),)]])
         figure = cli("plot-profile", "aem_m0038_AEM", self.campaign, "--potential", "1.23")
         self.assertTrue(Path(figure["figure"]).is_file())
+        # Moments along the cycle on an open metal site: the Ru, the bound O (labelled by the site) and
+        # the outer O of *OOH; the synthetic VASP keeps every moment fixed, so the spin check passes.
+        spin = thermo["magnetism"]["cycles"]["aem_m0038_AEM"]
+        self.assertEqual(spin["status"], "consistent")
+        roles = {a["atom_id"]: a["role"] for a in spin["atoms"]}
+        self.assertEqual(roles["a0038"], "site metal")
+        self.assertEqual(roles["m0038"], "bound")
+        self.assertEqual(roles["d_m0038"], "outer")
+        self.assertTrue(figure["moments_panel"])
 
     def test_configured_potentials_keep_their_meaning_on_another_scale(self):
         cli("thermo", self.campaign, "--electronic-only", "--scale", "SHE", "--pH", "14")
