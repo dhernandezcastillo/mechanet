@@ -1,0 +1,91 @@
+# NiFe layered double hydroxide edge, OER. `mechanet generate` builds 189 intermediates and
+# 128 starting structures; tests/test_regression_ldh.py checks them against the frozen build
+# in reference/campaign.tar.xz.
+mechanet: 1
+name: NiFe_LDH_edge
+reaction: oer
+
+slab:
+  file: slab/CONTCAR_seed
+  frequency_mask: slab/CONTCAR_frequency_mask   # partial-Hessian region (O61-O68, H85-H90)
+  vacuum_axis: 0                  # the edge faces the vacuum along a (skewed cell)
+  surface_sign: 1
+  fixed: {source: file}           # selective dynamics of CONTCAR_seed
+  roles: {}
+  spectator_molecules:             # the eight interlayer waters stay as they are
+    - [a0037, a0069, a0070]
+    - [a0038, a0071, a0072]
+    - [a0039, a0073, a0074]
+    - [a0040, a0075, a0076]
+    - [a0057, a0077, a0078]
+    - [a0058, a0079, a0080]
+    - [a0059, a0081, a0082]
+    - [a0060, a0083, a0084]
+
+sites:
+  - {id: a0061, kind: bridge, native: OH}
+  - {id: a0062, kind: bridge, native: O}
+  - {id: a0063, kind: bridge, native: OH}
+  - {id: a0064, kind: bridge, native: O}
+  - {id: a0065, kind: terminal, native: OH}
+  - {id: a0066, kind: terminal, native: OH}
+  - {id: a0067, kind: terminal, native: OH}
+  - {id: a0068, kind: terminal, native: OH}
+
+scope:
+  families: [aem, surface_bridge, pair_coupling, terminal_bridge_coupling, bifunctional, hydrated]
+  pair_max_distance_A: 3.3
+
+geometry:
+  symmetry_reduction: true
+  symmetry_tolerance_A: 0.005
+  anchor_min_M_O_X_angle_deg: 100
+  clash_floors_A: {H-H: 1.5, O-H: 1.5, O-O: 2.2, M-H: 1.8, M-O: 1.6, K-any: 2.0, default: 1.35}
+  orientation_search:
+    azimuth_step_deg: 15
+    OH_tilts_deg: [20, 35, 50]
+    OO_tilts_deg: [35, 55, 70]
+    OOH_H_torsion_step_deg: 30
+    H2O_tilts_deg: [0, 25, 50]
+    H2O_roll_step_deg: 15
+    variants_per_site: 2
+    hbond_bonus: 0.15
+    clearance_cap_A: 0.6
+    beam_width: 6
+    diversity_min_displacement_A: 0.75
+
+inputs:
+  incar_loose: inputs/INCAR_loose
+  incar_final: inputs/INCAR_final
+  kpoints: inputs/KPOINTS
+
+vasp:
+  potcar_variants: {Fe: Fe, Ni: Ni, K: K_sv, O: O, H: H}   # from the cluster profile's potcar_dir
+  template_species_order: [Fe, Ni, K, O, H]                 # order of the LDAU arrays in the INCARs
+  magmom_by_element: null          # MAGMOM as in the templates (VASP default)
+  common_overrides: {NCORE: 8}
+  max_attempts: 2
+  max_continuations: 8
+
+frequency:
+  central: final
+  ediff: 1.0e-06
+  potim: 0.015
+  nfree: 2
+  max_static_e0_shift_eV: 0.01
+  max_moment_change_muB: 0.5
+
+thermo_selection: {energy_window_eV: 0.1, max_variants_per_node: 2}
+
+thermodynamics:
+  references: inputs/references.yaml
+  potentials_V: [1.23, 1.43, 1.53, 1.63]
+  pH: 0
+  temperature_K: 298.15
+
+topology:
+  shared_proton_max_OH_A: 1.6
+  hysteresis_A: {O-H: [1.2, 1.35], O-O: [1.75, 1.95], M-O: [2.2, 2.5]}
+
+cluster: null                      # set to your profile (`mechanet cluster import JOB_SCRIPT --name NAME`)
+plugins: []

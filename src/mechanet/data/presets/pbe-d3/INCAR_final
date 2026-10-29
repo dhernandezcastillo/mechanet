@@ -1,0 +1,24 @@
+# mechanet preset "pbe-d3", stage 02_final: the relaxation whose geometry and density the energy
+# and frequency stages continue. Same Hamiltonian as 01_loose, tighter thresholds.
+# Review every tag for your system before production runs (see INCAR_loose for what mechanet sets).
+SYSTEM = {name}
+GGA = PE            # PBE
+ENCUT = 500
+PREC = Accurate
+LASPH = .TRUE.
+ISPIN = 2
+ISMEAR = 0
+SIGMA = 0.05
+ALGO = Normal
+EDIFF = 1E-5
+NELM = 100
+IVDW = 12           # DFT-D3 with Becke-Johnson damping
+LDIPOL = .TRUE.     # dipole correction along the surface normal (lattice vector {idipol})
+IDIPOL = {idipol}
+LREAL = Auto
+ISYM = 0
+IBRION = 2
+ISIF = 2
+NSW = 300
+EDIFFG = -0.03
+LORBIT = 11

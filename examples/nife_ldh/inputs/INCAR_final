@@ -1,0 +1,74 @@
+SYSTEM = NiFeLDH  # Name of the system
+
+# Charge and potential settings
+ICHARG = 2        # Charge density from a previous run, use 2 for non-self-consistent field (NSCF) calculation
+ISTART = 0        # Start job with new wavefunctions (0 for new calculation, 1 for restarting)
+LAECHG = .FALSE. # Write the all-electron charge density to AECCAR0 and AECCAR2
+# LVTOT = .FALSE. # Write the local potential (not typically needed)
+LWAVE = .FALSE.  # Write the WAVECAR file
+LCHARG = .FALSE. # Write the CHGCAR file
+
+# Parallelization settings
+NSIM = 4          # Number of bands that can be optimized simultaneously
+ISYM = 2          # Symmetry-related operations (2 to break symmetry)
+# NPAR = 14       # Parallelization parameter (not for Hybrid functionals)
+NCORE = 16         # Number of cores used for parallelization
+KPAR = 2        # Parallelization over k-points
+
+# Algorithm and precision
+ALGO = Normal     # Algorithm choice (Normal for regular calculations; Damped for HSE)
+PREC = Accurate   # Precision setting (Accurate, Normal, High)
+EDIFF = 1e-5      # Global electronic convergence criterion
+EDIFFG = -0.03    # Force convergence criterion (negative for relaxation)
+NELM = 60        # Maximum number of electronic self-consistency steps
+
+# Smearing settings
+ISMEAR = 0        # Gaussian smearing method (0 for metals with KPOINTS 1x1x1)
+# SIGMA = 0.05    # Smearing width in eV
+
+# Dipole correction
+IDIPOL = 1        # Direction of the dipole correction (1 for surface along x-axis)
+LASPH = .TRUE.    # Non-spherical contributions inside PAW spheres
+# LDIPOL = .TRUE. # Include dipole correction for surfaces (needed for non-symmetric surfaces)
+
+# van der Waals and solvation
+IVDW = 12         # D3BJ dispersion correction
+LSOL = .TRUE.     # Enable VASPsol (implicit solvation model)
+
+# Exchange-correlation functional and cutoff
+GGA = PE          # GGA functional type (PBE for most cases)
+ENCUT = 500       # Plane-wave cutoff energy in eV
+LREAL = Auto      # Real-space projection (Auto to start, change to FALSE if needed)
+ISPIN = 2         # Spin polarization (2 for spin-polarized calculations)
+#MAGMOM = 4*3.2 12*1.2 4*0.0 48*0.0 24*0.0 
+
+# Ionic relaxation settings
+NSW = 500         # Maximum number of ionic steps
+IBRION = 2        # Ionic relaxation algorithm (2 for conjugate gradient)
+ISIF = 2          # Stress tensor calculation 
+
+# Density of states (DOS) related settings
+LORBIT = 11       # Determines which PROCAR and DOSCAR files are written (11 for lm-decomposed DOS)
+# EMIN = -10      # Minimum energy for DOS calculations
+# EMAX = 10       # Maximum energy for DOS calculations
+# NEDOS = 2000    # Number of DOS points
+
+# DFT+U settings
+LDAU = .TRUE.     # Activate DFT+U
+LDAUTYPE = 2      # Type of DFT+U (2 for simplified rotationally invariant approach)
+LDAUL = 2 2 -1 -1 -1  # Angular momentum quantum number (2 for d orbitals, -1 to deactivate)
+LDAUU = 2.56 5.20 0 0 0 # U parameters for Fe and Ni, 0 for others
+LDAUJ = 0 0 0 0 0  # J parameters (usually set to 0)
+LDAUPRINT = 1     # Print additional DFT+U information (1 for basic output)
+
+# Hybrid Functional (commented out as not used)
+# LHFCALC = .TRUE. # Enable hybrid functional calculation
+# AEXX = 0.25      # Fraction of exact exchange
+# AGGAX = 0.75     # Fraction of GGA exchange
+# AGGAC = 1.0
+# NKRED = 2        # Reduction factor for q-point mesh
+# HFSCREEN = 0.2   # Screening parameter for HSE06 (0.3 for HSE03)
+# PRECFOCK = Fast  # Precision setting for Fock matrix evaluation
+# TIME = 0.4       # Damping factor for Damped algorithm
+
+# POTIM = 0        # Ionic step size (useful for molecular dynamics)

@@ -1,0 +1,6 @@
+# The source distribution carries everything needed to run the test suite and the examples.
+include README.md LICENSE CHANGELOG.md CITATION.cff
+graft docs
+graft examples
+graft tests
+global-exclude __pycache__ *.py[cod] .DS_Store

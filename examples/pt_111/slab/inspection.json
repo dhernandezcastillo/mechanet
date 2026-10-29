@@ -1,0 +1,578 @@
+{
+  "active_side": {
+    "confidence": "high: the fixed atoms sit on the other side",
+    "sign": 1
+  },
+  "bond_cutoffs_A": {
+    "Pt-Pt": 3.264
+  },
+  "bulk_like_coordination": {
+    "Pt": {
+      "cn": 12,
+      "from": "interior atoms, metal-metal (no ligands)"
+    }
+  },
+  "exposed_fully_coordinated_metals": [],
+  "file": "/home/claude/scratch/slabs/Pt_111.vasp",
+  "fixed_region": {
+    "n_fixed": 18,
+    "n_movable": 18,
+    "source": "file"
+  },
+  "formal_count": {
+    "average_metal_oxidation_state": 0.0,
+    "bare_O_by_region": {
+      "active_face": 0,
+      "interior": 0,
+      "opposite_face": 0
+    },
+    "note": "Assumes O2-, H+ and alkali/alkaline-earth cations at group valence; a diagnostic, not a spin model."
+  },
+  "formula": {
+    "Pt": 36
+  },
+  "lattice_or_other_ligands": [],
+  "layers": {
+    "composition": [
+      {
+        "Pt": 9
+      },
+      {
+        "Pt": 9
+      },
+      {
+        "Pt": 9
+      },
+      {
+        "Pt": 9
+      }
+    ],
+    "count": 4
+  },
+  "ligand_sites": [],
+  "n_atoms": 36,
+  "open_metal_sites": [
+    {
+      "bulk_like_cn": 12,
+      "cn": 9,
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "element": "Pt",
+      "id": "m0010",
+      "index_1based": 10,
+      "kind": "open_metal",
+      "metal_id": "a0010",
+      "native": "empty",
+      "position_A": [
+        2.771859,
+        0.0,
+        16.539639
+      ]
+    },
+    {
+      "bulk_like_cn": 12,
+      "cn": 9,
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "element": "Pt",
+      "id": "m0011",
+      "index_1based": 11,
+      "kind": "open_metal",
+      "metal_id": "a0011",
+      "native": "empty",
+      "position_A": [
+        5.543717,
+        0.0,
+        16.539639
+      ]
+    },
+    {
+      "bulk_like_cn": 12,
+      "cn": 9,
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "element": "Pt",
+      "id": "m0012",
+      "index_1based": 12,
+      "kind": "open_metal",
+      "metal_id": "a0012",
+      "native": "empty",
+      "position_A": [
+        1.385929,
+        2.4005,
+        16.539639
+      ]
+    },
+    {
+      "bulk_like_cn": 12,
+      "cn": 9,
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "element": "Pt",
+      "id": "m0013",
+      "index_1based": 13,
+      "kind": "open_metal",
+      "metal_id": "a0013",
+      "native": "empty",
+      "position_A": [
+        4.157788,
+        2.4005,
+        16.539639
+      ]
+    },
+    {
+      "bulk_like_cn": 12,
+      "cn": 9,
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "element": "Pt",
+      "id": "m0014",
+      "index_1based": 14,
+      "kind": "open_metal",
+      "metal_id": "a0014",
+      "native": "empty",
+      "position_A": [
+        6.929646,
+        2.4005,
+        16.539639
+      ]
+    },
+    {
+      "bulk_like_cn": 12,
+      "cn": 9,
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "element": "Pt",
+      "id": "m0015",
+      "index_1based": 15,
+      "kind": "open_metal",
+      "metal_id": "a0015",
+      "native": "empty",
+      "position_A": [
+        2.771859,
+        4.801,
+        16.539639
+      ]
+    },
+    {
+      "bulk_like_cn": 12,
+      "cn": 9,
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "element": "Pt",
+      "id": "m0016",
+      "index_1based": 16,
+      "kind": "open_metal",
+      "metal_id": "a0016",
+      "native": "empty",
+      "position_A": [
+        0.0,
+        0.0,
+        16.539639
+      ]
+    },
+    {
+      "bulk_like_cn": 12,
+      "cn": 9,
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "element": "Pt",
+      "id": "m0035",
+      "index_1based": 35,
+      "kind": "open_metal",
+      "metal_id": "a0035",
+      "native": "empty",
+      "position_A": [
+        5.543717,
+        4.801,
+        16.539639
+      ]
+    },
+    {
+      "bulk_like_cn": 12,
+      "cn": 9,
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "element": "Pt",
+      "id": "m0036",
+      "index_1based": 36,
+      "kind": "open_metal",
+      "metal_id": "a0036",
+      "native": "empty",
+      "position_A": [
+        8.315576,
+        4.801,
+        16.539639
+      ]
+    }
+  ],
+  "proposal": {
+    "frequency_atoms": [],
+    "sites": [
+      {
+        "id": "m0010",
+        "kind": "open_metal",
+        "metal": "a0010",
+        "native": "empty"
+      },
+      {
+        "id": "m0011",
+        "kind": "open_metal",
+        "metal": "a0011",
+        "native": "empty"
+      },
+      {
+        "id": "m0012",
+        "kind": "open_metal",
+        "metal": "a0012",
+        "native": "empty"
+      },
+      {
+        "id": "m0013",
+        "kind": "open_metal",
+        "metal": "a0013",
+        "native": "empty"
+      },
+      {
+        "id": "m0014",
+        "kind": "open_metal",
+        "metal": "a0014",
+        "native": "empty"
+      },
+      {
+        "id": "m0015",
+        "kind": "open_metal",
+        "metal": "a0015",
+        "native": "empty"
+      },
+      {
+        "id": "m0016",
+        "kind": "open_metal",
+        "metal": "a0016",
+        "native": "empty"
+      },
+      {
+        "id": "m0035",
+        "kind": "open_metal",
+        "metal": "a0035",
+        "native": "empty"
+      },
+      {
+        "id": "m0036",
+        "kind": "open_metal",
+        "metal": "a0036",
+        "native": "empty"
+      }
+    ],
+    "spectator_molecules": [],
+    "surface_sign": 1,
+    "vacuum_axis": 2
+  },
+  "roles": {
+    "Pt": "metal"
+  },
+  "schema_version": 1,
+  "shared_protons": [],
+  "site_pairs": [
+    [
+      "m0010",
+      "m0011",
+      2.772
+    ],
+    [
+      "m0010",
+      "m0012",
+      2.772
+    ],
+    [
+      "m0010",
+      "m0013",
+      2.772
+    ],
+    [
+      "m0010",
+      "m0016",
+      2.772
+    ],
+    [
+      "m0010",
+      "m0035",
+      2.772
+    ],
+    [
+      "m0010",
+      "m0036",
+      2.772
+    ],
+    [
+      "m0011",
+      "m0013",
+      2.772
+    ],
+    [
+      "m0011",
+      "m0014",
+      2.772
+    ],
+    [
+      "m0011",
+      "m0015",
+      2.772
+    ],
+    [
+      "m0011",
+      "m0016",
+      2.772
+    ],
+    [
+      "m0011",
+      "m0036",
+      2.772
+    ],
+    [
+      "m0012",
+      "m0013",
+      2.772
+    ],
+    [
+      "m0012",
+      "m0014",
+      2.772
+    ],
+    [
+      "m0012",
+      "m0015",
+      2.772
+    ],
+    [
+      "m0012",
+      "m0016",
+      2.772
+    ],
+    [
+      "m0012",
+      "m0036",
+      2.772
+    ],
+    [
+      "m0013",
+      "m0014",
+      2.772
+    ],
+    [
+      "m0013",
+      "m0015",
+      2.772
+    ],
+    [
+      "m0013",
+      "m0035",
+      2.772
+    ],
+    [
+      "m0014",
+      "m0016",
+      2.772
+    ],
+    [
+      "m0014",
+      "m0035",
+      2.772
+    ],
+    [
+      "m0014",
+      "m0036",
+      2.772
+    ],
+    [
+      "m0015",
+      "m0016",
+      2.772
+    ],
+    [
+      "m0015",
+      "m0035",
+      2.772
+    ],
+    [
+      "m0015",
+      "m0036",
+      2.772
+    ],
+    [
+      "m0016",
+      "m0035",
+      2.772
+    ],
+    [
+      "m0035",
+      "m0036",
+      2.772
+    ]
+  ],
+  "slab_thickness_A": 6.79,
+  "symmetry": {
+    "site_classes": [
+      [
+        "m0010",
+        "m0011",
+        "m0012",
+        "m0013",
+        "m0014",
+        "m0015",
+        "m0016",
+        "m0035",
+        "m0036"
+      ]
+    ],
+    "spglib": {
+      "operations_keeping_surface": 54,
+      "operations_total": 54,
+      "spacegroup": "P3m1",
+      "symprec_A": 0.01
+    },
+    "tolerance_A": 0.005,
+    "translations": [
+      {
+        "fractional": [
+          0.333333,
+          0.0,
+          0.0
+        ],
+        "max_residual_A": 0.0
+      },
+      {
+        "fractional": [
+          -0.333333,
+          0.0,
+          0.0
+        ],
+        "max_residual_A": 0.0
+      },
+      {
+        "fractional": [
+          0.0,
+          0.333333,
+          0.0
+        ],
+        "max_residual_A": 0.0
+      },
+      {
+        "fractional": [
+          0.333333,
+          0.333333,
+          0.0
+        ],
+        "max_residual_A": 0.0
+      },
+      {
+        "fractional": [
+          -0.333333,
+          0.333333,
+          0.0
+        ],
+        "max_residual_A": 0.0
+      },
+      {
+        "fractional": [
+          0.0,
+          -0.333333,
+          0.0
+        ],
+        "max_residual_A": 0.0
+      },
+      {
+        "fractional": [
+          0.333333,
+          -0.333333,
+          0.0
+        ],
+        "max_residual_A": 0.0
+      },
+      {
+        "fractional": [
+          -0.333333,
+          -0.333333,
+          0.0
+        ],
+        "max_residual_A": 0.0
+      }
+    ]
+  },
+  "thresholds": {
+    "OH_max_A": 1.25,
+    "bond_scale": 1.2,
+    "exposure_dz_A": 0.3,
+    "exposure_radius_A": 1.7,
+    "layer_gap_A": 0.6,
+    "molecule_max_atoms": 12,
+    "open_site_O_distance_A": 1.75,
+    "pair_max_A": 3.3,
+    "shared_proton_max_OH_A": 1.6,
+    "symmetry_tolerance_A": 0.005,
+    "vacuum_min_A": 5.0
+  },
+  "unbound_molecules": [],
+  "vacuum": {
+    "all_axes": [
+      {
+        "axis": "a",
+        "gap_center_frac": 0.611,
+        "index": 0,
+        "largest_gap_A": 0.8,
+        "spacing_A": 7.201
+      },
+      {
+        "axis": "b",
+        "gap_center_frac": 0.611,
+        "index": 1,
+        "largest_gap_A": 0.8,
+        "spacing_A": 7.201
+      },
+      {
+        "axis": "c",
+        "gap_center_frac": 0.0,
+        "index": 2,
+        "largest_gap_A": 16.0,
+        "spacing_A": 22.79
+      }
+    ],
+    "axis": "c",
+    "axis_index": 2,
+    "confidence": "high",
+    "gap_A": 16.0,
+    "normal_is_cartesian_z": true,
+    "surface_normal": [
+      0.0,
+      0.0,
+      1.0
+    ]
+  }
+}

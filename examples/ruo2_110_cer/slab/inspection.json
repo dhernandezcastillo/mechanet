@@ -1,0 +1,355 @@
+{
+  "active_side": {
+    "confidence": "high: the fixed atoms sit on the other side",
+    "sign": 1
+  },
+  "bond_cutoffs_A": {
+    "O-O": 1.584,
+    "O-Ru": 2.544,
+    "Ru-Ru": 3.504
+  },
+  "bulk_like_coordination": {
+    "Ru": {
+      "cn": 6,
+      "from": "interior atoms"
+    }
+  },
+  "exposed_fully_coordinated_metals": [],
+  "file": "/home/claude/scratch/slabs/RuO2_110.vasp",
+  "fixed_region": {
+    "n_fixed": 22,
+    "n_movable": 26,
+    "source": "file"
+  },
+  "formal_count": {
+    "average_metal_oxidation_state": 4.0,
+    "bare_O_by_region": {
+      "active_face": 2,
+      "interior": 28,
+      "opposite_face": 2
+    },
+    "note": "Assumes O2-, H+ and alkali/alkaline-earth cations at group valence; a diagnostic, not a spin model."
+  },
+  "formula": {
+    "O": 32,
+    "Ru": 16
+  },
+  "lattice_or_other_ligands": [
+    {
+      "depth_below_top_A": 1.24,
+      "element": "O",
+      "hydrogens": [],
+      "id": "a0001",
+      "index_1based": 1,
+      "kind": "mu3",
+      "metals": [
+        "a0038",
+        "a0039",
+        "a0046"
+      ],
+      "native": "O",
+      "reason": "lattice-like (three or more metals); add it explicitly to make it reactive"
+    },
+    {
+      "depth_below_top_A": 1.24,
+      "element": "O",
+      "hydrogens": [],
+      "id": "a0002",
+      "index_1based": 2,
+      "kind": "mu3",
+      "metals": [
+        "a0038",
+        "a0039",
+        "a0046"
+      ],
+      "native": "O",
+      "reason": "lattice-like (three or more metals); add it explicitly to make it reactive"
+    },
+    {
+      "depth_below_top_A": 1.24,
+      "element": "O",
+      "hydrogens": [],
+      "id": "a0003",
+      "index_1based": 3,
+      "kind": "mu3",
+      "metals": [
+        "a0038",
+        "a0045",
+        "a0046"
+      ],
+      "native": "O",
+      "reason": "lattice-like (three or more metals); add it explicitly to make it reactive"
+    },
+    {
+      "depth_below_top_A": 1.24,
+      "element": "O",
+      "hydrogens": [],
+      "id": "a0020",
+      "index_1based": 20,
+      "kind": "mu3",
+      "metals": [
+        "a0038",
+        "a0045",
+        "a0046"
+      ],
+      "native": "O",
+      "reason": "lattice-like (three or more metals); add it explicitly to make it reactive"
+    }
+  ],
+  "layers": {
+    "composition": [
+      {
+        "O": 2
+      },
+      {
+        "O": 4,
+        "Ru": 4
+      },
+      {
+        "O": 2
+      },
+      {
+        "O": 2
+      },
+      {
+        "O": 4,
+        "Ru": 4
+      },
+      {
+        "O": 2
+      },
+      {
+        "O": 2
+      },
+      {
+        "O": 4,
+        "Ru": 4
+      },
+      {
+        "O": 2
+      },
+      {
+        "O": 2
+      },
+      {
+        "O": 4,
+        "Ru": 4
+      },
+      {
+        "O": 2
+      }
+    ],
+    "count": 12
+  },
+  "ligand_sites": [
+    {
+      "depth_below_top_A": 0.0,
+      "element": "O",
+      "hydrogens": [],
+      "id": "a0016",
+      "index_1based": 16,
+      "kind": "bridge",
+      "metals": [
+        "a0039",
+        "a0045"
+      ],
+      "native": "O"
+    },
+    {
+      "depth_below_top_A": 0.0,
+      "element": "O",
+      "hydrogens": [],
+      "id": "a0019",
+      "index_1based": 19,
+      "kind": "bridge",
+      "metals": [
+        "a0039",
+        "a0045"
+      ],
+      "native": "O"
+    }
+  ],
+  "n_atoms": 48,
+  "open_metal_sites": [
+    {
+      "bulk_like_cn": 6,
+      "cn": 5,
+      "direction": [
+        -0.0,
+        -0.0,
+        1.0
+      ],
+      "element": "Ru",
+      "id": "m0038",
+      "index_1based": 38,
+      "kind": "open_metal",
+      "metal_id": "a0038",
+      "native": "empty",
+      "position_A": [
+        0.0,
+        0.706604,
+        20.828307
+      ]
+    },
+    {
+      "bulk_like_cn": 6,
+      "cn": 5,
+      "direction": [
+        0.0,
+        -0.0,
+        1.0
+      ],
+      "element": "Ru",
+      "id": "m0046",
+      "index_1based": 46,
+      "kind": "open_metal",
+      "metal_id": "a0046",
+      "native": "empty",
+      "position_A": [
+        3.1049,
+        0.706604,
+        20.828307
+      ]
+    }
+  ],
+  "proposal": {
+    "frequency_atoms": [
+      "a0016",
+      "a0019"
+    ],
+    "sites": [
+      {
+        "id": "a0016",
+        "kind": "bridge",
+        "native": "O"
+      },
+      {
+        "id": "a0019",
+        "kind": "bridge",
+        "native": "O"
+      },
+      {
+        "id": "m0038",
+        "kind": "open_metal",
+        "metal": "a0038",
+        "native": "empty"
+      },
+      {
+        "id": "m0046",
+        "kind": "open_metal",
+        "metal": "a0046",
+        "native": "empty"
+      }
+    ],
+    "spectator_molecules": [],
+    "surface_sign": 1,
+    "vacuum_axis": 2
+  },
+  "roles": {
+    "O": "ligand",
+    "Ru": "metal"
+  },
+  "schema_version": 1,
+  "shared_protons": [],
+  "site_pairs": [
+    [
+      "a0016",
+      "a0019",
+      3.105
+    ],
+    [
+      "a0016",
+      "m0046",
+      3.221
+    ],
+    [
+      "a0019",
+      "m0038",
+      3.221
+    ],
+    [
+      "m0038",
+      "m0046",
+      3.105
+    ]
+  ],
+  "slab_thickness_A": 12.016,
+  "symmetry": {
+    "site_classes": [
+      [
+        "a0016",
+        "a0019"
+      ],
+      [
+        "m0038",
+        "m0046"
+      ]
+    ],
+    "spglib": {
+      "operations_keeping_surface": 8,
+      "operations_total": 8,
+      "spacegroup": "Pmm2",
+      "symprec_A": 0.01
+    },
+    "tolerance_A": 0.005,
+    "translations": [
+      {
+        "fractional": [
+          0.5,
+          0.0,
+          0.0
+        ],
+        "max_residual_A": 0.0
+      }
+    ]
+  },
+  "thresholds": {
+    "OH_max_A": 1.25,
+    "bond_scale": 1.2,
+    "exposure_dz_A": 0.3,
+    "exposure_radius_A": 1.7,
+    "layer_gap_A": 0.6,
+    "molecule_max_atoms": 12,
+    "open_site_O_distance_A": 1.75,
+    "pair_max_A": 3.3,
+    "shared_proton_max_OH_A": 1.6,
+    "symmetry_tolerance_A": 0.005,
+    "vacuum_min_A": 5.0
+  },
+  "unbound_molecules": [],
+  "vacuum": {
+    "all_axes": [
+      {
+        "axis": "a",
+        "gap_center_frac": 0.375,
+        "index": 0,
+        "largest_gap_A": 1.552,
+        "spacing_A": 6.21
+      },
+      {
+        "axis": "b",
+        "gap_center_frac": 0.208,
+        "index": 1,
+        "largest_gap_A": 1.238,
+        "spacing_A": 6.359
+      },
+      {
+        "axis": "c",
+        "gap_center_frac": 1.0,
+        "index": 2,
+        "largest_gap_A": 16.602,
+        "spacing_A": 28.617
+      }
+    ],
+    "axis": "c",
+    "axis_index": 2,
+    "confidence": "high",
+    "gap_A": 16.6,
+    "normal_is_cartesian_z": true,
+    "surface_normal": [
+      0.0,
+      0.0,
+      1.0
+    ]
+  }
+}
