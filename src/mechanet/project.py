@@ -20,6 +20,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import re
 import shutil
 import sys
 from importlib import resources
@@ -101,7 +102,7 @@ SECTION_KEYS = {
         "unit_prune_files",
     },
     "refine": {"ediff", "ediffg", "ibrion", "nsw"},
-    "thermo_selection": {"energy_window_eV", "max_variants_per_node"},
+    "thermo_selection": {"energy_window_eV", "max_variants_per_node", "duplicate_energy_eV", "duplicate_max_shift_A"},
     "thermodynamics": {
         "references",
         "potentials_V",
@@ -409,6 +410,11 @@ def _value_problems(data):
     for key, allowed in (("central", CENTRAL_MODES), ("method", FREQUENCY_METHODS)):
         if key in frequency and frequency[key] not in allowed:
             errors.append(_unknown(f"frequency.{key} values", [frequency[key]], allowed))
+    selection = data.get("thermo_selection") if isinstance(data.get("thermo_selection"), dict) else {}
+    for key in ("energy_window_eV", "duplicate_energy_eV", "duplicate_max_shift_A"):
+        value = selection.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0):
+            errors.append(f"thermo_selection.{key} must be a number >= 0, not {value!r}")
     analysis = data.get("analysis") if isinstance(data.get("analysis"), dict) else {}
     for key in ("moment_change_muB", "moment_site_radius_A"):
         value = analysis.get(key)
@@ -490,6 +496,9 @@ def resolve_config(project, registry=None, cluster=True):
     thermo.setdefault("potentials_V", list(reaction.default_potentials))
     if thermo.get("references"):
         thermo["references"] = str(_path(project, thermo["references"]).resolve())
+    library = config["vasp"].get("potcar_dir")
+    if library and not str(library).startswith("~") and not Path(str(library)).is_absolute():
+        config["vasp"]["potcar_dir"] = str(_path(project, library).resolve())  # relative to project.yaml
     if cluster and project.get("cluster"):
         from .clusters import apply_profile, load_profile
 
@@ -655,6 +664,66 @@ class Asker:
         return answer or default
 
 
+def _assignments(text, option):
+    """'Fe=5.3, Ni=6.2' -> [('Fe', '5.3'), ('Ni', '6.2')]."""
+    pairs = []
+    for part in str(text).replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" not in part:
+            raise ValueError(f"{option}: {part!r} is not ELEMENT=VALUE (e.g. {option} Fe=5.3,Ni=6.2)")
+        element, value = (x.strip() for x in part.split("=", 1))
+        if not re.fullmatch(r"[A-Z][a-z]?", element) or not value:
+            raise ValueError(f"{option}: {part!r} is not ELEMENT=VALUE (e.g. {option} Fe=5.3,Ni=6.2)")
+        pairs.append((element, value))
+    if not pairs:
+        raise ValueError(f"{option}: no ELEMENT=VALUE given")
+    elements_given = [e for e, _ in pairs]
+    if len(set(elements_given)) != len(elements_given):
+        raise ValueError(f"{option}: an element is given twice")
+    return pairs
+
+
+def parse_dft_u(text, present=None):
+    """Hubbard U from the command line: 'Fe=5.3,Ni=6.2' (U in eV on d, or f for lanthanides and
+    actinides), 'Fe=5.3:2' (U and L) or 'Fe=5.3:2:0.5' (U, L and J); 'none' for no +U.
+    Returns the vasp.dft_u mapping ({} for none)."""
+    from .vasp import F_ELEMENTS
+
+    if str(text).strip().lower() in ("none", "no", "off", "0", ""):
+        return {}
+    table = {}
+    for element, value in _assignments(text, "--dft-u"):
+        if present is not None and element not in present:
+            raise ValueError(f"--dft-u: {element} is not in the slab ({', '.join(present)})")
+        fields = value.split(":")
+        try:
+            u = float(fields[0])
+            ell = int(fields[1]) if len(fields) > 1 else (3 if element in F_ELEMENTS else 2)
+            j = float(fields[2]) if len(fields) > 2 else 0.0
+        except ValueError as exc:
+            raise ValueError(f"--dft-u: {element}={value} is not U, U:L or U:L:J") from exc
+        if len(fields) > 3 or ell not in (0, 1, 2, 3) or u < 0:
+            raise ValueError(f"--dft-u: {element}={value} is not U >= 0, L in 0-3 (U, U:L or U:L:J)")
+        table[element] = {"L": ell, "U": u, "J": j}
+    return table
+
+
+def parse_potcar_variants(text, allowed=None):
+    """PAW datasets from the command line: 'Fe=Fe_pv,Ni=Ni_pv' -> {'Fe': 'Fe_pv', 'Ni': 'Ni_pv'}."""
+    table = {}
+    for element, value in _assignments(text, "--potcar-variants"):
+        if allowed is not None and element not in allowed:
+            raise ValueError(f"--potcar-variants: {element} is not used here ({', '.join(allowed)})")
+        if not re.fullmatch(r"[A-Z][a-z]?(_[A-Za-z0-9.]+)*", value) or not value.startswith(element):
+            raise ValueError(
+                f"--potcar-variants: {element}={value} is not a PAW dataset name of {element} (e.g. {element}_pv)"
+            )
+        table[element] = value
+    return table
+
+
 def init_project(
     slab,
     directory=None,
@@ -674,11 +743,17 @@ def init_project(
     force=False,
     input_func=input,
     output=print,
+    dft_u=None,
+    potcar_dir=None,
+    potcar_variants=None,
 ):
     """Inspect a slab and write a project directory; returns a summary of what was written and decided.
 
     ``plugins`` are local plugin files: they are loaded before the reaction and scope are
     chosen (so ``reaction`` may name a plugin reaction) and copied into ``<project>/plugins``.
+    ``dft_u`` ('Fe=5.3,Ni=6.2' or 'none'), ``potcar_dir`` (the licensed PAW library) and
+    ``potcar_variants`` ('Fe=Fe_pv,...') are written into project.yaml as given, instead of
+    the Materials Project proposals.
     """
     from .clusters import clusters_dir, import_job_script, list_profiles, load_profile
     from .inspector import inspect_slab, summary
@@ -717,6 +792,10 @@ def init_project(
         raise ValueError(f"Unknown reaction {reaction!r}; available: {sorted(registry.reactions)}{hint}")
     if cluster and not job_script:
         load_profile(cluster)  # an unknown or invalid profile fails now, with the known names
+    if dft_u is not None and not isinstance(dft_u, dict):
+        parse_dft_u(dft_u)  # the syntax now; the elements once the slab is read
+    if potcar_variants is not None and not isinstance(potcar_variants, dict):
+        parse_potcar_variants(potcar_variants)
     name = name or slab.stem.replace(" ", "_")
     if directory:
         root = Path(directory)
@@ -854,13 +933,19 @@ def init_project(
     mp = materials_project_defaults()
     anion = next((a for a in ("F", "O") if a in present), None)
     u_table = {el: mp["dft_u"][anion][el] for el in present if anion and el in mp["dft_u"][anion]}
-    dft_u = None
     own_templates = bool(incar_loose and incar_final)
+    given_u = None
+    if dft_u is not None:
+        given_u = dict(dft_u) if isinstance(dft_u, dict) else parse_dft_u(dft_u, present)
+    dft_u = None
     if own_templates:
         # The user's protocol is kept as written: its LDAU and MAGMOM tags are used unchanged.
         u_table = {}
         origins["vasp.dft_u"] = origins["vasp.magmom_by_element"] = "INCAR templates"
-    if u_table and ask.yes_no(
+    if given_u is not None:
+        dft_u = given_u or None
+        origins["vasp.dft_u"] = "given (--dft-u)" if given_u else "given: none (--dft-u none)"
+    elif u_table and ask.yes_no(
         "vasp.dft_u",
         "Use the Materials Project Hubbard U values for "
         + ", ".join(f"{el} (U = {v['U']} eV)" for el, v in u_table.items())
@@ -873,11 +958,40 @@ def init_project(
     magmom.setdefault("H", 0.0)
     if own_templates:
         magmom = None
+    given_variants = potcar_variants
     potcar_variants = {el: mp["potcar"].get(el, el) for el in dict.fromkeys(present + ["O", "H"])}
     if reaction == "cer":
         potcar_variants.setdefault("Cl", mp["potcar"].get("Cl", "Cl"))
         if magmom is not None:
             magmom.setdefault("Cl", 0.0)
+    if given_variants is not None:
+        chosen = (
+            dict(given_variants)
+            if isinstance(given_variants, dict)
+            else parse_potcar_variants(given_variants, list(potcar_variants))
+        )
+        potcar_variants.update(chosen)
+        rest = [el for el in potcar_variants if el not in chosen]
+        origins["vasp.potcar_variants"] = f"given for {', '.join(chosen)}" + (
+            f"; Materials Project for {', '.join(rest)}" if rest else ""
+        )
+    if potcar_dir is not None:
+        text = str(potcar_dir)
+        library = Path(text).expanduser()
+        if not text.startswith("~") and not library.is_absolute():
+            library = library.resolve()
+            text = str(library)
+        if not library.is_dir():
+            output(
+                f"  [note] --potcar-dir {text} is not a folder on this machine; it is checked when POTCARs "
+                "are assembled"
+            )
+        else:
+            missing = [v for v in potcar_variants.values() if not (library / v / "POTCAR").is_file()]
+            if missing:
+                output(f"  [warn] no POTCAR in {text} for {', '.join(missing)}; check --potcar-variants")
+        potcar_dir = text
+        origins["vasp.potcar_dir"] = "given (--potcar-dir)"
 
     # Cluster profile.
     cluster_name, cluster_note = None, None
@@ -1012,6 +1126,7 @@ def init_project(
         "dft_u": dft_u,
         "magmom": magmom,
         "potcar_variants": potcar_variants,
+        "potcar_dir": potcar_dir,
         "potentials": list(registry.reaction(reaction).default_potentials),
         "scale": registry.reaction(reaction).potential_scale,
         "cluster": cluster_name,
@@ -1174,10 +1289,29 @@ def render_project(d):
         )
     lines += ["", c("sites:", f"{tag('sites')} reactive sites; delete an entry to exclude it")]
     lines += [f"  - {_flow(s)}" for s in d["sites"]] or ["  []"]
+    given_u = str(o.get("vasp.dft_u", "")).startswith("given")
     dft_u = (
-        c(f"  dft_u: {_flow(d['dft_u'])}", f"{tag('vasp.dft_u')} Materials Project U (LDAUTYPE 2)")
+        c(
+            f"  dft_u: {_flow(d['dft_u'])}",
+            f"{tag('vasp.dft_u')} " + ("Hubbard U (LDAUTYPE 2)" if given_u else "Materials Project U (LDAUTYPE 2)"),
+        )
         if d["dft_u"]
-        else c("  dft_u: null", "LDAU tags of the INCAR templates, or e.g. {Ni: {L: 2, U: 6.2, J: 0}}")
+        else c(
+            "  dft_u: null",
+            f"{tag('vasp.dft_u')} no +U"
+            if given_u
+            else "LDAU tags of the INCAR templates, or e.g. {Ni: {L: 2, U: 6.2, J: 0}}",
+        )
+    )
+    potcar_dir = (
+        c(f"  potcar_dir: {_flow(d['potcar_dir'])}", f"{tag('vasp.potcar_dir')} PAW library: <dir>/<dataset>/POTCAR")
+        if d.get("potcar_dir")
+        else c("  potcar_dir: null", "PAW library: <dir>/<dataset>/POTCAR (null: the cluster profile's)")
+    )
+    variants_note = (
+        tag("vasp.potcar_variants") + " PAW datasets"
+        if "vasp.potcar_variants" in o
+        else "[auto] Materials Project PAW choices"
     )
     cluster = (
         c(f"cluster: {d['cluster']}", f"{tag('cluster', 'given')} profile name (`mechanet cluster list`)")
@@ -1196,7 +1330,8 @@ def render_project(d):
         c("  kpoints: inputs/KPOINTS", f"[{o.get('inputs.kpoints', 'given')}]"),
         "",
         "vasp:",
-        c(f"  potcar_variants: {_flow(d['potcar_variants'])}", "[auto] Materials Project PAW choices"),
+        c(f"  potcar_variants: {_flow(d['potcar_variants'])}", variants_note),
+        potcar_dir,
         (
             c(f"  magmom_by_element: {_flow(d['magmom'])}", "[auto] starting moments (muB)")
             if d["magmom"] is not None

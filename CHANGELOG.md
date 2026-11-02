@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.1.2 (2026-11-02)
+
+Seeing what a campaign computes, and fewer manual steps between runs.
+
+- **`mechanet status`**: every state in one group (finished, running, queued, to continue,
+  needs you, not started), measured against the stage its last submission or the refill asked
+  for (`--through` sets one). It reads the run records, the ledger and one `squeue` listing
+  (`--no-slurm` skips it) and changes nothing. The summary counts the groups, the
+  intermediates and cycles that are complete per family, what needs you and the running jobs;
+  `--cycles` shows every cycle with one mark per intermediate; `--list GROUP` prints state IDs
+  for `--states @FILE`. It writes `status.html`, a self-contained page with a grid of sites ×
+  mechanisms (one square per structure) and every cycle's steps and structures.
+- **Readable notation** for intermediates, steps and cycles (`mechanet.notation`):
+  `*OOH₆₅ · μ-O₆₁` (terminal and bridging sites, site numbers as subscripts, `μ-□` for a
+  bridge vacancy), steps as equations (`*O₆₅ + H₂O → *OOH₆₅ + H⁺ + e⁻`) marked electrochemical
+  or chemical, cycle titles (Adsorbate evolution (AEM), Bifunctional mechanism II (BF-II), ...)
+  with their evidence and literature. `show-cycle` prints the steps as equations in the
+  turnover order (the step that releases the product last); `report` has a table of the
+  cycles with their intermediates and names the best cycles and resting states; the x labels
+  and title of `plot-profile` use it. Terminals that cannot show it get an ASCII form.
+- **`select` merges duplicate variants**: a variant that relaxed into the same minimum as a
+  lower one (energies within `thermo_selection.duplicate_energy_eV`, 5 meV; every atom within
+  `thermo_selection.duplicate_max_shift_A`, 0.1 Å, of a partner of its element, labels
+  ignored; local moments within `analysis.moment_change_muB`) is not selected for
+  frequencies; `thermo_selection.json` lists them (`duplicates_merged`, `nodes[].duplicates`).
+  `--keep-duplicates` keeps them.
+- **`select --families aem,...`** restricts the selection to the nodes of those families'
+  cycles (as `--cycles` does for listed cycles).
+- **`init --dft-u`, `--potcar-dir`, `--potcar-variants`**: your U values
+  (`Fe=5.3,Ni=6.2`, `U:L:J`, or `none`), PAW library and PAW datasets go into project.yaml at
+  `init`, marked as given; the Materials Project proposals fill the rest. A relative
+  `vasp.potcar_dir` is read relative to project.yaml.
+- **Refill after the hard time limit**: a job that SLURM kills at its time limit (a stage that
+  overran the stop signal) is continued by the refill like one that stopped cleanly. The
+  runner records the seconds left in the allocation when SIGTERM came; at most 120 s (or past
+  the end), with the job not requeued, is the time limit, otherwise SLURM's `TIMEOUT` state or
+  `TimeLimit` reason decides. Cancelled and preempted jobs still get no replacement.
+- **Documentation site** for Read the Docs (`.readthedocs.yaml`, Sphinx with MyST in
+  `docs/`): the README as the landing page, the guides, a reference of every command
+  generated from the CLI at each build, and the changelog. CI builds it with warnings as
+  errors; `pip install "mechanet[docs]"` installs the tools.
+- `report.md` is written as UTF-8 on every platform.
+- Documentation: on metal surfaces adsorbates are placed on top sites only; bridge and hollow
+  sites are not generated yet.
+
 ## 0.1.1 (2026-10-29)
 
 Local magnetic moments become part of the analysis.

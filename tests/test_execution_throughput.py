@@ -409,6 +409,32 @@ class RefillTests(_RefillBase):
         self.assertEqual(self.run_job(self.campaign / "states" / "s_b", "8888", through="loose")["status"], "complete")
         self.assertEqual((self.sbatch_count(), len(read_json(self.campaign / "refill.json")["events"])), (1, events))
 
+    def test_a_job_killed_at_its_time_limit_is_continued(self):
+        self.clone("s_b")
+        submit(self.campaign, through="loose", execute=True, max_active=1, refill=True)
+        self.assertEqual(self.sbatch_count(), 1)
+        job = read_json(self.campaign / "submissions.json")["entries"][0]["job_id"]
+        record = {
+            "status": "incomplete_time_limit",
+            "vasp_launches": 1,
+            "slurm_job_id": job,
+            # the runner records how far the allocation end was when SIGTERM came
+            "signals": [
+                {"signal": "SIGTERM", "at_utc": "2026-10-26T00:00:00+00:00", "seconds_to_allocation_end": -8.0}
+            ],
+        }
+        os.environ["SLURM_JOB_ID"] = job
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                # SIGTERM was received (stop_check is true), yet the time limit's job is replaced
+                event = refill_after_run(self.campaign, self.state, record, stop_check=lambda: True)
+        finally:
+            del os.environ["SLURM_JOB_ID"]
+        self.assertEqual(event["decision"], "refill")
+        self.assertIn("hard time limit", event["why"])
+        self.assertEqual(self.sbatch_count(), 2)
+        self.assertTrue(refill_status(self.campaign)["enabled"])
+
     def test_a_cluster_that_refuses_sbatch_inside_jobs_pauses_the_refill(self):
         self.clone("s_b")
         out = submit(self.campaign, through="loose", execute=True, max_active=1, refill=True)
@@ -489,6 +515,44 @@ class RefillDecisionTests(unittest.TestCase):
         for record, failure, expected in cases:
             with self.subTest(record=record, failure=failure):
                 self.assertEqual(_refill_decision(record, failure)[0], expected)
+
+    def test_the_runner_records_how_far_the_allocation_end_was(self):
+        from mechanet.runner import StopController
+
+        stopper = StopController({}, environ={"SLURM_JOB_END_TIME": str(time.time() + 30.0)})
+        stopper._handle(signal.SIGTERM, None)
+        self.assertAlmostEqual(stopper.events[0]["seconds_to_allocation_end"], 30.0, delta=5.0)
+        self.assertNotIn("seconds_to_allocation_end", StopController({}, environ={}).events)  # outside SLURM
+
+    def test_sigterm_at_the_time_limit_continues_and_scancel_does_not(self):
+        def ended(seconds, launches=2, job=None):
+            event = {"signal": "SIGTERM"}
+            if seconds is not None:
+                event["seconds_to_allocation_end"] = seconds
+            return {
+                "status": "incomplete_time_limit",
+                "vasp_launches": launches,
+                "slurm_job_id": job,
+                "signals": [event],
+            }
+
+        verdict = {}
+        self.assertEqual(_refill_decision(ended(-20.0), None, verdict)[0], "refill")  # at the end
+        self.assertEqual(verdict, {"time_limit": True})
+        self.assertEqual(_refill_decision(ended(90.0), None)[0], "refill")  # within the margin
+        self.assertEqual(_refill_decision(ended(1500.0), None)[0], "ignore")  # scancel, 25 min early
+        self.assertEqual(_refill_decision(ended(-20.0, launches=0), None)[0], "disable")  # VASP never started
+        with patch("mechanet.slurm._job_state_and_reason", return_value=("PENDING", "BeginTime")):
+            self.assertEqual(_refill_decision(ended(-20.0, job="7"), None)[0], "ignore")  # preempted and requeued
+        # no record of the time left: SLURM's state or reason decides
+        for answer, expected in (
+            (("COMPLETING", "TimeLimit"), "refill"),
+            (("TIMEOUT", "None"), "refill"),
+            (("COMPLETING", "None"), "ignore"),
+            ((None, None), "ignore"),
+        ):
+            with self.subTest(answer=answer), patch("mechanet.slurm._job_state_and_reason", return_value=answer):
+                self.assertEqual(_refill_decision(ended(None, job="7"), None)[0], expected)
 
 
 class SlurmViewTests(_Base):

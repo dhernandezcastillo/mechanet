@@ -125,7 +125,8 @@ and `exec` the runner, so the runner receives the signal:
 * during a relaxation it writes `STOPCAR` (`LSTOP = .TRUE.`): VASP finishes the current
   ionic step, writes CONTCAR and stops; the attempt is recorded as interrupted;
 * a single point or displacement unit in progress is allowed to finish;
-* SIGTERM (hard time limit or `scancel`) is recorded immediately as an interruption;
+* SIGTERM (hard time limit or `scancel`) is recorded immediately as an interruption, with the
+  seconds left in the allocation at that moment (`seconds_to_allocation_end` in `run.json`);
 * the run then ends with `run.json` status `incomplete_time_limit` and exit code 0.
 
 Before every stage and every displacement unit the runner compares the remaining
@@ -280,6 +281,13 @@ mechanet refill --clear            # remove the refill
 mechanet refill --tick             # submit up to the cap now, with the refill's rules
 ```
 
+A job that ends with SIGTERM gets no replacement when it was cancelled or preempted (so that
+`scancel` on all your jobs does not set off new ones), but it does when SLURM killed it at its
+hard time limit, which happens when a stage overran the stop signal: the SIGTERM came at most
+120 s before the allocation end (or after it, with `OverTimeLimit`), and SLURM does not show the
+job requeued. When the runner could not read the allocation end, SLURM's job state `TIMEOUT` or
+reason `TimeLimit` decides. Such a job continues like one that stopped cleanly.
+
 Each job's decision is logged in `refill.json` and as one line `mechanet refill: ...` in the
 job's `slurm-<jobid>.err`. The refill pauses itself when a problem would repeat in every job:
 a launcher error, a walltime too short for any stage, `sbatch` unavailable inside jobs, three
@@ -301,6 +309,45 @@ while true; do mechanet refill --tick; sleep 1800; done
 twice the number of frequency-active Cartesian coordinates per state. `mechanet plan`
 reports it, and node-hours once the pilot has run. To reduce it before queuing:
 
+* `mechanet select` merges variants that relaxed into the same minimum (energies within
+  `thermo_selection.duplicate_energy_eV`, 5 meV; every atom within
+  `thermo_selection.duplicate_max_shift_A`, 0.1 Å, of a partner of its element, labels
+  ignored; local moments within `analysis.moment_change_muB`), keeping the lowest;
+  `--keep-duplicates` keeps them all;
 * `mechanet select --max-per-node 1` keeps only the lowest 02_final variant of each node;
-* `mechanet select --cycles @cycles.txt` restricts the selection to the nodes of the listed
-  cycles plus the reference surface.
+* `mechanet select --cycles @cycles.txt` or `--families aem,bifunctional` restricts the
+  selection to the nodes of those cycles plus the reference surface.
+
+## 10. Following a campaign: `mechanet status`
+
+`mechanet status` reads every state's `attempt.json` and `run.json`, `submissions.json`, and
+one `squeue --user` listing (with `%Z`, the job's working directory: a job running in a state
+folder counts even when the ledger does not know it, as for jobs submitted by hand). It
+changes nothing in the campaign except writing `status.html`.
+
+Each state is measured against a target stage: `--through STAGE`, else the target of the
+refill, else the `through` of its last submission, else 02_final. Its group:
+
+| group | meaning |
+|---|---|
+| finished | the target stage is complete |
+| running | a SLURM job for it is running (without SLURM: an attempt recorded as running) |
+| queued | a job for it is pending (without SLURM: a submission in the ledger, nothing run yet) |
+| to continue | it ran part of the way (interrupted, stopped at the time limit, or earlier stages done); the next submit continues it |
+| needs you | the next step waits for you: a failed attempt (`--retry`), a used-up budget, the static force gate, or an sbatch whose outcome is unknown |
+| not started | nothing has run |
+
+`--list GROUP` prints the state IDs of one group, one per line (`active` = running and
+queued, `todo` = to continue and not started), for `--states @FILE`:
+
+```bash
+mechanet status --list todo > todo.txt
+mechanet submit --states @todo.txt --execute
+```
+
+The text summary counts the groups, the intermediates with a finished structure and the
+cycles whose intermediates are all finished (per family), and lists what needs you and the
+running jobs; `--cycles` adds one line per symmetry-unique cycle with one mark per
+intermediate (the best status among its structures). `status.html` shows the same as a grid of
+sites × mechanisms with one square per structure; selecting a cell opens the cycle's steps,
+written as equations, and every structure's status.

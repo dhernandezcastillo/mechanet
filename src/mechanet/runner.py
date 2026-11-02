@@ -541,6 +541,10 @@ class StopController:
         name = signal.Signals(signum).name
         self.requested = self.requested or name
         event = {"signal": name, "at_utc": now()}
+        remaining = self.remaining()
+        if remaining is not None:
+            # A SIGTERM at (or after) the allocation end is the hard time limit; earlier, scancel or preemption.
+            event["seconds_to_allocation_end"] = round(remaining, 1)
         active = self.active
         if active is not None:
             event["folder"] = str(active["folder"])
@@ -1590,7 +1594,8 @@ def run_state(state_dir, through="final", execute=False, retry=False):
     finally:
         # Top the campaign up to its job cap (docs/execution.md, "Job cap and refill"). The stop handlers stay
         # installed meanwhile, so a late SIGUSR1/SIGTERM cannot kill a finished run, and a
-        # SIGTERM stops further submissions. Nothing here may replace the run's own result.
+        # SIGTERM stops further submissions (except the time limit's: that job is continued).
+        # Nothing here may replace the run's own result.
         with contextlib.suppress(Exception):
             if (campaign / "refill.json").is_file():
                 from .slurm import refill_after_run

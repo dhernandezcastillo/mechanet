@@ -29,6 +29,7 @@ from . import __version__
 
 THROUGH_CHOICES = ["loose", "final", "refine", "static", "freq"]
 THROUGH_HELP = "Last stage to run (default: final); 'refine' exists only with frequency.central = refine"
+STATUS_LISTS = ["finished", "running", "queued", "active", "continue", "attention", "not-started", "todo"]
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +261,9 @@ def cmd_init(args, registry):
         plugins=args.plugin,
         interactive=False if args.yes else None,
         force=args.force,
+        dft_u=args.dft_u,
+        potcar_dir=args.potcar_dir,
+        potcar_variants=args.potcar_variants,
         output=(lambda *a: print(*a, file=sys.stderr)) if getattr(args, "output_json", False) else print,
     )
     text = [
@@ -357,48 +361,89 @@ def cmd_list(args, registry):
 
 def cmd_show_cycle(args, registry):
     from .fileio import read_json
+    from .notation import Notation, encodable, plain
 
     campaign = _campaign(args)
     network = read_json(campaign / "network.json")
     edges = {e["id"]: e for e in network["edges"]}
     cycle = next((c for c in network["cycles"] if c["id"] == args.cycle_id), None)
+    extra = []
     if cycle is None and (campaign / "pathways" / "pathways.json").is_file():
         report = read_json(campaign / "pathways" / "pathways.json")
         cycle = next((c for c in report["cycles"] if c["id"] == args.cycle_id), None)
-        edges.update({e["id"]: e for e in report.get("new_edges", [])})
+        extra = report.get("new_edges", [])
+        edges.update({e["id"]: e for e in extra})
     if cycle is None:
         raise ValueError(f"Unknown cycle {args.cycle_id} (not in network.json or pathways/pathways.json)")
     steps = [edges[x] for x in cycle["edge_ids"]]
-    lines = [
-        f"{cycle['id']}  ({cycle.get('family') or ', '.join(cycle.get('families', []))}; "
-        f"{cycle.get('reaction', network.get('reaction', 'oer'))})"
-    ]
-    for k, step in enumerate(steps, start=1):
-        from .reactions import clean
+    try:
+        from .plugins import campaign_registry
 
-        vector = clean(step.get("reservoirs") or {"H2O": -step["water"], "H+": step["pairs"], "O2": step["oxygen"]})
-        lines.append(
-            f"  {k}. {step['from']} -> {step['to']}\n       {_vector_text(vector)}"
-            + (f"   [{'; '.join(step.get('notes', [])[:1])}]" if step.get("notes") else "")
-        )
-    if cycle.get("evidence_scope"):
-        lines.append(f"  evidence: {cycle['evidence_scope']}")
-    out = {"cycle": cycle, "steps": steps}
+        names = campaign_registry(campaign)
+    except Exception:  # noqa: BLE001 - titles fall back to the family names
+        names = None
+    notation = Notation.from_campaign(campaign, registry=names, network=network)
+    notation.edges.update({e["id"]: e for e in extra})
+    view = notation.cycle(cycle)
+    ascii = not encodable(sys.stdout, "μ₆→⁺")
+    text = plain if ascii else str
+    family = cycle.get("family") or ", ".join(cycle.get("families", []))
+    lines = [
+        f"{cycle['id']}: {text(view['title'])}"
+        + (f" ({text(view['variant'])})" if view.get("variant") else "")
+        + f"  [{family}; {cycle.get('reaction', network.get('reaction', 'oer'))}]"
+    ]
+    if view["sources"]:
+        lines.append(text(f"  {view['sources']}"))
+    if view["site_legend"]:
+        lines.append(text("  sites: " + "; ".join(view["site_legend"])))
+    equations = notation.cycle_lines(view, ascii=ascii, steps_only=True)
+    by_id = {e["id"]: e for e in steps}
+    for line, step in zip(equations, view["steps"]):
+        edge = by_id.get(step["edge_id"]) or edges[step["edge_id"]]
+        note = (edge.get("notes") or [None])[0]
+        lines.append(line)
+        lines.append(f"       {step['from']} -> {step['to']}" + (f"   [{text(note)}]" if note else ""))
+    if view["symmetry_equivalent_cycles"]:
+        lines.append("  symmetry-equivalent: " + ", ".join(view["symmetry_equivalent_cycles"]))
+    out = {"cycle": cycle, "steps": steps, "readable": view}
     analysis = campaign / "analysis"
     if (analysis / "thermodynamics.json").is_file() and (analysis / "states.json").is_file():
-        from .magnetism import MomentTracker, flag_text, moments_table, short_label
+        from .magnetism import MomentTracker, flag_text, moments_table
 
         tracker = MomentTracker.from_analysis(campaign, analysis, network, read_json(analysis / "thermodynamics.json"))
-        moments = tracker.cycle([step["from"] for step in steps])
+        moments = tracker.cycle(view["node_ids"])
         out["moments"] = moments
+        labels = dict(zip(view["node_ids"], (lab.replace(" · ", "·") for lab in view["labels"])))
+
+        def label(node_id):
+            return text(labels.get(node_id) or notation.label(node_id))
+
         if moments["status"] != "not_available":
             lines.append(f"  local moments (muB, {tracker.stage}); spin check: {moments['status'].replace('_', ' ')}")
-            lines += ["    " + line for line in moments_table(moments, short_label)]
-            lines += [f"    flag: {flag_text(flag, short_label)}" for flag in moments["flags"][:8]]
+            lines += ["    " + line for line in moments_table(moments, label)]
+            lines += [f"    flag: {flag_text(flag, label)}" for flag in moments["flags"][:8]]
             if len(moments["flags"]) > 8:
                 lines.append(f"    ... {len(moments['flags']) - 8} more flags")
-            lines += [f"    no moments for {short_label(m['node_id'])}: {m['reason']}" for m in moments["missing"]]
+            lines += [f"    no moments for {label(m['node_id'])}: {m['reason']}" for m in moments["missing"]]
     return out, "\n".join(lines)
+
+
+def cmd_status(args, registry):
+    from .notation import encodable
+    from .status import campaign_status, state_list, status_text, write_status_page
+
+    campaign = _campaign(args)
+    result = campaign_status(campaign, through=args.through, slurm=not args.no_slurm)
+    if args.list:
+        ids = state_list(result, args.list)
+        return {"group": args.list, "state_ids": ids}, "\n".join(ids)
+    page = None
+    if not args.no_html:
+        page = write_status_page(result, campaign / "status.html")
+        result["page"] = str(page)
+    ascii = not encodable(sys.stdout, "μ₆→✓")
+    return result, status_text(result, show_cycles=args.cycles, html_path=page, ascii=ascii)
 
 
 def cmd_cycles(args, registry):
@@ -611,6 +656,10 @@ def cmd_select(args, registry):
     from .campaign import _ids
 
     extra = {"cycles": _ids(args.cycles)} if args.cycles else {}
+    if args.families:
+        extra["families"] = _ids(args.families)
+    if args.keep_duplicates:
+        extra["keep_duplicates"] = True
     result = select_for_thermo(
         _campaign(args),
         energy_window_eV=args.window,
@@ -623,6 +672,20 @@ def cmd_select(args, registry):
         f"{len(result['waiting_nodes'])} node(s) wait for 02_final results, "
         f"{len(result['unresolved_nodes'])} have no accepted variant"
     )
+    merged = result.get("duplicates_merged") or []
+    if merged:
+        text += (
+            f"\n  {len(merged)} {_plural(len(merged), 'variant')} relaxed into the same minimum as a lower one and "
+            "{} not selected (--keep-duplicates selects them):".format("is" if len(merged) == 1 else "are")
+        )
+        for dup in merged[:10]:
+            moment = dup.get("max_moment_change_muB")
+            text += (
+                f"\n    {dup['state_id']} = {dup['same_as']}: dE {dup['delta_E_meV']:.1f} meV, largest shift "
+                f"{dup['max_shift_A']:.3f} A" + (f", moments within {moment:.2f} muB" if moment is not None else "")
+            )
+        if len(merged) > 10:
+            text += f"\n    ... {len(merged) - 10} more (thermo_selection.json, duplicates_merged)"
     several = result.get("nodes_with_several_magnetic_solutions") or []
     if several:
         lines = [
@@ -1121,6 +1184,18 @@ def build_parser(registry):
     p.add_argument("--kpoints", help="Your KPOINTS (default: a Gamma mesh from the cell)")
     p.add_argument("--preset", default="pbe-d3", help="INCAR preset when no templates are given (default pbe-d3)")
     p.add_argument("--frequency-mask", help="POSCAR whose selective dynamics define the partial-Hessian region")
+    p.add_argument(
+        "--dft-u",
+        metavar="SPEC",
+        help="Hubbard U in eV, e.g. Fe=5.3,Ni=6.2 (U:L or U:L:J to set L and J), or none; default: asked "
+        "(Materials Project values)",
+    )
+    p.add_argument("--potcar-dir", metavar="DIR", help="Licensed PAW library on the cluster: DIR/<dataset>/POTCAR")
+    p.add_argument(
+        "--potcar-variants",
+        metavar="SPEC",
+        help="PAW datasets, e.g. Fe=Fe_pv,Ni=Ni_pv (default: the Materials Project choices)",
+    )
     p.add_argument("--yes", action="store_true", help="Accept every proposal without asking")
     p.add_argument(
         "--force",
@@ -1208,6 +1283,28 @@ def build_parser(registry):
     )
     p.set_defaults(handler=cmd_refill)
 
+    p = sub.add_parser(
+        "status", help="What is finished, running, queued or waiting, per state and per cycle (writes status.html)"
+    )
+    p.add_argument("campaign", nargs="?")
+    p.add_argument(
+        "--through",
+        choices=THROUGH_CHOICES,
+        default=None,
+        help="Measure every state against this stage (default: the refill's or the last submission's, else final)",
+    )
+    p.add_argument(
+        "--list",
+        choices=STATUS_LISTS,
+        default=None,
+        metavar="GROUP",
+        help="Print only the state IDs of one group, one per line, for --states @FILE: " + ", ".join(STATUS_LISTS),
+    )
+    p.add_argument("--cycles", action="store_true", help="Every cycle's progress, one mark per intermediate")
+    p.add_argument("--no-slurm", action="store_true", help="Do not ask squeue; job states come from the run records")
+    p.add_argument("--no-html", action="store_true", help="Do not write <campaign>/status.html")
+    p.set_defaults(handler=cmd_status)
+
     p = sub.add_parser("resolve-submission", help="Settle a submission whose outcome is unknown")
     p.add_argument("state_id")
     p.add_argument("campaign", nargs="?")
@@ -1240,6 +1337,14 @@ def build_parser(registry):
         help="Select from finished variants even if siblings are still running",
     )
     p.add_argument("--cycles", help="Restrict to the nodes of these cycles (comma-separated, or @file)")
+    p.add_argument(
+        "--families", help="Restrict to the nodes of the cycles of these families (comma-separated, e.g. aem)"
+    )
+    p.add_argument(
+        "--keep-duplicates",
+        action="store_true",
+        help="Also select variants that relaxed into the same minimum as a lower one (merged by default)",
+    )
     p.set_defaults(handler=cmd_select)
 
     p = sub.add_parser("collect", help="Parse results and write QC tables (no DFT is run)")
@@ -1383,7 +1488,11 @@ def main(argv=None):
         if args.output_json:
             print(json.dumps(result, indent=2, allow_nan=False, default=str))
         else:
-            print(text if text is not None else render(result))
+            from .notation import encodable, plain
+
+            text = text if text is not None else render(result)
+            # Subscripts, arrows and Greek letters need a Unicode terminal; ASCII otherwise.
+            print(text if encodable(sys.stdout, text) else plain(text))
         return code
     except BrokenPipeError:
         # The reader went away (`mechanet plugins | head`): stop quietly.
