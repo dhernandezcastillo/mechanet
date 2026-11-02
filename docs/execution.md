@@ -354,3 +354,9 @@ running jobs; `--cycles` adds one line per symmetry-unique cycle with one mark p
 intermediate (the best status among its structures). `status.html` shows the same as a grid of
 sites × mechanisms with one square per structure; selecting a cell opens the cycle's steps,
 written as equations, and every structure's status.
+
+When the campaign has been collected (`analysis/states.json`), `status` also reads that
+collect's verdicts: a finished structure that was not accepted for its own node is listed and
+marked (`?`), and a complete cycle with an intermediate that has no accepted structure is
+counted as held up. A structure whose run or `review.json` changed after that collect is not
+judged until the next one. `mechanet review` gives the details and records decisions.

@@ -42,6 +42,13 @@ A dashed square <span class="mn-sq mn-no_structure" role="img" aria-label="no st
 marks an intermediate without a starting structure: no placement passed the clash checks
 (`campaign/rejected_placements.json` says why).
 
+Finished is not yet accepted. Once you have run `mechanet collect` (or `review` or `thermo`,
+which collect too), a finished structure that `collect` did not accept for its intermediate,
+because its bonds changed during the relaxation, carries a question mark
+<span class="mn-sq mn-finished mn-flag" role="img" aria-label="finished, not accepted">?</span>,
+and a table lists it. [Checking results](checking-results.md) explains why that happens and
+what to do.
+
 ## The grid of mechanisms
 
 Below the counts, every mechanism family of the campaign has a grid:

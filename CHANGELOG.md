@@ -1,18 +1,35 @@
 # Changelog
 
-## Unreleased
+## 0.1.3 (2026-11-02)
 
-Documentation with pictures and tutorials. No change to the package itself.
+Seeing why a finished calculation gives no energy, and documentation with pictures.
 
+- **`mechanet review`**: collects the campaign, then lists every finished structure that gives
+  no energy to its own intermediate, says in plain words what changed during the relaxation
+  ("H p_a0065 moved from O d_a0065 to O a0066", "O a0065 is no longer bound to Fe a0003", a
+  proton relay through a water molecule in order), names the complete cycles each one holds up
+  and the other starts of the intermediate, and says what to do. `--accept STATE "why"` accepts
+  a relaxed structure as its own intermediate, `--assign STATE NODE "why"` counts it for
+  another intermediate of the same composition (checked), `--clear STATE` removes the
+  decision; each writes `states/STATE/review.json` with your reason and reports the new
+  verdict at once. Decisions take effect at the next collect.
+- **`status` shows what the last collect did not accept**: such finished structures are listed
+  and marked `?` (on the page: a question mark with a red ring), and a complete cycle with an
+  intermediate that has no accepted structure counts as held up (its fraction is no longer in
+  bold). Structures that ran or were decided after that collect are not judged until the next.
+- `collect` and `thermo` say how many finished structures gave no energy to their own
+  intermediate; `show-cycle` points to `review` when an intermediate has no accepted structure,
+  and notes a review.json written after the last `thermo`.
 - **New documentation site**: a landing page with pictures of what mechanet produces (the
   site map, the status grid, free-energy profiles, Pourbaix diagrams) and a diagram of the
   workflow; Getting started; five tutorials (a first network on a laptop, your own slab,
   running on a cluster, from energies to answers, other reactions and your own mechanisms);
-  Following a campaign, which explains the status page with screenshots and links to an
-  interactive example page; and Troubleshooting. The guides and the command reference are
-  unchanged.
-- The README shows the workflow and the status grid and links to the pages of the site.
-- `docs/requirements.txt` and the `docs` extra add sphinx-design (cards and buttons).
+  Following a campaign, with screenshots of the status page and an interactive example page;
+  Checking results (`mechanet review`); and Troubleshooting. The README shows the workflow and
+  the status grid and links to the pages of the site. `docs/requirements.txt` and the `docs`
+  extra add sphinx-design.
+- Installation from the repository, until mechanet is on PyPI:
+  `pip install "mechanet[plots] @ git+https://github.com/dhernandezcastillo/mechanet.git@v0.1.3"`.
 
 ## 0.1.2 (2026-11-02)
 

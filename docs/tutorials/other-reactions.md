@@ -1,16 +1,15 @@
 # Tutorial 5: Other reactions and your own mechanisms
 
-The same workflow runs chlorine evolution, reactions added by a plugin, and mechanisms you write yourself. Parts A and B use files from the `examples` folder of the source archive, which the wheel does not include:
+The same workflow runs chlorine evolution, reactions added by a plugin, and mechanisms you write yourself. Parts A and B use files from the `examples` folder of the repository (and of the source archive), which the installed package does not include:
 
 ```bash
-pip download --no-deps --no-binary mechanet mechanet==0.1.2
-tar xzf mechanet-0.1.2.tar.gz
+git clone --depth 1 --branch v0.1.3 https://github.com/dhernandezcastillo/mechanet.git mechanet-src
 ```
 
 ## A. Chlorine evolution on RuO2(110)
 
 ```bash
-cp -r mechanet-0.1.2/examples/ruo2_110_cer cer && cd cer
+cp -r mechanet-src/examples/ruo2_110_cer cer && cd cer
 mechanet generate
 mechanet cycles
 ```
@@ -51,7 +50,7 @@ At each potential, compare the lowest Gmax(U) of each reaction in the two `cycle
 
 ```bash
 mechanet examples Pt_111
-mechanet init Pt_111.vasp pt --plugin mechanet-0.1.2/examples/plugins/her.py --reaction her --yes
+mechanet init Pt_111.vasp pt --plugin mechanet-src/examples/plugins/her.py --reaction her --yes
 cd pt
 mechanet plugins     # in a project folder it also lists the project's plugins
 mechanet generate

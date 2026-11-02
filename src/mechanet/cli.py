@@ -425,7 +425,14 @@ def cmd_show_cycle(args, registry):
             lines += [f"    flag: {flag_text(flag, label)}" for flag in moments["flags"][:8]]
             if len(moments["flags"]) > 8:
                 lines.append(f"    ... {len(moments['flags']) - 8} more flags")
-            lines += [f"    no moments for {label(m['node_id'])}: {m['reason']}" for m in moments["missing"]]
+            lines += [
+                f"    no moments for {label(m['node_id'])}: {m['reason']}"
+                + ("; `mechanet review` shows why" if "accepted energy" in str(m["reason"]) else "")
+                for m in moments["missing"]
+            ]
+        stamp = (analysis / "thermodynamics.json").stat().st_mtime
+        if any(p.stat().st_mtime > stamp for p in (campaign / "states").glob("*/review.json")):
+            lines.append("  note: a review.json changed after the last thermo; run mechanet thermo again to use it")
     return out, "\n".join(lines)
 
 
@@ -737,6 +744,9 @@ def cmd_collect(args, registry):
     lines += [f"    {state} -> {node}" for state, node in moved[:10]]
     if len(moved) > 10:
         lines.append(f"    ... {len(moved) - 10} more in qc.json")
+    out["not_accepted"] = _not_accepted(_campaign(args), result.get("states") or [])
+    if out["not_accepted"]:
+        lines.append(_review_hint(out["not_accepted"]))
     if s.get("energy_source"):
         lines.append(f"  energies: {s['energy_source']}")
     lines += [f"  note: {note}" for note in s.get("protocol_notes") or []]
@@ -744,6 +754,51 @@ def cmd_collect(args, registry):
         lines.append("  limits: " + " ".join(s["limitations"]))
     lines.append("  files: states.csv (each state, and why it is not valid), " + ", ".join(out["files"][1:]))
     return out, "\n".join(lines)
+
+
+def _not_accepted(campaign, rows):
+    """How many finished structures give no energy to their own intermediate (collect rows)."""
+    from .review import NOT_ACCEPTED, classify, stage_status
+
+    return sum(
+        1
+        for row in rows
+        if classify(row)[0] in NOT_ACCEPTED and stage_status(Path(campaign) / "states" / row["state_id"]) == "complete"
+    )
+
+
+def _read_states(path):
+    """The state rows of a states.json written by collect, or [] when it cannot be read."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    rows = data.get("states", []) if isinstance(data, dict) else data
+    return [r for r in rows if isinstance(r, dict) and "state_id" in r and "node_id" in r]
+
+
+def _review_hint(count):
+    return (
+        f"  {count} finished {_plural(count, 'structure')} gave no energy to {'its' if count == 1 else 'their'} own "
+        "intermediate; `mechanet review` shows why and what to do"
+    )
+
+
+def cmd_review(args, registry):
+    from .notation import encodable
+    from .review import decide, decision_text, review_report, review_text
+
+    campaign = _campaign(args)
+    if args.accept or args.assign or args.clear:
+        if args.accept:
+            result = decide(campaign, args.accept[0], accept=args.accept[1], registry=registry)
+        elif args.assign:
+            result = decide(campaign, args.assign[0], assign=args.assign[1:], registry=registry)
+        else:
+            result = decide(campaign, args.clear, clear=True, registry=registry)
+        return result, decision_text(result)
+    report = review_report(campaign, registry=registry)
+    return report, review_text(report, ascii=not encodable(sys.stdout, "μ₆→–"))
 
 
 def cmd_thermo(args, registry):
@@ -813,6 +868,10 @@ def cmd_thermo(args, registry):
     ]
     if not out["reservoirs_valid"]:
         lines.append("  references incomplete: " + "; ".join(e.rstrip(".") for e in out["reservoir_errors"]))
+    collected = _read_states(Path(out["out_dir"]) / "states.json")
+    out["not_accepted"] = _not_accepted(campaign, collected) if collected else 0
+    if out["not_accepted"]:
+        lines.append(_review_hint(out["not_accepted"]))
     lines += [f"  note: {n}" for n in out["notes"]]
     lines += [f"  WARNING: {w}" for w in out["warnings"]]
     for potential, by_reaction in out["best_cycles"].items():
@@ -1352,6 +1411,30 @@ def build_parser(registry):
     p.add_argument("--out")
     _frequency_options(p)
     p.set_defaults(handler=cmd_collect)
+
+    p = sub.add_parser(
+        "review",
+        help="Finished structures that collect did not accept: what changed, which cycles they hold up, what to do",
+        description="Without options: collect, then list every finished structure that gives no energy to its "
+        "own intermediate (what changed in plain words, the cycles it holds up, other starts) and what to do. "
+        "--accept and --assign write the decision to states/STATE/review.json; mechanet thermo reads it.",
+    )
+    p.add_argument("campaign", nargs="?")
+    decision = p.add_mutually_exclusive_group()
+    decision.add_argument(
+        "--accept",
+        nargs=2,
+        metavar=("STATE", "COMMENT"),
+        help="Accept STATE's relaxed structure as its own intermediate, with your reason",
+    )
+    decision.add_argument(
+        "--assign",
+        nargs=3,
+        metavar=("STATE", "NODE", "COMMENT"),
+        help="Count STATE for the intermediate NODE (same composition), with your reason",
+    )
+    decision.add_argument("--clear", metavar="STATE", help="Remove STATE's review.json")
+    p.set_defaults(handler=cmd_review)
 
     p = sub.add_parser("thermo", help="Free energies, cycle descriptors and resting states (CHE)")
     p.add_argument("campaign", nargs="?")

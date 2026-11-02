@@ -17,6 +17,11 @@
 | `protocol differs from the slab's: H2O ENCUT: molecule 400, slab 500` | That molecule was computed with other settings than the INCAR whose energies the analysis uses (overrides included) | Compute it again from the inputs `mechanet references --molecules refs` writes, then collect again |
 | `spin check (02_final moments): 2 of 9 cycles with moments need review` from `thermo` | In those cycles a local moment changed sign between two intermediates, or a moment away from the active site changed by more than 0.5 μB | `mechanet show-cycle ID` names the atoms and steps. If it is not the chemistry, that step's ΔG mixes two magnetic solutions: recompute one of the two intermediates from the other's moments and compare ([tutorial 4, step 3](tutorials/analysis.md#3-look-at-one-cycle)) |
 
+| `N finished structures gave no energy to their own intermediate` from `collect` or `thermo` | Those structures finished, but their bonds changed during the relaxation (or a check failed), so their energy is not used for their intermediate | `mechanet review` says what changed and what to do ([Checking results](checking-results.md)) |
+| `no moments for X: no structure with an accepted energy` from `show-cycle` | No structure of that intermediate was accepted | `mechanet review` |
+| `cycles with every energy: 0 of N` while `status` shows complete cycles | The references are incomplete, or an intermediate of each complete cycle has no accepted structure | Look for `references incomplete` in the `thermo` output; then `mechanet review` |
+| `a review.json changed after the last thermo` from `show-cycle` | A decision was written after the last analysis | `mechanet thermo` again |
+
 For anything else, run the command again with `--traceback` and keep the output for the bug report.
 
 ## Commands at a glance
@@ -27,7 +32,7 @@ For anything else, run the command again with `--traceback` and keep the output 
 | Build and look | `generate`, `plan`, `cycles`, `show-cycle ID`, `list`, `validate` |
 | Set up the cluster | `cluster import / list / show / use`, `prepare --potcars`, `references --molecules DIR`, `references --collect DIR` |
 | Run | `submit --pilot`, `submit --execute`, `submit --retry`, `submit --max-active N --refill`, `submit --selected --through freq`, `status`, `refill`, `resolve-submission`, `cleanup` |
-| Analyse | `collect`, `select`, `thermo`, `plot-profile ID --potential U`, `pathways --rank`, `pourbaix --plot`, `report` |
+| Analyse | `collect`, `review`, `select`, `thermo`, `plot-profile ID --potential U`, `pathways --rank`, `pourbaix --plot`, `report` |
 | Extend | `plugins` |
 
 `run-state` is what each job runs; you never call it yourself. Every command takes `--json` for scripts and `--help` for its options. Only `submit --execute`, `refill --tick` (for a refill that `submit --execute --refill` set up) and `cleanup --execute` submit jobs or delete files.
@@ -42,7 +47,7 @@ For anything else, run the command again with `--traceback` and keep the output 
 | `~/.config/mechanet/clusters/NAME.yaml` | Cluster profiles |
 | `campaign/network.json` | Intermediates, steps and cycles |
 | `campaign/method_card.json` | The protocol and counts, written by `plan` |
-| `campaign/states/STATE/` | One calculation: `run.json`, a folder per stage, the job's `slurm-ID.out` |
+| `campaign/states/STATE/` | One calculation: `run.json`, a folder per stage, the job's `slurm-ID.out`, and `review.json` when you decided about its relaxed structure |
 | `campaign/thermo_selection.json` | The variants `select` kept |
 | `campaign/analysis/` | Tables, profiles and the moments along each cycle (cycle_moments.csv) from `collect` and `thermo` |
 | `campaign/pathways/` | `pathways.json`, `pathways.csv`, `ranking.json` |
