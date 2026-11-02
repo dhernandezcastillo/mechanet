@@ -11,11 +11,7 @@ electrode: limiting potentials, Exner's Gmax(U), resting states, the route of lo
 overpotential over *every* cycle of the network whose steps have computed energies, and
 surface Pourbaix diagrams.
 
-```text
-slab.vasp ──init──▶ project.yaml ──generate──▶ campaign/ ──submit──▶ VASP on SLURM
-                                                   │
-             report.md ◀── thermo · pathways · pourbaix ◀── collect · select
-```
+![The mechanet workflow: init, generate, plan and show-cycle on a laptop; cluster import, references, submit, status, collect, select and the frequencies on the cluster; thermo, plot-profile, pathways, pourbaix and report for the analysis](https://raw.githubusercontent.com/dhernandezcastillo/mechanet/main/docs/images/workflow.png)
 
 - [Install](#install)
 - [Quick start](#quick-start)
@@ -30,12 +26,14 @@ slab.vasp ──init──▶ project.yaml ──generate──▶ campaign/ ─
 - [Examples](#examples)
 - [Scope and limitations](#scope-and-limitations)
 
-Documentation: [mechanet.readthedocs.io](https://mechanet.readthedocs.io), with the
-[project.yaml reference](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/project-file.md) (every setting),
-[execution](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/execution.md) (stages, continuation, SLURM),
-[what mechanet computes](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/science.md) (and how to read it),
-[plugins](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/plugins.md) (new reactions, adsorbates and mechanisms)
-and a reference of every command.
+**Documentation: [mechanet.readthedocs.io](https://mechanet.readthedocs.io)**, with
+[getting started](https://mechanet.readthedocs.io/en/latest/getting-started.html), five [tutorials](https://mechanet.readthedocs.io/en/latest/tutorials/index.html)
+from a first network on a laptop to free energies, [following a campaign](https://mechanet.readthedocs.io/en/latest/following-a-campaign.html),
+the [project.yaml reference](https://mechanet.readthedocs.io/en/latest/project-file.html) (every setting),
+[execution](https://mechanet.readthedocs.io/en/latest/execution.html) (stages, continuation, SLURM),
+[what mechanet computes](https://mechanet.readthedocs.io/en/latest/science.html) (and how to read it),
+[plugins](https://mechanet.readthedocs.io/en/latest/plugins.html) (new reactions, adsorbates and mechanisms)
+and a [reference of every command](https://mechanet.readthedocs.io/en/latest/commands.html).
 
 ## Install
 
@@ -147,7 +145,12 @@ group: finished, running, queued, to continue (stopped part way; the next submit
 it), needs you (a failed attempt waiting for `--retry`, a used-up budget, an unknown
 submission) or not started. It also writes `campaign/status.html`, a self-contained page
 (copy it to your computer and open it in a browser) with a grid of sites × mechanisms, one
-square per structure, and every cycle's steps and structures.
+square per structure, and every cycle's steps and structures:
+
+![The status grid of the bifunctional family on the NiFe LDH example: one row per pair of sites, one column per route, one square per structure, coloured by its status](https://raw.githubusercontent.com/dhernandezcastillo/mechanet/main/docs/images/status-grid.png)
+
+[Following a campaign](https://mechanet.readthedocs.io/en/latest/following-a-campaign.html) explains the page, with an
+interactive example.
 
 Intermediates and steps are written in a compact notation, also used by `show-cycle`,
 `report` and `plot-profile`:

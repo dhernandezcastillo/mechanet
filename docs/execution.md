@@ -320,6 +320,9 @@ reports it, and node-hours once the pilot has run. To reduce it before queuing:
 
 ## 10. Following a campaign: `mechanet status`
 
+[Following a campaign](following-a-campaign.md) shows the status page with pictures; this
+section states how `status` decides.
+
 `mechanet status` reads every state's `attempt.json` and `run.json`, `submissions.json`, and
 one `squeue --user` listing (with `%Z`, the job's working directory: a job running in a state
 folder counts even when the ledger does not know it, as for jobs submitted by hand). It

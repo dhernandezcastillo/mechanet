@@ -34,7 +34,7 @@ dependencies = [
 [project.optional-dependencies]
 plots = ["matplotlib>=3.5"]
 test = ["pytest>=7", "matplotlib>=3.5"]
-docs = ["sphinx>=8", "myst-parser>=4", "furo>=2024.8.6"]
+docs = ["sphinx>=8", "myst-parser>=4", "furo>=2024.8.6", "sphinx-design>=0.6.1"]
 
 [project.urls]
 Homepage = "https://github.com/dhernandezcastillo/mechanet"

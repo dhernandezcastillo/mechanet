@@ -1,0 +1,30 @@
+/* The status squares of the page `mechanet status` writes, for the legend in the docs. */
+.mn-sq {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 1.1em;
+  height: 1.1em;
+  border-radius: 3px;
+  font-size: 0.8em;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: -0.12em;
+}
+.mn-finished { background: #0ca30c; color: #ffffff; }
+.mn-running { background: #2a78d6; color: #ffffff; }
+.mn-queued { border: 2px solid #2a78d6; color: #2a78d6; font-size: 0.65em; }
+.mn-continue { background: #fab219; color: #0b0b0b; }
+.mn-attention { background: #d03b3b; color: #ffffff; }
+.mn-not_started { border: 1.5px solid #a8a79e; }
+.mn-no_structure { border: 1.5px dashed #898781; color: #898781; font-size: 0.65em; }
+
+/* Gallery cards: a hairline under the picture. */
+.sd-card-img-top { border-bottom: 1px solid var(--color-background-border); }
+
+/* Buttons of the landing page side by side. */
+.mn-buttons > p { display: inline-block; margin: 0 0.5rem 0.5rem 0; }
+
+/* Commands in a table stay on one line (no break inside --flags). */
+.mn-nowrap-code code { white-space: nowrap; }

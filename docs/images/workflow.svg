@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="472" viewBox="0 0 760 472" role="img" aria-labelledby="t d">
+<title id="t">The mechanet workflow</title>
+<desc id="d">Seventeen mechanet commands in three bands. On your laptop: init, generate, plan, show-cycle. On the cluster: cluster import, references, submit --pilot, submit, status, collect, select, submit --selected --through freq. Analysis: thermo, plot-profile, pathways --rank, pourbaix --plot, report.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8d8b84"/></marker></defs>
+<rect x="0.5" y="0.5" width="759" height="471" rx="14" fill="#fbfbf9" stroke="#e1e0d9"/>
+<rect x="14" y="14" width="732" height="106" rx="12" fill="#f1f0ec" stroke="#e1e0d9"/>
+<rect x="26" y="24" width="4" height="15" rx="2" fill="#52514e"/>
+<text x="37.0" y="36.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="13.5" fill="#0b0b0b" text-anchor="start" font-weight="650">On your laptop</text>
+<text x="734.0" y="36.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="end">no cluster needed</text>
+<rect x="26.0" y="50" width="162.0" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="107.0" y="70.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">init SLAB</text>
+<text x="107.0" y="86.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">finds the sites,</text>
+<text x="107.0" y="100.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">writes project.yaml</text>
+<circle cx="27.0" cy="51" r="8.5" fill="#52514e" stroke="#f1f0ec" stroke-width="2"/>
+<text x="27.0" y="54.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">1</text>
+<rect x="208.0" y="50" width="162.0" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="289.0" y="70.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">generate</text>
+<text x="289.0" y="86.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">intermediates, steps,</text>
+<text x="289.0" y="100.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">cycles, structures</text>
+<circle cx="209.0" cy="51" r="8.5" fill="#52514e" stroke="#f1f0ec" stroke-width="2"/>
+<text x="209.0" y="54.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">2</text>
+<rect x="390.0" y="50" width="162.0" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="471.0" y="70.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">plan</text>
+<text x="471.0" y="86.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">what the study</text>
+<text x="471.0" y="100.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">will cost</text>
+<circle cx="391.0" cy="51" r="8.5" fill="#52514e" stroke="#f1f0ec" stroke-width="2"/>
+<text x="391.0" y="54.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">3</text>
+<rect x="572.0" y="50" width="162.0" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="653.0" y="70.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">show-cycle ID</text>
+<text x="653.0" y="86.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">one mechanism,</text>
+<text x="653.0" y="100.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">as equations</text>
+<circle cx="573.0" cy="51" r="8.5" fill="#52514e" stroke="#f1f0ec" stroke-width="2"/>
+<text x="573.0" y="54.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">4</text>
+<path d="M192.0 78.0H203.0" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M374.0 78.0H385.0" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M556.0 78.0H567.0" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M380.0 123V137" stroke="#8d8b84" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="14" y="142" width="732" height="188" rx="12" fill="#ebf2fb" stroke="#d3e2f4"/>
+<rect x="26" y="152" width="4" height="15" rx="2" fill="#1f62b4"/>
+<text x="37.0" y="164.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="13.5" fill="#0b0b0b" text-anchor="start" font-weight="650">On the cluster</text>
+<text x="734.0" y="164.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="end">SLURM, VASP and your PAW files</text>
+<rect x="26.0" y="178" width="125.6" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="88.8" y="198.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">cluster import</text>
+<text x="88.8" y="214.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">a profile from</text>
+<text x="88.8" y="228.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">your job script</text>
+<circle cx="27.0" cy="179" r="8.5" fill="#1f62b4" stroke="#ebf2fb" stroke-width="2"/>
+<text x="27.0" y="182.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">5</text>
+<rect x="171.6" y="178" width="125.6" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="234.4" y="198.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">references</text>
+<text x="234.4" y="214.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">H₂ and H₂O with</text>
+<text x="234.4" y="228.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">your settings</text>
+<circle cx="172.6" cy="179" r="8.5" fill="#1f62b4" stroke="#ebf2fb" stroke-width="2"/>
+<text x="172.6" y="182.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">6</text>
+<rect x="317.2" y="178" width="125.6" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="380.0" y="198.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">submit --pilot</text>
+<text x="380.0" y="214.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">test the protocol,</text>
+<text x="380.0" y="228.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">get timings</text>
+<circle cx="318.2" cy="179" r="8.5" fill="#1f62b4" stroke="#ebf2fb" stroke-width="2"/>
+<text x="318.2" y="182.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">7</text>
+<rect x="462.8" y="178" width="125.6" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="525.6" y="198.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">submit</text>
+<text x="525.6" y="214.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">every structure;</text>
+<text x="525.6" y="228.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">repeat any time</text>
+<circle cx="463.8" cy="179" r="8.5" fill="#1f62b4" stroke="#ebf2fb" stroke-width="2"/>
+<text x="463.8" y="182.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">8</text>
+<rect x="608.4" y="178" width="125.6" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="671.2" y="198.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">status</text>
+<text x="671.2" y="214.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">what is done, and</text>
+<text x="671.2" y="228.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">what needs you</text>
+<circle cx="609.4" cy="179" r="8.5" fill="#1f62b4" stroke="#ebf2fb" stroke-width="2"/>
+<text x="609.4" y="182.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">9</text>
+<path d="M155.6 206.0H166.6" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M301.2 206.0H312.2" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M446.8 206.0H457.8" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M592.4 206.0H603.4" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="26.0" y="260" width="125.6" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="88.8" y="280.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">collect</text>
+<text x="88.8" y="296.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">parse and check</text>
+<text x="88.8" y="310.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">every run</text>
+<circle cx="27.0" cy="261" r="8.5" fill="#1f62b4" stroke="#ebf2fb" stroke-width="2"/>
+<text x="27.0" y="264.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">10</text>
+<rect x="171.6" y="260" width="125.6" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="234.4" y="280.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">select</text>
+<text x="234.4" y="296.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">the variants for</text>
+<text x="234.4" y="310.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">frequencies</text>
+<circle cx="172.6" cy="261" r="8.5" fill="#1f62b4" stroke="#ebf2fb" stroke-width="2"/>
+<text x="172.6" y="264.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">11</text>
+<rect x="317.2" y="260" width="271.2" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="452.8" y="280.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">submit --selected --through freq</text>
+<text x="452.8" y="296.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">partial Hessians by finite displacements,</text>
+<text x="452.8" y="310.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">restartable</text>
+<circle cx="318.2" cy="261" r="8.5" fill="#1f62b4" stroke="#ebf2fb" stroke-width="2"/>
+<text x="318.2" y="264.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">12</text>
+<path d="M155.6 288.0H166.6" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M301.2 288.0H312.2" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M671.2 237V241.0Q671.2 247.0 665.2 247.0H94.8Q88.8 247.0 88.8 253.0V255" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M380.0 333V347" stroke="#8d8b84" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="14" y="352" width="732" height="106" rx="12" fill="#ecf6ec" stroke="#d2e8d3"/>
+<rect x="26" y="362" width="4" height="15" rx="2" fill="#17761a"/>
+<text x="37.0" y="374.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="13.5" fill="#0b0b0b" text-anchor="start" font-weight="650">Analysis</text>
+<text x="734.0" y="374.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="end">in the project folder, once results are in</text>
+<rect x="26.0" y="388" width="125.6" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="88.8" y="408.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">thermo</text>
+<text x="88.8" y="424.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">free energies,</text>
+<text x="88.8" y="438.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">limiting potentials</text>
+<circle cx="27.0" cy="389" r="8.5" fill="#17761a" stroke="#ecf6ec" stroke-width="2"/>
+<text x="27.0" y="392.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">13</text>
+<rect x="171.6" y="388" width="125.6" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="234.4" y="408.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">plot-profile ID</text>
+<text x="234.4" y="424.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">the free-energy</text>
+<text x="234.4" y="438.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">diagram</text>
+<circle cx="172.6" cy="389" r="8.5" fill="#17761a" stroke="#ecf6ec" stroke-width="2"/>
+<text x="172.6" y="392.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">14</text>
+<rect x="317.2" y="388" width="125.6" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="380.0" y="408.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">pathways --rank</text>
+<text x="380.0" y="424.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">the best route</text>
+<text x="380.0" y="438.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">over every cycle</text>
+<circle cx="318.2" cy="389" r="8.5" fill="#17761a" stroke="#ecf6ec" stroke-width="2"/>
+<text x="318.2" y="392.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">15</text>
+<rect x="462.8" y="388" width="125.6" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="525.6" y="408.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">pourbaix --plot</text>
+<text x="525.6" y="424.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">stable surface</text>
+<text x="525.6" y="438.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">terminations</text>
+<circle cx="463.8" cy="389" r="8.5" fill="#17761a" stroke="#ecf6ec" stroke-width="2"/>
+<text x="463.8" y="392.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">16</text>
+<rect x="608.4" y="388" width="125.6" height="56" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="671.2" y="408.5" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace" font-size="12" fill="#0b0b0b" text-anchor="middle" font-weight="600">report</text>
+<text x="671.2" y="424.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">everything in</text>
+<text x="671.2" y="438.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11" fill="#5f5e59" text-anchor="middle">report.md</text>
+<circle cx="609.4" cy="389" r="8.5" fill="#17761a" stroke="#ecf6ec" stroke-width="2"/>
+<text x="609.4" y="392.8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="10" fill="#ffffff" text-anchor="middle" font-weight="700">17</text>
+<path d="M155.6 416.0H166.6" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M301.2 416.0H312.2" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M446.8 416.0H457.8" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M592.4 416.0H603.4" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+</svg>
