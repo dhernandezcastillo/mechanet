@@ -1,9 +1,10 @@
 """Sphinx configuration of the mechanet documentation.
 
-The pages are the Markdown files of this folder (MyST); the landing page is the README and the
-changelog is CHANGELOG.md, both included from the repository root. The command reference
-(commands.md) is written from mechanet's own argument parser at every build, so it always
-matches the installed version.
+The pages are the Markdown files of this folder (MyST, with sphinx-design for cards and
+buttons); the changelog is CHANGELOG.md, included from the repository root. Figures live in
+images/, and _extra/ holds pages served as they are (an example status page). The command
+reference (commands.md) is written from mechanet's own argument parser at every build, so it
+always matches the installed version.
 
 Build locally:  pip install -r docs/requirements.txt -e .  then
                 python -m sphinx -W -b html docs docs/_build/html
@@ -36,7 +37,7 @@ author = "David Hernández Castillo"
 copyright = "2026, David Hernández Castillo"  # noqa: A001 - the name Sphinx reads
 release = version = _release()
 
-extensions = ["myst_parser"]
+extensions = ["myst_parser", "sphinx_design"]
 source_suffix = {".md": "markdown"}
 root_doc = "index"
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "requirements.txt"]
@@ -45,6 +46,9 @@ myst_enable_extensions = ["colon_fence"]
 
 html_theme = "furo"
 html_title = f"mechanet {release}"
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
+html_extra_path = ["_extra"]  # status-example.html, linked from the pages as it is
 html_theme_options = {
     "source_repository": f"{REPOSITORY}/",
     "source_branch": "main",
@@ -92,18 +96,3 @@ def write_command_reference(path):
 
 
 write_command_reference(Path(__file__).with_name("commands.md"))
-
-# ---------------------------------------------------------------------------
-# Links of the included README: its links to docs/*.md on GitHub (they have to work on PyPI
-# too) become links between the pages of this site.
-# ---------------------------------------------------------------------------
-
-DOC_LINK = re.compile(re.escape(REPOSITORY) + r"/blob/main/docs/([\w.-]+\.md)")
-
-
-def _local_doc_links(app, relative_path, parent_docname, content):
-    content[0] = DOC_LINK.sub(r"\1", content[0])
-
-
-def setup(app):
-    app.connect("include-read", _local_doc_links)

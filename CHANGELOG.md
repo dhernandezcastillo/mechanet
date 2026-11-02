@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+Documentation with pictures and tutorials. No change to the package itself.
+
+- **New documentation site**: a landing page with pictures of what mechanet produces (the
+  site map, the status grid, free-energy profiles, Pourbaix diagrams) and a diagram of the
+  workflow; Getting started; five tutorials (a first network on a laptop, your own slab,
+  running on a cluster, from energies to answers, other reactions and your own mechanisms);
+  Following a campaign, which explains the status page with screenshots and links to an
+  interactive example page; and Troubleshooting. The guides and the command reference are
+  unchanged.
+- The README shows the workflow and the status grid and links to the pages of the site.
+- `docs/requirements.txt` and the `docs` extra add sphinx-design (cards and buttons).
+
 ## 0.1.2 (2026-11-02)
 
 Seeing what a campaign computes, and fewer manual steps between runs.
