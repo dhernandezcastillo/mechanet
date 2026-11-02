@@ -29,6 +29,7 @@ surface Pourbaix diagrams.
 **Documentation: [mechanet.readthedocs.io](https://mechanet.readthedocs.io)**, with
 [getting started](https://mechanet.readthedocs.io/en/latest/getting-started.html), five [tutorials](https://mechanet.readthedocs.io/en/latest/tutorials/index.html)
 from a first network on a laptop to free energies, [following a campaign](https://mechanet.readthedocs.io/en/latest/following-a-campaign.html),
+[checking results](https://mechanet.readthedocs.io/en/latest/checking-results.html),
 the [project.yaml reference](https://mechanet.readthedocs.io/en/latest/project-file.html) (every setting),
 [execution](https://mechanet.readthedocs.io/en/latest/execution.html) (stages, continuation, SLURM),
 [what mechanet computes](https://mechanet.readthedocs.io/en/latest/science.html) (and how to read it),
@@ -40,6 +41,8 @@ and a [reference of every command](https://mechanet.readthedocs.io/en/latest/com
 ```bash
 pip install mechanet              # Python >= 3.10; numpy, ase, spglib, networkx, pyyaml
 pip install "mechanet[plots]"     # adds matplotlib for profiles and Pourbaix figures
+# until mechanet is on PyPI, from the repository (a tag pins the version):
+pip install "mechanet[plots] @ git+https://github.com/dhernandezcastillo/mechanet.git@v0.1.3"
 ```
 
 Install it on the cluster, in an environment the compute nodes can see (for example a
@@ -72,7 +75,7 @@ before generating. Every value `init` detected is marked `[auto]` in `project.ya
 | 3 | `mechanet plan` / `cycles` / `show-cycle` | Counts nodes, cycles, starts, DFT runs and displacement single points (node-hours once pilot timings exist); writes the method card. |
 | 4 | `mechanet submit --pilot --execute` | The reference, one start per adsorbate type and the most crowded start: checks the protocol and gives timings. |
 | 5 | `mechanet submit --execute` | All states through `02_final` (repeat the command to continue jobs stopped at the walltime; `--max-active N --refill` keeps N jobs running). `mechanet status` shows what is finished, running, queued or waiting, per state and per cycle. |
-| 6 | `mechanet collect` then `mechanet select` | Parses results (convergence, forces, moments, topology), assigns relaxed structures to the intermediates they became, and selects the variants that continue to frequencies (`--families aem,...` or `--cycles` to restrict them). Variants that relaxed into the same minimum are merged first; variants of one intermediate that converged to different magnetic solutions are reported. |
+| 6 | `mechanet collect`, `review`, then `select` | Parses results (convergence, forces, moments, topology) and assigns relaxed structures to the intermediates they became. `review` lists the finished structures that changed during the relaxation (which H moved where, which bond broke, the cycles they hold up) and records your decisions. `select` picks the variants that continue to frequencies (`--families aem,...` or `--cycles` to restrict them); variants that relaxed into the same minimum are merged first, and variants of one intermediate that converged to different magnetic solutions are reported. |
 | 7 | `mechanet submit --selected --through freq --execute` | `04_static` and the partial Hessian by restartable finite displacements. |
 | 8 | `mechanet thermo` | Free energies of every intermediate, step and cycle at the analysis potentials; Gmax(U), limiting potential, overpotential, resting states; the local moments of the active-site atoms along each cycle, with a spin check. `--electronic-only` gives a screening estimate before frequencies exist. `mechanet plot-profile CYCLE --potential U` draws the profile with the moments underneath. |
 | 9 | `mechanet pathways --rank` | Every balanced cycle of the network, curated or not, ranked per reaction with the project's references; the lowest limiting potential over all cycles, of any length, whose steps have energies. |
@@ -151,6 +154,13 @@ square per structure, and every cycle's steps and structures:
 
 [Following a campaign](https://mechanet.readthedocs.io/en/latest/following-a-campaign.html) explains the page, with an
 interactive example.
+
+Finished is not yet accepted: `collect` also checks that each relaxed structure is still the
+intermediate it was built for. `mechanet review` lists those that changed, in plain words
+("H p_a0065 moved from O d_a0065 to O a0066"), with the cycles they hold up, and records your
+decision in `states/STATE/review.json` (`--accept STATE "why"`, `--assign STATE NODE "why"`);
+`status` marks them with `?` once the campaign has been collected. See
+[Checking results](https://mechanet.readthedocs.io/en/latest/checking-results.html).
 
 Intermediates and steps are written in a compact notation, also used by `show-cycle`,
 `report` and `plot-profile`:

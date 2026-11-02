@@ -28,3 +28,6 @@
 
 /* Commands in a table stay on one line (no break inside --flags). */
 .mn-nowrap-code code { white-space: nowrap; }
+
+/* A finished structure that the last collect did not accept (status page: ? with a red ring). */
+.mn-flag { box-shadow: inset 0 0 0 2px #d03b3b; }

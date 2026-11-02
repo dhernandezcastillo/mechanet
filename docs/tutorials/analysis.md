@@ -30,6 +30,12 @@ Without frequencies, each free energy is the 02_final electronic energy plus tab
 
 In the example the hardest single step needs 0.37 eV at 1.23 V, but Gmax is 0.54 eV because the next step climbs another 0.17 eV. At 1.63 V everything runs downhill.
 
+The first count can be lower than the number of finished structures: an intermediate only gets
+an energy from a structure that `collect` accepted for it, and on a real surface some
+structures change during the relaxation (a proton moves to a neighbour, an adsorbate leaves the
+metal). The output then says how many, and `mechanet review` lists them with what changed
+and what to do ([Checking results](../checking-results.md)).
+
 The warning appears because this example's references were typed in by hand. `mechanet references --collect` ([tutorial 3, step 4](cluster.md#4-compute-the-molecular-references)) writes `protocol_id` and the `provenance` flags it can check, and sets the flags again each time it runs. In a file you fill in yourself, describe the protocol as `protocol_id` (for example `"PBE-D3(BJ), 520 eV, PAW PBE 54"`) and set each `provenance` flag to `true` once you have checked it; a flag left `false` adds a warning to every analysis.
 
 ## 2. Compute the free energies
@@ -134,7 +140,7 @@ mechanet report
 ## 8. Before you trust the numbers
 
 - The level says `CHE_with_partial_Hessian_free_energy`, and no warning is left.
-- `states.csv` explains every state that is not valid; `qc.json` counts reassigned states, structures that relaxed into another intermediate.
+- `mechanet review` lists no finished structure you have not looked at: each one either gives its energy to its own intermediate, relaxed into another intermediate, or carries your decision and reason in its `review.json`. `states.csv` has the details of every state.
 - `frequencies.csv` has no flagged imaginary modes on the intermediates of the limiting step.
 - The cycles you report pass the spin check (`spin_check` in `cycles.csv`; `show-cycle` lists the moments), and no intermediate that decides the answer has variants in different magnetic solutions: a change of spin state can pose as a better catalyst.
 - If you used `select --max-per-node 1`, a slightly higher variant may still be the better geometry once frequencies are in; widen `--window` for the intermediates that decide the answer.

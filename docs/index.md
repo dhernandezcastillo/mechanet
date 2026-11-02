@@ -144,6 +144,7 @@ tutorials/index
 :caption: Using mechanet
 
 following-a-campaign
+checking-results
 troubleshooting
 ```
 

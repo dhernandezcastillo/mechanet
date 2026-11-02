@@ -57,6 +57,9 @@ LISTS = {
 }
 # Best first: the status an intermediate shows when its structures differ.
 RANK = {c: k for k, c in enumerate(CATEGORIES)}
+# An intermediate whose finished structures the last collect did not accept.
+HELD_ICON = "?"
+HELD_EXPLAIN = "finished, but the last collect did not accept it (mechanet review shows why)"
 UNKNOWN_SUBMISSION = ("submitting", "submission_unknown")
 
 
@@ -279,6 +282,7 @@ def campaign_status(campaign, through=None, slurm=True, registry=None):
             blocked=any(not cats for cats in progress),
         )
         cycles.append(view)
+    collected = _last_collect(campaign, network, notation, states, nodes, cycles)
     counts = Counter(s["category"] for s in states)
     shown = [c for c in cycles if c["symmetry_representative"]]
     families = {}
@@ -312,6 +316,8 @@ def campaign_status(campaign, through=None, slurm=True, registry=None):
         "n_states": len(states),
         "states": states,
         "attention": [s for s in states if s["category"] == "attention"],
+        "last_collect": collected,
+        "not_accepted": [s for s in states if s.get("not_accepted")],
         "jobs": job_rows,
         "nodes": nodes,
         "cycles": cycles,
@@ -324,12 +330,43 @@ def campaign_status(campaign, through=None, slurm=True, registry=None):
             "complete": sum(1 for c in shown if c["complete"]),
             "partial": sum(1 for c in shown if c["n_finished"] and not c["complete"]),
             "none": sum(1 for c in shown if not c["n_finished"]),
+            "held_up": sum(1 for c in shown if c.get("held_up")),
             "computed_intermediates": sum(1 for n in nodes.values() if not n["computed_by"]),
             "intermediates_finished": sum(
                 1 for n in nodes.values() if not n["computed_by"] and "finished" in n["categories"]
             ),
         },
     }
+
+
+def _last_collect(campaign, network, notation, states, nodes, cycles):
+    """Mark what the last collect did not accept: states, intermediates and the complete cycles they hold up.
+
+    Returns the collect time (UTC), or None when the campaign has not been collected.
+    """
+    from .review import NOT_ACCEPTED, last_collect
+
+    try:
+        collected = last_collect(campaign, network=network, notation=notation)
+    except Exception:  # noqa: BLE001 - status never fails over the analysis tables
+        collected = None
+    if not collected:
+        return None
+    verdicts = collected["verdicts"]
+    for state in states:
+        verdict = verdicts.get(state["state_id"])
+        if state["category"] == "finished" and verdict and verdict["kind"] in NOT_ACCEPTED:
+            state["not_accepted"] = verdict
+    for node_id, node in nodes.items():
+        owner = node["computed_by"] or node_id
+        judged = [verdicts[s] for s in node["state_ids"] if s in verdicts]
+        node["held"] = bool(
+            judged and all(v["kind"] != "unknown" for v in judged) and owner not in collected["accepted_nodes"]
+        )
+    for cycle in cycles:
+        cycle["held"] = [nodes.get(n, {}).get("held", False) for n in cycle["node_ids"]]
+        cycle["held_up"] = cycle["complete"] and any(cycle["held"])
+    return collected["collected_utc"]
 
 
 def _standalone_sites(notation, node_id):
@@ -351,11 +388,14 @@ def state_list(result, which):
 # ---------------------------------------------------------------------------
 
 
-def _marks(categories_per_node):
-    """One mark per intermediate: the best status among its structures."""
+def _marks(categories_per_node, held=None):
+    """One mark per intermediate: the best status among its structures (? when none was accepted)."""
     out = []
-    for cats in categories_per_node:
-        out.append(ICONS[min(cats, key=RANK.get)] if cats else ICONS["no_structure"])
+    for k, cats in enumerate(categories_per_node):
+        if held and k < len(held) and held[k]:
+            out.append(HELD_ICON)
+        else:
+            out.append(ICONS[min(cats, key=RANK.get)] if cats else ICONS["no_structure"])
     return "".join(out)
 
 
@@ -386,6 +426,11 @@ def status_text(result, show_cycles=False, html_path=None, ascii=False):
         f"Cycles ({summary['symmetry_unique_cycles']} symmetry-unique): {summary['complete']} with every "
         f"intermediate finished, {summary['partial']} partly, {summary['none']} not yet",
     ]
+    if summary.get("held_up"):
+        lines.append(
+            f"  {summary['held_up']} of the {summary['complete']} complete held up: an intermediate has no structure "
+            "the last collect accepted (mechanet review)"
+        )
     for name, entry in result["families"].items():
         lines.append(
             f"  {name:<26} {entry.get('cycles', 0):>3} cycles: {entry.get('complete', 0)} complete, "
@@ -404,13 +449,22 @@ def status_text(result, show_cycles=False, html_path=None, ascii=False):
                 lines.append(f"  {family}")
             lines.append(
                 f"    {text(cycle['site_key']).ljust(width)}  {text(cycle['short']).ljust(short)}  "
-                f"{text(_marks(cycle['progress'])).ljust(marks)}  {cycle['n_finished']}/{cycle['n_intermediates']}  "
+                f"{text(_marks(cycle['progress'], cycle.get('held'))).ljust(marks)}  "
+                f"{cycle['n_finished']}/{cycle['n_intermediates']}  "
                 f"{cycle['cycle_id']}"
             )
     if result["attention"]:
         lines += ["", "Needs you:"]
         for state in result["attention"]:
             lines.append(f"  {state['state_id']}  {state['detail']}")
+    if result.get("not_accepted"):
+        lines += ["", "Finished, but not accepted at the last collect (mechanet review shows why and what to do):"]
+        for state in result["not_accepted"][:20]:
+            lines.append(
+                f"  {state['state_id']}  {text(state.get('label') or '')}: {text(state['not_accepted']['summary'])}"
+            )
+        if len(result["not_accepted"]) > 20:
+            lines.append(f"  ... {len(result['not_accepted']) - 20} more")
     if result["jobs"]:
         lines += ["", "Jobs:"]
         for job in result["jobs"][:40]:
@@ -465,6 +519,7 @@ html,body{margin:0;background:var(--page)}
 .s-attention{background:var(--attention);color:var(--on-fill)}
 .s-not_started{background:transparent;border:1.5px solid var(--idle);color:transparent}
 .s-no_structure{background:transparent;border:1.5px dashed var(--muted);color:var(--muted);font-size:9px}
+.sq.flag{box-shadow:inset 0 0 0 2px var(--attention)}
 .inter{display:inline-grid;grid-auto-flow:column;grid-template-rows:repeat(var(--rows,1),auto);gap:0;
   margin-right:4px;vertical-align:top}
 .grid .sq{width:13px;height:13px;font-size:8.5px;margin:.5px}
@@ -526,11 +581,19 @@ def _e(text):
     return html.escape(str(text if text is not None else ""), quote=True)
 
 
-def _square(category, title=""):
+def _square(category, title="", flag=False):
+    """One structure; ``flag``: finished, but the last collect did not accept it."""
+    label = LABELS[category] + (", not accepted" if flag else "")
+    icon = HELD_ICON if flag else ICONS[category] if category != "not_started" else ""
     return (
-        f'<span class="sq s-{category}" role="img" aria-label="{_e(LABELS[category])}" '
-        f'title="{_e(title or LABELS[category])}">{ICONS[category] if category != "not_started" else ""}</span>'
+        f'<span class="sq s-{category}{" flag" if flag else ""}" role="img" aria-label="{_e(label)}" '
+        f'title="{_e(title or label)}">{icon}</span>'
     )
+
+
+def _flag_text(state):
+    verdict = (state or {}).get("not_accepted")
+    return f"; not accepted at the last collect: {verdict['summary']}" if verdict else ""
 
 
 def _intermediate_squares(label, state_ids, categories, states):
@@ -539,8 +602,10 @@ def _intermediate_squares(label, state_ids, categories, states):
         return f'<span class="inter">{_square("no_structure", f"{label}: no starting structure was built")}</span>'
     parts = []
     for sid, category in zip(state_ids, categories):
-        detail = (states.get(sid) or {}).get("detail") or ""
-        parts.append(_square(category, f"{label} | {sid}: {LABELS[category]}" + (f" ({detail})" if detail else "")))
+        state = states.get(sid) or {}
+        detail = state.get("detail") or ""
+        title = f"{label} | {sid}: {LABELS[category]}" + (f" ({detail})" if detail else "") + _flag_text(state)
+        parts.append(_square(category, title, flag=bool(state.get("not_accepted"))))
     rows = min(len(parts), 4)
     return f'<span class="inter" style="--rows:{rows}">{"".join(parts)}</span>'
 
@@ -586,7 +651,9 @@ def _grid(result, states):
                 for cycle in cell:
                     tip = f"{cycle['title']}" + (f" ({cycle['variant']})" if cycle.get("variant") else "")
                     tip += f": {cycle['n_finished']} of {cycle['n_intermediates']} intermediates finished"
-                    cls = "cyc done" if cycle["complete"] else "cyc"
+                    if cycle.get("held_up"):
+                        tip += "; held up: an intermediate has no structure the last collect accepted"
+                    cls = "cyc done" if cycle["complete"] and not cycle.get("held_up") else "cyc"
                     links.append(
                         f'<a class="{cls}" href="#{_e(_anchor(cycle["cycle_id"]))}" title="{_e(tip)}">'
                         f"{_cycle_squares(cycle, states)}"
@@ -603,9 +670,10 @@ def _cycle_details(cycle, states):
     for label, node_id, sids, cats in zip(cycle["labels"], cycle["node_ids"], cycle["state_ids"], cycle["progress"]):
         chips = (
             "".join(
-                f'<span class="chip">{_square(cat)}<code>{_e(sid)}</code> '
+                f'<span class="chip">{_square(cat, flag=bool(states.get(sid, {}).get("not_accepted")))}'
+                f"<code>{_e(sid)}</code> "
                 f"{_e(LABELS[cat])}{(': ' + _e(states[sid]['detail'])) if states.get(sid, {}).get('detail') else ''}"
-                "</span><br>"
+                f"{_e(_flag_text(states.get(sid)))}</span><br>"
                 for sid, cat in zip(sids, cats)
             )
             if sids
@@ -631,7 +699,8 @@ def _cycle_details(cycle, states):
         f'<details class="cycle" id="{_e(_anchor(cycle["cycle_id"]))}"><summary>'
         f"<span>{_cycle_squares(cycle, states)}</span><b>{_e(title)}</b>"
         f'<span class="lbl">{_e(cycle["site_key"])}</span><code>{_e(cycle["cycle_id"])}</code>'
-        f'<span class="frac">{cycle["n_finished"]}/{cycle["n_intermediates"]} intermediates finished</span>'
+        f'<span class="frac">{cycle["n_finished"]}/{cycle["n_intermediates"]} intermediates finished'
+        f"{'; held up at the last collect' if cycle.get('held_up') else ''}</span>"
         f'</summary><div class="body">'
         f'<p class="src">{_e(cycle["sources"])}</p>'
         f'<p class="sites">Sites: {_e("; ".join(cycle["site_legend"]))}</p>'
@@ -660,6 +729,8 @@ def status_page(result):
     )
     legend = "".join(f'<span class="item">{_square(c)} {_e(LABELS[c])}: {_e(EXPLAIN[c])}</span>' for c in CATEGORIES)
     legend += f'<span class="item">{_square("no_structure")} no structure: no starting structure was built</span>'
+    if result.get("last_collect"):
+        legend += f'<span class="item">{_square("finished", flag=True)} {_e(HELD_EXPLAIN)}</span>'
     summary = result["summary"]
     parts = [
         "<!DOCTYPE html>",
@@ -676,7 +747,13 @@ def status_page(result):
         f'<p class="note">{summary["intermediates_finished"]} of {summary["computed_intermediates"]} computed '
         f"intermediates have a finished structure. Of {summary['symmetry_unique_cycles']} symmetry-unique cycles, "
         f"{summary['complete']} have every intermediate finished, {summary['partial']} partly, "
-        f"{summary['none']} not yet.</p>",
+        f"{summary['none']} not yet"
+        + (
+            f"; {summary['held_up']} of the complete ones are held up by structures the last collect did not accept"
+            if summary.get("held_up")
+            else ""
+        )
+        + ".</p>",
     ]
     if result["attention"]:
         rows = "".join(
@@ -690,6 +767,20 @@ def status_page(result):
             f"<tbody>{rows}</tbody></table>",
             '<p class="note">A failed attempt reruns with <code>mechanet submit --states ID --retry --execute</code> '
             "(same settings, once more); look at the stage's OUTCAR first.</p></div>",
+        ]
+    if result.get("not_accepted"):
+        rows = "".join(
+            f"<tr><td><code>{_e(s['state_id'])}</code></td><td>{_e(s.get('label') or '')}</td>"
+            f"<td>{_e(s['not_accepted']['summary'])}</td></tr>"
+            for s in result["not_accepted"]
+        )
+        parts += [
+            "<h2>Finished, but not accepted</h2>",
+            '<div class="panel"><table><thead><tr><th>state</th><th>intermediate</th><th>what happened</th></tr>'
+            f"</thead><tbody>{rows}</tbody></table>",
+            f'<p class="note">At the last collect ({_e(str(result["last_collect"])[:16].replace("T", " "))} UTC), '
+            "these structures gave no energy to their intermediate. <code>mechanet review</code> lists them with "
+            "what changed and what to do; run it, or <code>mechanet collect</code>, to refresh this list.</p></div>",
         ]
     parts += [
         "<h2>Mechanisms</h2>",

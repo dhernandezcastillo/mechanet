@@ -177,7 +177,7 @@ mechanet select
 mechanet submit --selected --through freq --execute
 ```
 
-`collect` parses every finished run, checks convergence, forces and magnetic moments, and assigns each relaxed structure to the intermediate it became. `select` keeps the variants within 0.10 eV of each intermediate's lowest, at most two (`--max-per-node 1` keeps one per intermediate and cuts the frequency work). Variants that relaxed into the same minimum are counted once, and `--families aem` selects only for the cycles of the families you name. The last command runs the single point and the finite-displacement Hessian of the selected states; displacements are restartable units, so a job stopped by the walltime loses nothing.
+`collect` parses every finished run, checks convergence, forces and magnetic moments, and assigns each relaxed structure to the intermediate it became; `mechanet review` lists the finished structures it did not accept, with what changed ([Checking results](../checking-results.md)). `select` keeps the variants within 0.10 eV of each intermediate's lowest, at most two (`--max-per-node 1` keeps one per intermediate and cuts the frequency work). Variants that relaxed into the same minimum are counted once, and `--families aem` selects only for the cycles of the families you name. The last command runs the single point and the finite-displacement Hessian of the selected states; displacements are restartable units, so a job stopped by the walltime loses nothing.
 
 ## 9. Clean up
 

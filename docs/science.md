@@ -310,7 +310,9 @@ M–Cl analogous). When it changed, the relaxed structure is classified site by 
 adsorbate signatures of the registry and assigned to the node with that occupancy, where it
 competes with that node's own variants. Ambiguous structures (a proton in transit, a
 detached O–O fragment, an occupancy outside the network) are not assigned automatically and
-are listed for review. Large electronic entropies (|EENTRO| above `analysis.max_eentro_eV`)
+are listed for review: `mechanet review` describes the change, and a decision in
+`states/<state>/review.json` (accept the structure as its own node, or assign it to another
+node of the same composition, each with a comment) is applied at the next collect. Large electronic entropies (|EENTRO| above `analysis.max_eentro_eV`)
 are flagged, since E(σ→0) still depends on SIGMA for partially occupied states.
 
 Local magnetic moments (the projected moments VASP prints with LORBIT) are reported per atom
