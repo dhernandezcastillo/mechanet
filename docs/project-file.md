@@ -82,13 +82,13 @@ except those mechanet sets per stage (docs/execution.md §1), MAGMOM and the LDA
 
 | Key | Default | Meaning |
 |---|---|---|
-| `potcar_variants` | | PAW dataset per element (`{Ru: Ru_pv, O: O}`), taken from the cluster profile's `potcar_dir`. |
+| `potcar_variants` | `init` proposes the Materials Project choices | PAW dataset per element (`{Ru: Ru_pv, O: O}`): `<potcar_dir>/<dataset>/POTCAR`. `mechanet init --potcar-variants Fe=Fe_pv,...` sets some and keeps the proposal for the rest. |
 | `potcars` | | Alternative: explicit POTCAR path per element. |
-| `potcar_dir` | | Alternative to the profile's `potcar_dir`. |
+| `potcar_dir` | the profile's `potcar_dir` | The licensed PAW library (`mechanet init --potcar-dir DIR`); a relative path is relative to project.yaml, `~` is expanded where the job runs. |
 | `magmom_by_element` | | Starting moments per element (μB); null leaves MAGMOM to the templates. |
 | `magmom_by_id` | | Starting moments per atom ID (overrides the element value; breaking a translation disables that symmetry reduction). |
 | `magmom_default` | | Moment for elements missing from `magmom_by_element`. |
-| `dft_u` | | `{Ni: {L: 2, U: 6.2, J: 0}}`: LDAU arrays for the species present (LDAUTYPE 2). |
+| `dft_u` | `init` proposes the Materials Project U for oxides and fluorides | `{Ni: {L: 2, U: 6.2, J: 0}}`: LDAU arrays for the species present (LDAUTYPE 2); species not listed get no U. `mechanet init --dft-u Fe=5.3,Ni=6.2` (U on d, f for lanthanides and actinides; `Fe=5.3:2:0.5` sets L and J) or `--dft-u none`. |
 | `template_species_order` | slab order | Species order of LDAU arrays already present in the templates. |
 | `common_overrides` | {} | Tags for every stage (NCORE, KPAR, ...). |
 | `stage_overrides` | {} | Tags for one stage, e.g. `{01_loose: {NSW: 80}}`; changes that would break the protocol are refused. |
@@ -120,7 +120,11 @@ except those mechanet sets per stage (docs/execution.md §1), MAGMOM and the LDA
 ## thermo_selection
 
 `energy_window_eV` (0.10) and `max_variants_per_node` (2): which 02_final variants of each
-intermediate continue to 04_static and 05_freq (`mechanet select`).
+intermediate continue to 04_static and 05_freq (`mechanet select`). Before that, variants that
+relaxed into the same minimum as a lower one are merged: energies within
+`duplicate_energy_eV` (0.005), every atom within `duplicate_max_shift_A` (0.10 Å) of a partner
+of its element (labels ignored, minimum image) and local moments within
+`analysis.moment_change_muB` (`mechanet select --keep-duplicates` keeps them).
 
 ## thermodynamics
 

@@ -99,6 +99,55 @@ class ProjectTests(unittest.TestCase):
         init_project(ldh / "slab" / "CONTCAR_seed", self.root / "ldh2", interactive=False, output=lambda *a: None)
         self.assertEqual(load_project(self.root / "ldh2")["vasp"]["dft_u"]["Ni"]["U"], 6.2)
 
+    def test_init_takes_u_values_paw_datasets_and_the_paw_library(self):
+        library = self.root / "potpaw"
+        for name in ("Ru_pv", "O", "H"):
+            (library / name).mkdir(parents=True)
+            (library / name / "POTCAR").write_text("synthetic")
+        lines = []
+        init_project(
+            RUO2,
+            self.root / "p",
+            interactive=False,
+            output=lines.append,
+            dft_u="Ru=2.0",
+            potcar_dir=str(library),
+            potcar_variants="O=O_s",
+        )
+        project = load_project(self.root / "p")
+        vasp = project["vasp"]
+        self.assertEqual(vasp["dft_u"], {"Ru": {"L": 2, "U": 2.0, "J": 0.0}})
+        self.assertEqual((vasp["potcar_variants"]["O"], vasp["potcar_variants"]["Ru"]), ("O_s", "Ru_pv"))
+        self.assertEqual(vasp["potcar_dir"], str(library))
+        self.assertTrue(any("no POTCAR in" in line and "O_s" in line for line in lines))
+        self.assertEqual(project["origins"]["vasp.dft_u"], "given (--dft-u)")
+        self.assertEqual(project["origins"]["vasp.potcar_variants"], "given for O; Materials Project for Ru, H")
+        self.assertEqual(resolve_config(project, cluster=False)["vasp"]["potcar_dir"], str(library))
+        # a library written relative to project.yaml is found from the project
+        text = (self.root / "p" / "project.yaml").read_text().replace(str(library), "../potpaw")
+        (self.root / "p" / "project.yaml").write_text(text)
+        config = resolve_config(load_project(self.root / "p"), cluster=False)
+        self.assertEqual(config["vasp"]["potcar_dir"], str(library.resolve()))
+        # "none": no +U where the Materials Project has a value; U:L:J sets all three
+        ldh = EXAMPLES / "nife_ldh" / "slab" / "CONTCAR_seed"
+        init_project(ldh, self.root / "ldh", interactive=False, output=lambda *a: None, dft_u="none")
+        project = load_project(self.root / "ldh")
+        self.assertIsNone(project["vasp"]["dft_u"])
+        self.assertEqual(project["origins"]["vasp.dft_u"], "given: none (--dft-u none)")
+        init_project(ldh, self.root / "ldh2", interactive=False, output=lambda *a: None, dft_u="Ni=6.2:2:0.5")
+        self.assertEqual(load_project(self.root / "ldh2")["vasp"]["dft_u"], {"Ni": {"L": 2, "U": 6.2, "J": 0.5}})
+        # mistakes are refused before anything is written
+        for options, message in (
+            ({"dft_u": "Fe=5.3"}, "Fe is not in the slab"),
+            ({"dft_u": "Ru=high"}, "not U, U:L or U:L:J"),
+            ({"potcar_variants": "Ru"}, "is not ELEMENT=VALUE"),
+            ({"potcar_variants": "O=Ru_pv"}, "not a PAW dataset name of O"),
+            ({"potcar_variants": "Ru=Ru_pv,Ru=Ru"}, "given twice"),
+        ):
+            with self.subTest(options=options), self.assertRaisesRegex(ValueError, message):
+                init_project(RUO2, self.root / "q", interactive=False, output=lambda *a: None, **options)
+            self.assertFalse((self.root / "q").exists())
+
     def test_validation_messages(self):
         errors = validate_project(
             {

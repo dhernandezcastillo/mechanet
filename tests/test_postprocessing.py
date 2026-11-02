@@ -786,6 +786,81 @@ Cartesian
         rows = (self.campaign / "analysis" / "cycles.csv").read_text().splitlines()
         self.assertIn("spin_check", rows[0])
 
+    def test_variants_that_relaxed_into_the_same_minimum_are_merged(self):
+        second = self.campaign / "states" / "reference_v2"
+        shutil.copytree(self.state, second)
+        for stage in ("03_refine", "04_static", "05_freq"):
+            shutil.rmtree(second / stage)
+        meta = json.loads((second / "state.json").read_text())
+        meta["id"] = "reference_v2"
+        (second / "state.json").write_text(json.dumps(meta))
+        final = second / "02_final"
+
+        def variant(energy, contcar, moment="0.1"):
+            (final / "OUTCAR").write_text(
+                outcar_text(ionic=True)
+                .replace("energy(sigma->0) = -10.00000000", f"energy(sigma->0) = {energy:.8f}")
+                .replace("1 0.0 0.1 0.0 0.1", f"1 0.0 {moment} 0.0 {moment}")
+            )
+            (final / "CONTCAR").write_text(contcar)
+            (self.campaign / "thermo_selection.json").unlink(missing_ok=True)
+
+        network = {
+            "reference": "reference",
+            "nodes": [{"id": "reference", "state_ids": ["reference", "reference_v2"], "delta_atoms": {"O": 0, "H": 0}}],
+            "edges": [],
+            "cycles": [],
+        }
+        (self.campaign / "network.json").write_text(json.dumps(network))
+        # 2 meV higher, the H 0.02 A away: the same minimum reached twice
+        variant(-9.998, POSCAR.replace("2 2 3 T T T", "2 2.02 3 T T T"))
+        result = select_for_thermo(self.campaign, energy_window_eV=0.10, max_variants_per_node=2)
+        self.assertEqual(result["state_ids"], ["reference"])
+        duplicate = result["duplicates_merged"][0]
+        self.assertEqual((duplicate["state_id"], duplicate["same_as"]), ("reference_v2", "reference"))
+        self.assertAlmostEqual(duplicate["delta_E_meV"], 2.0, places=6)
+        self.assertAlmostEqual(duplicate["max_shift_A"], 0.02, places=4)
+        self.assertEqual(duplicate["max_moment_change_muB"], 0.0)
+        self.assertEqual(result["nodes"][0]["duplicates"], [duplicate])
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(["select", str(self.campaign)]), 0)
+        self.assertIn("reference_v2 = reference: dE 2.0 meV, largest shift 0.020 A", out.getvalue())
+        (self.campaign / "thermo_selection.json").unlink()
+        both = select_for_thermo(self.campaign, keep_duplicates=True)
+        self.assertEqual((both["state_ids"], both["duplicates_merged"]), (["reference", "reference_v2"], []))
+        # a structure 0.3 A away, or one in another magnetic solution, is a different minimum
+        variant(-9.998, POSCAR.replace("2 2 3 T T T", "2 2.3 3 T T T"))
+        self.assertEqual(select_for_thermo(self.campaign)["state_ids"], ["reference", "reference_v2"])
+        variant(-9.998, POSCAR.replace("2 2 3 T T T", "2 2.02 3 T T T"), moment="-0.9")
+        self.assertEqual(select_for_thermo(self.campaign)["state_ids"], ["reference", "reference_v2"])
+        # the limits are settings
+        variant(-9.998, POSCAR.replace("2 2 3 T T T", "2 2.02 3 T T T"))
+        config = json.loads((self.campaign / "config.json").read_text())
+        config["thermo_selection"] = {"duplicate_energy_eV": 0.001}
+        (self.campaign / "config.json").write_text(json.dumps(config))
+        result = select_for_thermo(self.campaign)
+        self.assertEqual(
+            (result["state_ids"], result["criteria"]["duplicates"]["energy_eV"]), (["reference", "reference_v2"], 0.001)
+        )
+
+    def test_atoms_are_matched_without_their_labels(self):
+        import numpy as np
+
+        from mechanet.analysis import structure_difference
+        from mechanet.structure import Structure
+
+        cell = np.eye(3) * 10.0
+        positions = np.array([[1.0, 1.0, 1.0], [1.0, 1.0, 2.0], [9.95, 1.0, 1.0]])
+        first = Structure(["O", "H", "H"], positions, cell, np.ones((3, 3), bool), ["a1", "a2", "a3"])
+        swapped = positions[[0, 2, 1]] + np.array([0.0, 0.0, 0.01])
+        swapped[1, 0] += 10.0  # the same point one cell over
+        second = Structure(["O", "H", "H"], swapped, cell, np.ones((3, 3), bool), ["a1", "a2", "a3"])
+        diff = structure_difference(first, second, [0.1, 0.0, 0.0], [0.1, 0.0, 0.0])
+        self.assertAlmostEqual(diff["max_shift_A"], 0.01, places=6)
+        self.assertEqual(diff["max_moment_change_muB"], 0.0)
+        other = Structure(["O", "O", "H"], positions, cell, np.ones((3, 3), bool), ["a1", "a2", "a3"])
+        self.assertIsNone(structure_difference(first, other))
+
     def test_select_for_thermo_can_be_restricted_to_cycles(self):
         nodes = {"reference": "reference", "a": "a_v1", "b": "b_v1", "c": "c_v1"}
         for node_id, sid in nodes.items():
@@ -820,6 +895,16 @@ Cartesian
         self.assertEqual(select_for_thermo(self.campaign)["state_ids"], ["a_v1", "b_v1", "c_v1", "reference"])
         with self.assertRaisesRegex(ValueError, "Unknown cycle IDs"):
             select_for_thermo(self.campaign, cycles=["C9"])
+        (self.campaign / "thermo_selection.json").unlink()
+        result = select_for_thermo(self.campaign, families=["f"])
+        self.assertEqual(
+            (result["state_ids"], result["criteria"]["families"]), (["a_v1", "b_v1", "c_v1", "reference"], ["f"])
+        )
+        with self.assertRaisesRegex(ValueError, "No cycles of the families"):
+            select_for_thermo(self.campaign, families=["aem"])
+        (self.campaign / "thermo_selection.json").unlink()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["select", str(self.campaign), "--families", "f"]), 0)
         (self.campaign / "thermo_selection.json").unlink()
         ids = self.campaign / "top_cycles.txt"
         ids.write_text("C2\n")

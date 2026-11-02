@@ -415,7 +415,7 @@ class PluginReactionTests(TempCase):
             SPECIES.pop("H2", None)  # as in a fresh process: only the campaign's plugin defines H2
             code, text = run("show-cycle", "her_volmer_heyrovsky_m0010", project / "campaign")
         self.assertEqual(code, 0, text)
-        self.assertIn("takes up H+ + e-", text)
+        self.assertIn("*H₁₀ + H⁺ + e⁻ → *₁₀ + H₂", text)
 
     def test_reference_molecules_follow_the_reaction(self):
         project, _ = self.make_her_project()
@@ -437,7 +437,7 @@ class PluginReactionTests(TempCase):
             SPECIES.pop("H2", None)
             code, text = run("show-cycle", "her_volmer_heyrovsky_m0010", moved)
         self.assertEqual(code, 0, text)
-        self.assertIn("takes up H+ + e-", text)
+        self.assertIn("*H₁₀ + H⁺ + e⁻ → *₁₀ + H₂", text)
 
     def test_reference_molecules_follow_the_slab_overrides(self):
         project, _ = self.make_her_project()

@@ -348,6 +348,70 @@ def active_job_ids(job_ids):
     return active | {job for job in sorted(wanted - set(listing)) if job_is_active(job)}
 
 
+RUNNING_JOB_STATES = frozenset({"RUNNING", "COMPLETING", "CONFIGURING", "STAGE_OUT", "SIGNALING", "RESIZING"})
+STATUS_FORMAT = "%i|%T|%Z|%M|%L|%j|%r"
+
+
+def campaign_jobs(campaign, entries=None):
+    """(jobs, problem): the jobs SLURM still knows for this campaign, read-only.
+
+    A job belongs to the campaign when it runs in one of its state folders or the ledger
+    (``entries`` of submissions.json) lists its ID. Each job: job_id, slurm_state, state_id,
+    elapsed, time_left, name, reason, active (not in a final state), running. ``problem``
+    says why SLURM could not be asked (``jobs`` is then None).
+    """
+    import shutil
+
+    user = _current_user()
+    if not user:
+        return None, "the user name is unknown"
+    if shutil.which("squeue") is None:
+        return None, "squeue is not available on this machine"
+    try:
+        proc = _squeue(["--noheader", "--all", "--states=all", f"--user={user}", f"--format={STATUS_FORMAT}"])
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"squeue failed: {exc}"
+    if proc.returncode != 0:
+        return None, f"squeue failed: {(proc.stderr or proc.stdout).strip()[:200]}"
+    states_root = os.path.realpath(Path(campaign) / "states")
+    ledger = {str(e["job_id"]): e for e in entries or () if e.get("job_id")}
+    jobs = []
+    for line in proc.stdout.splitlines():
+        parts = line.split("|") if "|" in line else line.split(None, 6)
+        if len(parts) < 2 or not parts[0].strip():
+            continue
+        parts += [""] * (7 - len(parts))
+        job_id, state, workdir, elapsed, left, name, reason = (p.strip() for p in parts[:7])
+        state = _state_word(state)
+        state_id = None
+        if workdir:
+            path = os.path.realpath(workdir)
+            if os.path.dirname(path) == states_root:
+                state_id = os.path.basename(path)
+        entry = ledger.get(job_id)
+        state_id = state_id or (entry or {}).get("state_id")
+        if state_id is None:
+            continue
+        active = state not in FINAL_JOB_STATES
+        if active and entry and entry.get("run_ended_at_utc") and state not in REQUEUE_STATES:
+            active = False  # its run-state has ended; SLURM is only tidying up
+        jobs.append(
+            {
+                "job_id": job_id,
+                "slurm_state": state,
+                "state_id": state_id,
+                "elapsed": elapsed or None,
+                "time_left": left or None,
+                "name": name or None,
+                "reason": reason if reason and reason != "None" else None,
+                "active": active,
+                "running": active and state in RUNNING_JOB_STATES,
+                "in_ledger": entry is not None,
+            }
+        )
+    return jobs, None
+
+
 def _slurm_view(campaign, entries, latest, excluded):
     """The campaign as SLURM sees it: active and finished ledger jobs, and active jobs per state folder.
 
@@ -962,8 +1026,53 @@ def refill_status(campaign):
     return record
 
 
-def _refill_decision(record, failure):
-    """('refill' | 'disable' | 'ignore', reason) for a run that just ended in a job of the campaign."""
+# A SIGTERM this close to the allocation end, or after it, comes from the hard time limit.
+TIME_LIMIT_SIGTERM_S = 120
+
+
+def _job_state_and_reason(job_id):
+    """(state, reason) squeue gives for one job, or (None, None) when it cannot be asked."""
+    try:
+        proc = _squeue(["--noheader", "--jobs", str(job_id), "--format=%T|%r"])
+    except (OSError, subprocess.SubprocessError):
+        return None, None
+    lines = [line for line in proc.stdout.splitlines() if line.strip()]
+    if proc.returncode != 0 or not lines:
+        return None, None
+    state, _, reason = lines[0].partition("|")
+    return _state_word(state), reason.strip()
+
+
+def _killed_at_time_limit(record):
+    """True when the job's SIGTERM came from its time limit; False for scancel or preemption.
+
+    The runner records how many seconds were left in the allocation when the SIGTERM came: at
+    most TIME_LIMIT_SIGTERM_S (or past the end) is the time limit, unless SLURM shows the job
+    requeued (preemption). Without that record, SLURM's state (TIMEOUT) or reason (TimeLimit)
+    decides; when SLURM cannot be asked either, the SIGTERM counts as a cancellation.
+    """
+    events = [e for e in record.get("signals") or [] if e.get("signal") == "SIGTERM"]
+    if not events:
+        return False
+    job = record.get("slurm_job_id") or os.environ.get("SLURM_JOB_ID")
+    left = [e.get("seconds_to_allocation_end") for e in events]
+    if all(v is not None for v in left):
+        if any(float(v) > TIME_LIMIT_SIGTERM_S for v in left):
+            return False
+        state, _ = _job_state_and_reason(job) if job else (None, None)
+        return state not in REQUEUE_STATES
+    if not job:
+        return False
+    state, reason = _job_state_and_reason(job)
+    return state == "TIMEOUT" or "timelimit" in str(reason or "").replace(" ", "").lower()
+
+
+def _refill_decision(record, failure, verdict=None):
+    """('refill' | 'disable' | 'ignore', reason) for a run that just ended in a job of the campaign.
+
+    ``verdict`` (a dict), when given, receives ``time_limit: True`` for a job ended by its hard
+    time limit, which continues like a clean stop.
+    """
     from .runner import LockBusy
 
     if not record:
@@ -973,8 +1082,20 @@ def _refill_decision(record, failure):
             f"run-state stopped before it could record the run: {type(failure).__name__}: {str(failure)[:300]}"
         )
     if any(event.get("signal") == "SIGTERM" for event in record.get("signals") or []):
-        return "ignore", (
-            "the job received SIGTERM (scancel, preemption or the hard time limit); no replacement is submitted for it"
+        if not _killed_at_time_limit(record):
+            return "ignore", (
+                "the job received SIGTERM before its time limit (scancel or preemption); no replacement is "
+                "submitted for it"
+            )
+        if verdict is not None:
+            verdict["time_limit"] = True
+        if int(record.get("vasp_launches") or 0) >= 1:
+            return "refill", (
+                "the job reached its hard time limit (SIGTERM at the allocation end); the state continues in a new job"
+            )
+        return "disable", (
+            "the job reached its hard time limit before starting VASP; compare the walltime with "
+            "scheduler.min_remaining_s and the measured stage times, then resume with `mechanet refill <campaign> --on`"
         )
     status = record.get("status")
     if status == "complete":
@@ -1131,8 +1252,10 @@ def refill_after_run(campaign, state_dir, record, failure=None, stop_check=None)
     try:
         if record is None:
             record = _run_record_of_this_job(state_dir)
-        decision, why = _refill_decision(record, failure)
-        if decision == "refill" and stop_check():
+        verdict = {}
+        decision, why = _refill_decision(record, failure, verdict)
+        time_limit = bool(verdict.get("time_limit"))
+        if decision == "refill" and stop_check() and not time_limit:
             decision, why = "ignore", "SIGTERM arrived while the job was ending; no replacement is submitted"
         if decision == "refill":
             # Failed states in a row that look like a broken setup point to a common cause.
@@ -1176,6 +1299,7 @@ def refill_after_run(campaign, state_dir, record, failure=None, stop_check=None)
         if decision == "disable":
             outcome["disable"] = why
         elif decision == "refill":
+            # After the time limit's SIGTERM, SLURM kills the job within its KillWait: no waiting for more signals.
             result = submit(
                 campaign,
                 through=settings["targets"],
@@ -1185,7 +1309,7 @@ def refill_after_run(campaign, state_dir, record, failure=None, stop_check=None)
                 verify_complete=False,
                 origin="refill",
                 env=_sbatch_env(),
-                stop_check=stop_check,
+                stop_check=None if time_limit else stop_check,
             )
             _absorb(event, outcome, result)
     except Exception as exc:  # noqa: BLE001 - a refill problem must never fail the finished run

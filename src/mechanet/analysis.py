@@ -1129,6 +1129,100 @@ def _cycle_nodes(network, cycle_ids):
     return wanted
 
 
+DUPLICATE_ENERGY_EV = 0.005
+DUPLICATE_MAX_SHIFT_A = 0.10
+
+
+def _assignment(cost):
+    """Pairs (i, j) of a minimum-cost one-to-one matching (Hungarian with scipy, greedy without)."""
+    try:
+        from scipy.optimize import linear_sum_assignment
+
+        rows, cols = linear_sum_assignment(cost)
+        return list(zip(rows.tolist(), cols.tolist()))
+    except ImportError:
+        pairs, used_i, used_j = [], set(), set()
+        for flat in np.argsort(cost, axis=None):
+            i, j = (int(x) for x in np.unravel_index(flat, cost.shape))
+            if i not in used_i and j not in used_j:
+                pairs.append((i, j))
+                used_i.add(i)
+                used_j.add(j)
+        return pairs
+
+
+def structure_difference(first, second, first_moments=None, second_moments=None):
+    """How far apart two relaxed structures of one composition are, ignoring atom labels.
+
+    Atoms of each element are matched one to one to their nearest partner (minimum image), so
+    two structures whose H atoms swapped places still match. Returns {max_shift_A, rms_shift_A,
+    max_moment_change_muB (None without moments)}, or None for different compositions.
+    """
+    if sorted(first.symbols) != sorted(second.symbols):
+        return None
+    from .structure import pbc_distances
+
+    shifts, gap = [], None
+    have = (
+        first_moments is not None
+        and second_moments is not None
+        and len(first_moments) == len(first.symbols)
+        and len(second_moments) == len(second.symbols)
+    )
+    inv = np.linalg.inv(first.cell)
+    for element in sorted(set(first.symbols)):
+        i = [k for k, s in enumerate(first.symbols) if s == element]
+        j = [k for k, s in enumerate(second.symbols) if s == element]
+        cost = pbc_distances(first.positions[i], second.positions[j], first.cell, inv)
+        for p, q in _assignment(cost):
+            shifts.append(float(cost[p, q]))
+            if have:
+                change = abs(float(first_moments[i[p]]) - float(second_moments[j[q]]))
+                gap = change if gap is None else max(gap, change)
+    shifts = np.asarray(shifts)
+    return {
+        "max_shift_A": round(float(shifts.max()), 4) if len(shifts) else 0.0,
+        "rms_shift_A": round(float(np.sqrt((shifts**2).mean())), 4) if len(shifts) else 0.0,
+        "max_moment_change_muB": None if gap is None else round(gap, 3),
+    }
+
+
+def _merge_duplicates(campaign, variants, magmoms, energy_eV, shift_A, moment_muB):
+    """(kept, duplicates): variants (lowest energy first) that relaxed into the same minimum as a
+    lower one are set aside, each with the variant it repeats and the differences found."""
+    structures, kept, duplicates = {}, [], []
+
+    def structure(sid):
+        if sid not in structures:
+            try:
+                structures[sid] = read_poscar(campaign / "states" / sid / STAGE_FINAL / "CONTCAR")
+            except (OSError, ValueError):
+                structures[sid] = None
+        return structures[sid]
+
+    for variant in variants:
+        sid = variant["state_id"]
+        match = None
+        for lower in kept:
+            gap = abs(variant["energy_final_e0_eV"] - lower["energy_final_e0_eV"])
+            if gap >= energy_eV or structure(sid) is None or structure(lower["state_id"]) is None:
+                continue
+            diff = structure_difference(
+                structure(lower["state_id"]), structure(sid), magmoms.get(lower["state_id"]), magmoms.get(sid)
+            )
+            if diff is None or diff["max_shift_A"] >= shift_A:
+                continue
+            if diff["max_moment_change_muB"] is not None and diff["max_moment_change_muB"] > moment_muB:
+                continue
+            match = {"state_id": sid, "same_as": lower["state_id"], "delta_E_meV": round(1000 * gap, 2), **diff}
+            break
+        if match:
+            duplicates.append(match)
+        else:
+            kept.append(variant)
+    return kept, duplicates
+
+
 def select_for_thermo(
     campaign,
     energy_window_eV=None,
@@ -1137,15 +1231,21 @@ def select_for_thermo(
     out_path=None,
     cycles=None,
     registry=None,
+    families=None,
+    keep_duplicates=False,
 ):
     """Choose which 02_final variants proceed to the later stages.
 
     For every computed node (symmetry twins excluded), the accepted 02_final variants within
-    ``energy_window_eV`` of the node minimum are kept, up to ``max_variants_per_node``. A
-    node with variants whose 02_final has not completed is left waiting unless
-    ``include_partial`` is set. ``cycles`` restricts the selection to the nodes of those
-    cycles (every structure is still evaluated, so one that relaxed into such a node
-    competes there).
+    ``energy_window_eV`` of the node minimum are kept, up to ``max_variants_per_node``.
+    Variants that relaxed into the same minimum as a lower one (energies within
+    ``thermo_selection.duplicate_energy_eV``, every atom within
+    ``thermo_selection.duplicate_max_shift_A`` of a partner of its element, local moments
+    within ``analysis.moment_change_muB``) are merged first, keeping the lowest, unless
+    ``keep_duplicates``. A node with variants whose 02_final has not completed is left
+    waiting unless ``include_partial`` is set. ``cycles`` and ``families`` restrict the
+    selection to the nodes of those cycles, or of the cycles of those families (every
+    structure is still evaluated, so one that relaxed into such a node competes there).
     """
     campaign = Path(campaign).resolve()
     config = _load(campaign / "config.json")
@@ -1157,12 +1257,24 @@ def select_for_thermo(
     )
     if window < 0 or limit < 1:
         raise ValueError("energy window must be >= 0 and max variants per node >= 1")
+    same_energy = float(selection_cfg.get("duplicate_energy_eV", DUPLICATE_ENERGY_EV))
+    same_shift = float(selection_cfg.get("duplicate_max_shift_A", DUPLICATE_MAX_SHIFT_A))
+    if same_energy < 0 or same_shift < 0:
+        raise ValueError("thermo_selection.duplicate_energy_eV and duplicate_max_shift_A must be >= 0")
     require_hashes = bool(config.get("analysis", {}).get("require_input_hashes", True))
     network = _load(campaign / "network.json")
     computed = [n for n in network.get("nodes", []) if not n.get("computed_by")]
-    wanted = _cycle_nodes(network, list(cycles)) if cycles else None
+    restrict = list(cycles or [])
+    if families:
+        present = sorted({c.get("family") for c in network.get("cycles", []) if c.get("family")})
+        unknown = sorted(set(families) - set(present))
+        if unknown:
+            raise ValueError(f"No cycles of the families {unknown} in this campaign; it has {', '.join(present)}")
+        restrict += [c["id"] for c in network["cycles"] if c.get("family") in set(families) and c["id"] not in restrict]
+    wanted = _cycle_nodes(network, restrict) if (cycles or families) else None
     selected, per_node, waiting, unresolved = [], [], [], []
-    evaluated, own_variants, moment_rows = {}, {}, []
+    evaluated, own_variants, moment_rows, magmoms = {}, {}, [], {}
+    merged_total = []
     for node in computed:
         own_variants[node["id"]] = []
         for sid in node.get("state_ids", []):
@@ -1211,6 +1323,7 @@ def select_for_thermo(
                             "final_topology": topology,
                         }
                     )
+                    magmoms[sid] = final.get("magmoms")
                 evaluated[sid] = record
             own_variants[node["id"]].append(evaluated[sid])
     moments = MomentTracker(campaign, network, moment_rows, {}, STAGE_FINAL, "final_topology", config)
@@ -1270,7 +1383,15 @@ def select_for_thermo(
             per_node.append({"node_id": node["id"], "status": "no_accepted_variant", "variants": variants, **extra})
             continue
         minimum = accepted[0]["energy_final_e0_eV"]
-        chosen = [v for v in accepted if v["energy_final_e0_eV"] - minimum <= window + 1e-12][:limit]
+        candidates, duplicates = accepted, []
+        if not keep_duplicates and len(accepted) > 1:
+            near = [v for v in accepted if v["energy_final_e0_eV"] - minimum <= window + same_energy + 1e-12]
+            kept, duplicates = _merge_duplicates(campaign, near, magmoms, same_energy, same_shift, moments.threshold)
+            candidates = kept + [v for v in accepted if v not in near]
+        if duplicates:
+            extra["duplicates"] = duplicates
+            merged_total += duplicates
+        chosen = [v for v in candidates if v["energy_final_e0_eV"] - minimum <= window + 1e-12][:limit]
         for v in accepted:
             v["relative_eV"] = v["energy_final_e0_eV"] - minimum
         selected.extend(v["state_id"] for v in chosen)
@@ -1304,8 +1425,21 @@ def select_for_thermo(
             "grouping": "by the node whose site occupancy the relaxed 02_final structure has",
             "include_partial": bool(include_partial),
             "cycles": sorted(cycles) if cycles else None,
+            "families": sorted(families) if families else None,
+            "duplicates": (
+                "kept (--keep-duplicates)"
+                if keep_duplicates
+                else {
+                    "energy_eV": same_energy,
+                    "max_shift_A": same_shift,
+                    "moment_change_muB": moments.threshold,
+                    "rule": "a variant within these limits of a lower one (atoms matched per element, labels "
+                    "ignored) is the same minimum; the lowest is kept",
+                }
+            ),
         },
         "n_selected": len(set(selected)),
+        "duplicates_merged": merged_total,
         "waiting_nodes": waiting,
         "unresolved_nodes": unresolved,
         "nodes_with_several_magnetic_solutions": several_solutions,

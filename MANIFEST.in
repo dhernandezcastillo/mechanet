@@ -3,4 +3,6 @@ include README.md LICENSE CHANGELOG.md CITATION.cff
 graft docs
 graft examples
 graft tests
+prune docs/_build
+exclude docs/commands.md
 global-exclude __pycache__ *.py[cod] .DS_Store

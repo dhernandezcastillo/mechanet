@@ -82,7 +82,7 @@ class CliTests(unittest.TestCase):
             (("plan", self.campaign), "relaxation_jobs"),
             (("list", self.campaign), "frequency_dof"),
             (("cycles", self.campaign), "aem_m0038_AEM"),
-            (("show-cycle", "aem_m0038_AEM", self.campaign), "releases H+ + O2 + e-"),
+            (("show-cycle", "aem_m0038_AEM", self.campaign), "*OOH₃₈ → *₃₈ + O₂ + H⁺ + e⁻"),
             (("validate", self.campaign), "valid:"),
             (("plugins",), "cer_volmer_heyrovsky"),
             (("report", self.campaign), "## Network"),

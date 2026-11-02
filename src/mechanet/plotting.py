@@ -65,6 +65,31 @@ def _short(node_id, release):
     return core.replace("_", "\n")
 
 
+def _readable(campaign, cycle_id):
+    """({node ID: label in the cycle's notation, '__release__': product}, title) or ({}, None)."""
+    try:
+        from .notation import Notation
+        from .plugins import campaign_registry
+
+        try:
+            registry = campaign_registry(campaign)
+        except Exception:  # noqa: BLE001 - titles fall back to the family names
+            registry = None
+        notation = Notation.from_campaign(campaign, registry=registry)
+        if cycle_id not in notation.cycles:
+            return {}, None
+        view = notation.cycle(cycle_id)
+    except Exception:  # noqa: BLE001 - a plot never fails over its labels
+        return {}, None
+    names = dict(zip(view["node_ids"], view["labels"]))
+    if view.get("release"):
+        names["__release__"] = view["release"]
+    title = view["title"] + (f" ({view['variant']})" if view.get("variant") else "")
+    if view.get("site_key"):
+        title += f", {view['site_key']}"
+    return names, title
+
+
 def plot_profile(campaign, cycle_id, potential_V, output_path, scale=None, moments=True):
     """Cumulative free energy along one cycle at one potential (from analysis/thermodynamics.json).
 
@@ -99,8 +124,14 @@ def plot_profile(campaign, cycle_id, potential_V, output_path, scale=None, momen
     nodes = chosen.get("node_ids") or []
     reaction = chosen.get("reaction", "oer")
     release = {"oer": "O2", "cer": "Cl2"}.get(reaction, "product")
+    names, title = _readable(root, cycle_id)
+    release_text = names.get("__release__") or release
+
+    def name(node_id):
+        return names[node_id].replace(" · ", "\n") if node_id in names else _short(node_id, release)
+
     labels = (
-        [_short(n, release) for n in nodes] + [f"{_short(nodes[0], release)}\n+ {release}"]
+        [name(n) for n in nodes] + [f"{name(nodes[0])}\n+ {release_text}"]
         if len(nodes) == len(y) - 1
         else [str(i) for i in range(len(y))]
     )
@@ -172,10 +203,12 @@ def plot_profile(campaign, cycle_id, potential_V, output_path, scale=None, momen
         descriptor.append(f"largest step {chosen['largest_step_deltaG_eV']:.2f} eV")
     if chosen.get("thermodynamic_overpotential_V") is not None:
         descriptor.append(f"eta_TD {chosen['thermodynamic_overpotential_V']:.2f} V")
-    ax.set_title(f"{cycle_id}\n" + " | ".join(descriptor), fontsize=9.5, loc="left")
+    ax.set_title(
+        f"{cycle_id}" + (f": {title}" if title else "") + "\n" + " | ".join(descriptor), fontsize=9.5, loc="left"
+    )
     notes = ["Computational hydrogen electrode profile; dotted connectors are not barriers."]
     if panel:
-        notes += _moments_panel(bx, panel, len(y), magnetism)
+        notes += _moments_panel(bx, panel, len(y), magnetism, names)
     fig_width, fig_height = fig.get_size_inches()
     size = 7.5 if panel else 8.0
     wrapped = [line for note in notes for line in textwrap.wrap(note, width=int(fig_width * 15))]
@@ -198,9 +231,14 @@ def plot_profile(campaign, cycle_id, potential_V, output_path, scale=None, momen
     }
 
 
-def _moments_panel(ax, panel, n_points, magnetism):
-    """Local moments of the tracked atoms per intermediate; returns the footnote lines."""
+def _moments_panel(ax, panel, n_points, magnetism, node_names=None):
+    """Local moments of the tracked atoms per intermediate; returns the footnote lines.
+
+    ``node_names`` (node ID -> label) names the intermediates in the footnotes (else short node tags)."""
     from .magnetism import flag_text, short_label
+
+    def label(node_id):
+        return (node_names or {}).get(node_id) or short_label(node_id)
 
     _clean(ax)
     ax.axhline(0.0, color=GRID, lw=0.8, zorder=0)
@@ -266,7 +304,7 @@ def _moments_panel(ax, panel, n_points, magnetism):
     ]
     status = panel["status"]
     if status == "needs_review":
-        shown = "; ".join(flag_text(flag, short_label) for flag in panel["flags"][:2])
+        shown = "; ".join(flag_text(flag, label) for flag in panel["flags"][:2])
         more = len(panel["flags"]) - 2
         notes.append(
             "Spin check: needs review. "
@@ -274,7 +312,7 @@ def _moments_panel(ax, panel, n_points, magnetism):
             + (f" (+{more} more; `mechanet show-cycle` lists them)" if more > 0 else "")
         )
     elif status == "incomplete":
-        missing = ", ".join(short_label(m["node_id"]) for m in panel.get("missing", []))
+        missing = ", ".join(label(m["node_id"]) for m in panel.get("missing", []))
         notes.append(f"Spin check incomplete: no moments for {missing or 'some intermediates'}.")
     else:
         notes.append(

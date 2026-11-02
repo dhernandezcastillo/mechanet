@@ -21,17 +21,21 @@ slab.vasp ──init──▶ project.yaml ──generate──▶ campaign/ ─
 - [Quick start](#quick-start)
 - [A study step by step](#a-study-step-by-step)
 - [Running on your cluster](#running-on-your-cluster)
+- [Following a campaign](#following-a-campaign)
 - [Reactions and mechanism families](#reactions-and-mechanism-families)
 - [Finding new pathways](#finding-new-pathways)
+- [Magnetic moments along a cycle](#magnetic-moments-along-a-cycle)
 - [Surface Pourbaix diagrams](#surface-pourbaix-diagrams)
 - [Extending mechanet](#extending-mechanet)
 - [Examples](#examples)
 - [Scope and limitations](#scope-and-limitations)
 
-Further reading: [docs/project-file.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/project-file.md) (every setting),
-[docs/execution.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/execution.md) (stages, continuation, SLURM),
-[docs/science.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/science.md) (what is computed and how to read it),
-[docs/plugins.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/plugins.md) (new reactions, adsorbates and mechanisms).
+Documentation: [mechanet.readthedocs.io](https://mechanet.readthedocs.io), with the
+[project.yaml reference](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/project-file.md) (every setting),
+[execution](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/execution.md) (stages, continuation, SLURM),
+[what mechanet computes](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/science.md) (and how to read it),
+[plugins](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/plugins.md) (new reactions, adsorbates and mechanisms)
+and a reference of every command.
 
 ## Install
 
@@ -65,12 +69,12 @@ before generating. Every value `init` detected is marked `[auto]` in `project.ya
 
 | Step | Command | What happens |
 |---|---|---|
-| 1 | `mechanet init SLAB` | Finds the vacuum axis, active side, fixed region, reactive sites (O/OH/H2O ligands, open metal sites), symmetry and site pairs; proposes the partial-Hessian region, PAW datasets, starting moments and (for oxides) Materials Project U values; writes the project, INCAR templates, KPOINTS, a references template and the site map. |
+| 1 | `mechanet init SLAB` | Finds the vacuum axis, active side, fixed region, reactive sites (O/OH/H2O ligands, open metal sites), symmetry and site pairs; proposes the partial-Hessian region, PAW datasets, starting moments and (for oxides) Materials Project U values; writes the project, INCAR templates, KPOINTS, a references template and the site map. Your own choices go in at once with `--dft-u Fe=5.3,Ni=6.2` (or `none`), `--potcar-variants Fe=Fe_pv,...` and `--potcar-dir DIR`. |
 | 2 | `mechanet generate` | Builds the network from the mechanism families in `scope.families`, places every adsorbate with a scored clash-free search, merges lattice-translation images, and writes one starting structure per variant into `campaign/states/`. No DFT. |
 | 3 | `mechanet plan` / `cycles` / `show-cycle` | Counts nodes, cycles, starts, DFT runs and displacement single points (node-hours once pilot timings exist); writes the method card. |
 | 4 | `mechanet submit --pilot --execute` | The reference, one start per adsorbate type and the most crowded start: checks the protocol and gives timings. |
-| 5 | `mechanet submit --execute` | All states through `02_final` (repeat the command to continue jobs stopped at the walltime; `--max-active N --refill` keeps N jobs running). |
-| 6 | `mechanet collect` then `mechanet select` | Parses results (convergence, forces, moments, topology), assigns relaxed structures to the intermediates they became, and selects the variants that continue to frequencies; variants of one intermediate that converged to different magnetic solutions are reported. |
+| 5 | `mechanet submit --execute` | All states through `02_final` (repeat the command to continue jobs stopped at the walltime; `--max-active N --refill` keeps N jobs running). `mechanet status` shows what is finished, running, queued or waiting, per state and per cycle. |
+| 6 | `mechanet collect` then `mechanet select` | Parses results (convergence, forces, moments, topology), assigns relaxed structures to the intermediates they became, and selects the variants that continue to frequencies (`--families aem,...` or `--cycles` to restrict them). Variants that relaxed into the same minimum are merged first; variants of one intermediate that converged to different magnetic solutions are reported. |
 | 7 | `mechanet submit --selected --through freq --execute` | `04_static` and the partial Hessian by restartable finite displacements. |
 | 8 | `mechanet thermo` | Free energies of every intermediate, step and cycle at the analysis potentials; Gmax(U), limiting potential, overpotential, resting states; the local moments of the active-site atoms along each cycle, with a spin check. `--electronic-only` gives a screening estimate before frequencies exist. `mechanet plot-profile CYCLE --potential U` draws the profile with the moments underneath. |
 | 9 | `mechanet pathways --rank` | Every balanced cycle of the network, curated or not, ranked per reaction with the project's references; the lowest limiting potential over all cycles, of any length, whose steps have energies. |
@@ -118,8 +122,52 @@ state's stages; `#SBATCH --signal=B:USR1@1800` (a quarter of the walltime for jo
 2 h) lets the runner stop VASP cleanly before the time limit, and running the same `submit`
 again continues. A stage that needs more time than a job has (`min_remaining_s`) starts at
 the beginning of the next job.
+With `--refill`, a job that SLURM kills at its hard time limit (a stage that overran the stop
+signal) is continued by a new job, like one that stopped cleanly; a job you cancel is not
+replaced.
 See [docs/execution.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/execution.md) for continuation, retries, the job cap, refill
 from compute or login nodes, and cleanup.
+
+The PAW library can come from the profile (`potcar_dir`) or from the project
+(`mechanet init ... --potcar-dir DIR`, or `vasp.potcar_dir` in project.yaml).
+
+## Following a campaign
+
+```bash
+mechanet status                     # what is finished, running, queued, waiting; per state and per cycle
+mechanet status --cycles            # every cycle, one mark per intermediate
+mechanet status --list todo         # state IDs a submit would start (or: running, queued, attention, ...)
+mechanet show-cycle bifunctional_a0065_a0061_BF2
+```
+
+`status` reads the run records, the submission ledger and one `squeue` listing of your jobs
+(`--no-slurm` skips it); nothing is submitted or changed. Each state is measured against the
+stage its last submission (or the refill) asked for, or `--through STAGE`, and lands in one
+group: finished, running, queued, to continue (stopped part way; the next submit continues
+it), needs you (a failed attempt waiting for `--retry`, a used-up budget, an unknown
+submission) or not started. It also writes `campaign/status.html`, a self-contained page
+(copy it to your computer and open it in a browser) with a grid of sites × mechanisms, one
+square per structure, and every cycle's steps and structures.
+
+Intermediates and steps are written in a compact notation, also used by `show-cycle`,
+`report` and `plot-profile`:
+
+```text
+Bifunctional mechanism II (BF-II)
+  Exner (Mater. Horiz. 2023) bifunctional mechanism II after Halck et al. 2014, ...
+  sites: 65 = a0065: terminal O on Fe a0003 (native OH); 61 = a0061: O bridging Fe a0003 and Ni a0005 (native OH)
+  1. *₆₅ · μ-O₆₁ + H₂O → *OH₆₅ · μ-O₆₁ + H⁺ + e⁻   electrochemical
+  2. *OH₆₅ · μ-O₆₁ → *O₆₅ · μ-O₆₁ + H⁺ + e⁻        electrochemical
+  3. *O₆₅ · μ-O₆₁ + H₂O → *OOH₆₅ · μ-OH₆₁          chemical
+  4. *OOH₆₅ · μ-OH₆₁ → *OOH₆₅ · μ-O₆₁ + H⁺ + e⁻    electrochemical
+  5. *OOH₆₅ · μ-O₆₁ → *₆₅ · μ-O₆₁ + O₂ + H⁺ + e⁻   electrochemical
+```
+
+`*` is a terminal site (a terminal ligand or an open metal site; `*₆₅` alone is the bare
+metal), `μ-` a bridging one (`μ-□` a bridge vacancy), the subscript the site number (a0065 →
+65), and `·` separates the sites of one intermediate. Steps are listed with the one that
+releases the product last. Terminals that cannot show subscripts get an ASCII form
+(`*OOH65 & mu-O61 -> ...`).
 
 ## Reactions and mechanism families
 
@@ -237,6 +285,8 @@ favourable descriptor does not establish a mechanism. Every edge stays *proposed
 someone investigates the path. Placements and explicit-water arrangements are sampled, not
 exhausted; magnetic states are not sampled: every structure starts from the same MAGMOM, and
 mechanet only reports when intermediates or variants ended in different magnetic solutions.
+On metal surfaces adsorbates are placed on top sites only (one open site per surface metal);
+bridge and hollow sites are not generated yet, so a metal's preference for them is missed.
 Partial Hessians neglect vibrations of the frozen region. The
 execution layer drives VASP; other codes would need a calculator plugin (not yet available).
 [docs/science.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/science.md) states what each number means.

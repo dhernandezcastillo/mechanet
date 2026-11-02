@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from . import __version__
-from .fileio import file_hash, read_json, utc_now, write_json
+from .fileio import atomic_text, file_hash, read_json, utc_now, write_json
 from .vasp import STAGES, central_mode, protocol_stages, read_incar
 
 CAMPAIGN_DIR = "campaign"
@@ -372,10 +372,13 @@ def progress(campaign):
     return {"by_status": dict(sorted(counts.items())), "states": rows}
 
 
-def _magnetism_section(result):
-    """Report lines on local moments: spin checks, variant solutions, moments of the best cycles."""
-    from .magnetism import flag_text, short_label
+def _magnetism_section(result, label=None):
+    """Report lines on local moments: spin checks, variant solutions, moments of the best cycles.
 
+    ``label(cycle_id, node_id)`` names an intermediate (default: its node ID)."""
+    from .magnetism import flag_text
+
+    label = label or (lambda cycle_id, node_id: node_id)
     magnetism = result.get("magnetism") or {}
     cycles, variants = magnetism.get("cycles") or {}, magnetism.get("variants") or {}
     if not cycles and not variants:
@@ -403,8 +406,8 @@ def _magnetism_section(result):
             for d in second["differs_from_lowest"][:2]
         )
         lines.append(
-            f"- variants of {node_id} converged to {len(solutions)} magnetic solutions; the next lies "
-            f"{second['relative_eV']:+.3f} eV above the lowest ({differences})"
+            f"- variants of {label(None, node_id)} ({node_id}) converged to {len(solutions)} magnetic solutions; "
+            f"the next lies {second['relative_eV']:+.3f} eV above the lowest ({differences})"
         )
     if len(variants) > 10:
         lines.append(f"- ... {len(variants) - 10} more intermediates with several solutions (thermodynamics.json)")
@@ -416,7 +419,7 @@ def _magnetism_section(result):
                 shown.append(cycle_id)
     for cycle_id in shown[:3]:
         entry = cycles[cycle_id]
-        heads = [short_label(n) for n in entry["node_ids"]]
+        heads = [label(cycle_id, n) for n in entry["node_ids"]]
         lines += [
             "",
             f"### {cycle_id} (spin check: {entry['status'].replace('_', ' ')})",
@@ -429,7 +432,41 @@ def _magnetism_section(result):
             lines.append(f"| {atom['element']} {atom['atom_id']} ({atom['role']}) | " + " | ".join(cells) + " |")
         if entry["flags"]:
             lines.append("")
-            lines += [f"- flag: {flag_text(flag, short_label)}" for flag in entry["flags"][:6]]
+            lines += [f"- flag: {flag_text(flag, lambda n, c=cycle_id: label(c, n))}" for flag in entry["flags"][:6]]
+    lines.append("")
+    return lines
+
+
+def _notation(campaign, network):
+    from .notation import Notation
+    from .plugins import campaign_registry
+
+    try:
+        registry = campaign_registry(campaign)
+    except Exception:  # noqa: BLE001 - titles fall back to the family names
+        registry = None
+    return Notation.from_campaign(campaign, registry=registry, network=network)
+
+
+def _cycle_table(network, notation):
+    """Markdown table of the symmetry-unique cycles: mechanism, sites and intermediates."""
+    rows = [c for c in network.get("cycles", []) if c.get("symmetry_representative", True)]
+    if not rows:
+        return []
+    lines = [
+        "### Cycles",
+        "",
+        "Intermediates in the order of the cycle, the step that releases the product last; `mechanet show-cycle ID` "
+        "prints the steps. Notation: * terminal site, μ bridging site, □ vacancy, subscript = site number.",
+        "",
+        "| cycle | mechanism | intermediates |",
+        "|---|---|---|",
+    ]
+    for cycle in rows:
+        view = notation.cycle(cycle)
+        title = view["title"] + (f" ({view['variant']})" if view.get("variant") else "")
+        chain = " → ".join(view["labels"])
+        lines.append(f"| `{cycle['id']}` | {title} | {chain} |")
     lines.append("")
     return lines
 
@@ -454,10 +491,12 @@ def report(campaign):
         f"- {build['unique_initial_structures']} starting structures",
         "",
     ]
+    notation = _notation(campaign, network)
+    lines += _cycle_table(network, notation)
     status = progress(campaign)
     lines += ["## Calculations", "", "| stage and status | states |", "|---|---|"]
     lines += [f"| {k} | {v} |" for k, v in status["by_status"].items()]
-    lines.append("")
+    lines += ["", "`mechanet status` shows what is running, queued or waiting, per state and per cycle.", ""]
     thermo = campaign / "analysis" / "thermodynamics.json"
     if thermo.is_file():
         result = read_json(thermo)
@@ -472,14 +511,22 @@ def report(campaign):
         lines.append(
             f"{len({c['cycle_id'] for c in available})} of {len(network['cycles'])} cycles have every energy they need."
         )
+        titles = {}
+        for cycle in network.get("cycles", []):
+            view = notation.cycle(cycle)
+            titles[cycle["id"]] = f"{view['title']}, {view['site_key']}" if view["site_key"] else view["title"]
+
+        def named(cycle_id):
+            return f"{cycle_id} ({titles[cycle_id]})" if cycle_id in titles else cycle_id
+
         for potential, by_reaction in result.get("best_cycles", {}).items():
             for reaction, best in by_reaction.items():
                 eta = best.get("lowest_overpotential")
                 lines.append(
-                    f"- {potential} V, {reaction}: lowest Gmax {best['lowest_Gmax']['cycle_id']} "
-                    f"({best['lowest_Gmax']['Gmax_U_eV']:.2f} eV)"
+                    f"- {potential} V, {reaction}: lowest Gmax {named(best['lowest_Gmax']['cycle_id'])}: "
+                    f"{best['lowest_Gmax']['Gmax_U_eV']:.2f} eV"
                     + (
-                        f"; lowest eta_TD {eta['cycle_id']} ({eta['thermodynamic_overpotential_V']:.2f} V)"
+                        f"; lowest eta_TD {named(eta['cycle_id'])}: {eta['thermodynamic_overpotential_V']:.2f} V"
                         if eta
                         else ""
                     )
@@ -487,8 +534,8 @@ def report(campaign):
         for potential, rest in result.get("network_resting_states", {}).items():
             transient = rest.get("transient_nodes") or {}
             lines.append(
-                f"- {potential} V: most stable intermediate {rest['node_id']} "
-                f"({rest['formation_free_energy_eV']:.2f} eV from the native surface)"
+                f"- {potential} V: most stable intermediate {notation.label(rest['node_id'])} ({rest['node_id']}, "
+                f"{rest['formation_free_energy_eV']:.2f} eV from the native surface)"
                 + (
                     (
                         f"; {len(transient)} intermediate that gives the product off downhill without electron "
@@ -503,7 +550,15 @@ def report(campaign):
             )
         lines += [f"- warning: {w}" for w in result.get("warnings", [])]
         lines.append("")
-        lines += _magnetism_section(result)
+        labels = {}
+        for cycle in network.get("cycles", []):
+            view = notation.cycle(cycle)
+            labels.update({(cycle["id"], n): lab for n, lab in zip(view["node_ids"], view["labels"])})
+
+        def label(cycle_id, node_id):
+            return labels.get((cycle_id, node_id)) or notation.label(node_id)
+
+        lines += _magnetism_section(result, label)
     ranking = campaign / "pathways" / "ranking.json"
     if ranking.is_file():
         data = read_json(ranking)
@@ -556,5 +611,5 @@ def report(campaign):
     if card.is_file():
         lines += ["## Method", "", "See method_card.json (written by `mechanet plan`).", ""]
     text = "\n".join(lines) + "\n"
-    (campaign / "report.md").write_text(text)
+    atomic_text(campaign / "report.md", text)
     return text
