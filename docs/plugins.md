@@ -116,7 +116,10 @@ A `Reaction` declares data only:
   (used for resting states and Pourbaix diagrams);
 * `elementary`: the reservoir vectors that count as one elementary step for
   `mechanet pathways` (it proposes steps between intermediates only with these vectors);
-* `potential_scale` (`RHE` or `SHE`), `default_potentials`, `required_references`.
+* `potential_scale` (`RHE` or `SHE`), `default_potentials`, `required_references`;
+* `coverage_states`: the states the `coverage` family gives each site kind when project.yaml
+  lists none, for example `{"open_metal": ("empty", "H")}` for HER; without it the oxide
+  states (O, OH, H2O and the vacancy) are used.
 
 `registry.add_reaction` checks the declaration (registered species, element balance of
 `net`, at least one electron, a valid marker) and says what to change. `Reaction.balance` and

@@ -1908,9 +1908,6 @@ def node_energies(campaign, network, collected, include_vibrations=True, energy_
     return selected, node_rows, assignment_key
 
 
-RESERVOIR_MOLECULES = {"H2O": {"H2O"}, "H+": {"H2"}, "O2": {"H2", "H2O"}, "Cl-": {"Cl2"}, "Cl2": {"Cl2"}}
-
-
 def is_chemical(vector):
     """No electron and no charged species: the step's free energy depends on neither U nor pH."""
     return vector_electrons(vector) == 0 and all(SPECIES[name].charge == 0 for name in vector)
@@ -2042,7 +2039,7 @@ def energy_inputs(
     wanted |= set(main.formation_species)
     needed = set()
     for name in wanted:
-        needed |= RESERVOIR_MOLECULES.get(name) or set(SPECIES[name].references or (name,))
+        needed |= set(SPECIES[name].references or (name,))
     refs_path = Path(references_path)
     refs = read_reference_file(refs_path)
     reservoirs = reservoir_chemical_potentials(

@@ -2,8 +2,31 @@
 
 import unittest
 
+from mechanet.families.coverage import default_states
 from mechanet.plugins import default_registry
-from mechanet.reactions import CER, OER, add, clean, electrons, element_change, oer_trio
+from mechanet.reactions import CER, OER, Reaction, add, clean, electrons, element_change, oer_trio
+from mechanet.thermo import required_molecules
+
+
+class ChemistryDeclarationTests(unittest.TestCase):
+    """What used to be wired into the core now comes from the reaction and its species."""
+
+    def test_coverage_defaults_come_from_the_reaction(self):
+        self.assertEqual(default_states("open_metal", OER()), ["empty", "OH", "O", "H2O"])
+        self.assertEqual(default_states("open_metal", "cer"), ["empty", "OH", "O", "H2O", "Cl", "OCl"])
+        self.assertEqual(default_states("terminal", CER()), ["empty", "OH", "O", "H2O", "OCl"])
+        self.assertEqual(default_states("bridge", CER()), ["empty", "O", "OH"])
+        self.assertEqual(default_states("unknown_kind", OER()), ["O", "OH"])
+
+        class MetalHydride(Reaction):
+            coverage_states = {"open_metal": ("empty", "H")}
+
+        self.assertEqual(default_states("open_metal", MetalHydride()), ["empty", "H"])
+        self.assertEqual(default_states("terminal", Reaction()), ["empty", "OH", "O", "H2O"])  # oxide default
+
+    def test_reference_molecules_come_from_the_species(self):
+        self.assertEqual(required_molecules([OER.net]), {"H2", "H2O"})
+        self.assertEqual(required_molecules([CER.net]), {"Cl2"})
 
 
 class ReactionTests(unittest.TestCase):

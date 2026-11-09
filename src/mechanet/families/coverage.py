@@ -10,9 +10,13 @@ Configured in project.yaml under ``scope.coverage``::
     coverage:
       sites: [m0038, m0046, a0016, a0019]   # default: all reactive sites
       max_changed_sites: 2
-      states:                                # per site kind; defaults below
+      states:                                # per site kind or site ID; default: the reaction's
         open_metal: [empty, OH, O, H2O]
         bridge: [O, OH]
+
+The defaults come from the campaign reaction (``Reaction.coverage_states``): O, OH, H2O and
+the vacancy for OER, plus Cl and OCl for CER; a plugin reaction declares its own (H on metal
+top sites for HER, say) and falls back to the oxygen states otherwise.
 """
 
 from __future__ import annotations
@@ -20,22 +24,15 @@ from __future__ import annotations
 from itertools import combinations, product
 
 from ..plugins import Family
-
-DEFAULT_STATES = {
-    "open_metal": ["empty", "OH", "O", "H2O"],
-    "terminal": ["empty", "OH", "O", "H2O"],
-    "bridge": ["empty", "O", "OH"],
-    "mu3": ["O", "OH"],
-    "framework": ["O", "OH"],
-}
-CER_EXTRA = {"open_metal": ["Cl", "OCl"], "terminal": ["OCl"], "bridge": []}
+from ..reactions import BUILTIN_REACTIONS, OXYGEN_COVERAGE_STATES
 
 
 def default_states(kind, reaction):
-    states = list(DEFAULT_STATES.get(kind, ["O", "OH"]))
-    if reaction == "cer":
-        states += [s for s in CER_EXTRA.get(kind, []) if s not in states]
-    return states
+    """Coverage states of a site kind for ``reaction`` (a Reaction, or the name of a built-in one)."""
+    if isinstance(reaction, str):
+        reaction = BUILTIN_REACTIONS.get(reaction)
+    declared = getattr(reaction, "coverage_states", None) or OXYGEN_COVERAGE_STATES
+    return list(declared.get(kind, ("O", "OH")))
 
 
 def coverage(ctx):
@@ -48,7 +45,7 @@ def coverage(ctx):
     options = {}
     for aid in site_ids:
         kind = ctx.sites[aid]["kind"]
-        states = list(states_cfg.get(aid) or states_cfg.get(kind) or default_states(kind, ctx.reaction.name))
+        states = list(states_cfg.get(aid) or states_cfg.get(kind) or default_states(kind, ctx.reaction))
         for status in states:
             ctx.adsorbate(status)
         options[aid] = [s for s in states if s != ctx.native[aid]]

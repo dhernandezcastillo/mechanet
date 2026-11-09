@@ -804,18 +804,8 @@ def validate_network(network, registry=None):
 
 
 def required_molecules(reactions):
-    names = set()
-    for vector in reactions:
-        for species in vector:
-            if species in ("H2O",):
-                names.add("H2O")
-            if species in ("H+",):
-                names.add("H2")
-            if species in ("Cl-", "Cl2"):
-                names.add("Cl2")
-            if species == "O2":
-                names.update(("H2", "H2O"))
-    return names
+    """Reference molecules the species of these reservoir vectors need (``Species.references``)."""
+    return {molecule for vector in reactions for name in vector for molecule in SPECIES[name].references}
 
 
 __all__ = [

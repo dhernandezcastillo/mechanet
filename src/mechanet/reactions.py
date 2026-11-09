@@ -191,6 +191,17 @@ def validate_reaction(reaction):
     return True
 
 
+# Site states of an oxide surface in water: the coverage family's defaults for a reaction
+# that declares no coverage_states of its own (and the OER's own).
+OXYGEN_COVERAGE_STATES = {
+    "open_metal": ("empty", "OH", "O", "H2O"),
+    "terminal": ("empty", "OH", "O", "H2O"),
+    "bridge": ("empty", "O", "OH"),
+    "mu3": ("O", "OH"),
+    "framework": ("O", "OH"),
+}
+
+
 class Reaction:
     name = "reaction"
     title = "Abstract reaction"
@@ -202,6 +213,9 @@ class Reaction:
     default_potentials: tuple = ()
     required_references: tuple = ()
     elementary: tuple = ()
+    # States the coverage family gives each site kind when project.yaml lists none
+    # (scope.coverage.states); empty means OXYGEN_COVERAGE_STATES.
+    coverage_states: dict = {}
 
     @property
     def electrons(self):
@@ -309,6 +323,7 @@ class OER(Reaction):
         {"O2": 1, "H+": 1},  # O2 release with one PCET
         {"O2": 1},  # chemical O2 release
     )
+    coverage_states = OXYGEN_COVERAGE_STATES
 
 
 class CER(Reaction):
@@ -334,6 +349,12 @@ class CER(Reaction):
         {"Cl-": -1, "Cl2": 1},  # Heyrovsky: *Cl + Cl- -> * + Cl2 + e-
         {"Cl2": 1},  # Tafel: 2 *Cl -> 2 * + Cl2
     )
+    # the oxide's own states, plus Cl and OCl on terminal sites
+    coverage_states = {
+        **OXYGEN_COVERAGE_STATES,
+        "open_metal": (*OXYGEN_COVERAGE_STATES["open_metal"], "Cl", "OCl"),
+        "terminal": (*OXYGEN_COVERAGE_STATES["terminal"], "OCl"),
+    }
 
 
 BUILTIN_REACTIONS = {"oer": OER, "cer": CER}
