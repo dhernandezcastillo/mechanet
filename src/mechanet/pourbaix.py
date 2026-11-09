@@ -5,12 +5,14 @@ formation species of the campaign reaction (H2O and H+ for OER; also Cl- for CER
 computational hydrogen electrode its formation free energy is linear in the potential and
 the pH::
 
-    DeltaG_f(U_SHE, pH) = A + B * U_SHE + C * pH,     B = -n_e,  C = -nu(H+) * kT ln 10
+    DeltaG_f(U_SHE, pH) = A + B * U_SHE + C * pH,     B = -n_e
 
-where n_e is the number of electrons released and nu(H+) the protons released while
-forming the node. The stable termination at (U, pH) is the node of lowest DeltaG_f. On the
-RHE scale B stays and C becomes (n_e - nu(H+)) kT ln 10, which vanishes for terminations
-reached by proton-coupled electron transfers only.
+where n_e is the number of electrons released while forming the node and C is the pH slope
+of the reservoir chemical potentials: -nu(H+) kT ln 10 when H+ is the only species that
+depends on the pH, plus the slope of any plugin species whose rule does (OH-, a buffer ion).
+The stable termination at (U, pH) is the node of lowest DeltaG_f. On the RHE scale B stays
+and C becomes C + n_e kT ln 10, which vanishes for terminations reached by proton-coupled
+electron transfers only.
 
 The diagram covers the computed nodes only: a coverage absent from the network cannot
 appear. The ``coverage`` family (``scope.coverage`` in project.yaml) enumerates terminations
@@ -38,6 +40,9 @@ from .fileio import dump_json
 from .reactions import electrons as vector_electrons
 from .thermo import DOWNHILL_TOLERANCE_EV, Conditions, species_free_energy
 
+# How far (eV) a chemical potential may stray from a straight line in the pH before the plane is refused.
+PH_LINEARITY_TOLERANCE_EV = 1e-9
+
 
 def node_label(node, native):
     """Readable occupancy of a node: changed sites only (``native`` for the reference)."""
@@ -59,9 +64,28 @@ def _reactions_of(data):
 
 
 def _plane(vector, reservoirs, conditions):
-    """(A, B, C) of sum nu mu - n_e U_SHE as A + B U_SHE + C pH (mu at pH 0)."""
-    mu = sum(float(nu) * species_free_energy(name, reservoirs, conditions) for name, nu in vector.items())
-    return mu, -float(vector_electrons(vector)), -float(vector.get("H+", 0)) * conditions.nernst
+    """(A, B, C) of sum nu mu - n_e U_SHE as A + B U_SHE + C pH.
+
+    A (the value at pH 0) and the pH slope C both come from the species' own chemical
+    potentials, so a plugin species whose rule depends on the pH (OH-, a buffer ion) enters
+    with its slope, not only an explicit H+. The rules must be affine in the pH, as kT ln a
+    terms are; otherwise the stable regions would not be polygons, and the vector is refused.
+    """
+
+    def total(pH):
+        at = Conditions(conditions.temperature_K, pH, conditions.activities)
+        return sum(float(nu) * species_free_energy(name, reservoirs, at) for name, nu in vector.items())
+
+    a = total(0.0)
+    c = total(1.0) - a
+    for pH in (7.0, 14.0):
+        if abs(total(pH) - (a + c * pH)) > PH_LINEARITY_TOLERANCE_EV:
+            raise ValueError(
+                f"The chemical potentials of {', '.join(sorted(vector))} are not linear in the pH, so the "
+                "Pourbaix regions would not be polygons; give the plugin species a rule of the form "
+                "mu(pH) = mu(0) + slope * pH"
+            )
+    return a, -float(vector_electrons(vector)), c
 
 
 def formation_lines(data, activities=None):
@@ -420,8 +444,9 @@ def pourbaix(
             "is neglected."
         ),
         "formula": (
-            "DeltaG_f = A + B U_SHE + C pH with B = -(electrons released) and C = -nu(H+) kT ln10; "
-            "the *_RHE coefficients give the same on the RHE scale"
+            "DeltaG_f = A + B U_SHE + C pH with B = -(electrons released) and C the pH slope of the "
+            "reservoir chemical potentials (-nu(H+) kT ln10 when only H+ depends on the pH); the *_RHE "
+            "coefficients give the same on the RHE scale"
         ),
     }
     if plot:

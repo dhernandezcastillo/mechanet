@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+Three corrections from an independent review of the thermodynamics.
+
+- **Pourbaix planes of pH-dependent plugin species.** The pH coefficient of a formation free
+  energy is now the pH slope of the species' own chemical potentials, not only of explicit H⁺.
+  A termination formed in an OH⁻ basis used to be off by n kT ln10 · pH (0.83 eV per OH⁻ at
+  pH 14, enough to change the stable phase); equivalent H⁺ and OH⁻ bases now give the same
+  plane, and the plane reproduces the scalar free energy at every pH. A plugin rule that is not
+  linear in the pH is refused by the Pourbaix construction. Built-in OER and CER results are
+  unchanged.
+- **The method card shows the settings the jobs run with.** Its electronic-structure block now
+  describes the stage whose energies the analysis uses (04_static, or 02_final with
+  `frequency.central = final`) with `vasp.common_overrides` and `stage_overrides` applied; it
+  used to read `inputs/INCAR_final` alone, so an ENCUT override was reported as the template
+  value and a later change of an override went undetected. Every override is recorded under
+  `protocol.vasp_overrides` (card schema 2). A card frozen by an earlier version is compared
+  as before, with a note that override changes cannot be detected for it.
+- **Same settings across intermediates.** `thermo`, `pourbaix` and `pathways --rank` compare
+  the runs whose energies they use (functional, hybrid, dispersion, cutoff, LASPH and
+  solvation tags of the energy's stage; PAW dataset and DFT+U values per element) and warn,
+  naming the states, when they differ (`protocol_check` in thermodynamics.json). Starting
+  moments, parallelisation and convergence tags may differ.
+- `vasp.energy_stage` and `vasp.configured_incar` give the energy's stage and its configured
+  tags; the references check uses them too.
+
 ## 0.1.4 (2026-11-09)
 
 What a relaxation can turn an intermediate into: another tautomer, a new intermediate, or nothing bound.

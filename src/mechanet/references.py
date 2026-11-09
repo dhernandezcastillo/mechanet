@@ -298,21 +298,18 @@ def slab_protocol(campaign, elements=()):
     Returns (tags, description, paw: element -> set of titles), or None without INCAR_final.
     """
     from .fileio import read_json
-    from .vasp import STAGE_FINAL, STAGE_STATIC, central_mode, incar_value, potcar_paths, read_incar
+    from .vasp import STAGE_STATIC, configured_incar, energy_stage, potcar_paths
 
     campaign = Path(campaign)
     template = campaign / "inputs" / "INCAR_final"
     if not template.is_file():
         return None
     config = read_json(campaign / "config.json") if (campaign / "config.json").is_file() else {}
-    vasp = config.get("vasp") or {}
     try:
-        stage = STAGE_STATIC if central_mode(config) == "refine" else STAGE_FINAL
+        stage = energy_stage(config)
     except ValueError:
         stage = STAGE_STATIC
-    values = read_incar(template)
-    for overrides in (vasp.get("common_overrides") or {}, (vasp.get("stage_overrides") or {}).get(stage) or {}):
-        values.update({str(k).upper(): incar_value(v) for k, v in overrides.items()})
+    values = configured_incar(campaign, stage, config)
     description = f"the slab's {stage} INCAR (inputs/INCAR_final with vasp.common_overrides and stage_overrides)"
     paw = {}
     for path in sorted((campaign / "potcars").glob("*/provenance.json")):

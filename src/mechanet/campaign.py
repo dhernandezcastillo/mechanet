@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import __version__
 from .fileio import atomic_text, file_hash, read_json, utc_now, write_json
-from .vasp import STAGES, central_mode, protocol_stages, read_incar
+from .vasp import STAGES, central_mode, configured_incar, energy_stage, protocol_stages, read_incar
 
 CAMPAIGN_DIR = "campaign"
 
@@ -260,13 +260,45 @@ def plan(campaign):
 # ---------------------------------------------------------------------------
 
 
+METHOD_CARD_SECTIONS = ("electronic_structure", "protocol", "thermodynamics", "families")
+
+
+def _electronic_structure(incar, vasp, kpoints):
+    """The electronic-structure block of the method card, from a map of INCAR tags."""
+
+    def tag(*names):
+        return {n: incar[n] for n in names if n in incar}
+
+    return {
+        "code": "VASP",
+        "functional": tag("GGA", "METAGGA", "LHFCALC", "AEXX", "HFSCREEN"),
+        "plane_wave_cutoff_eV": incar.get("ENCUT"),
+        "spin": tag("ISPIN"),
+        "hubbard_u": vasp.get("dft_u") or tag("LDAU", "LDAUTYPE", "LDAUL", "LDAUU", "LDAUJ"),
+        "dispersion": tag("IVDW"),
+        "solvation": tag("LSOL", "EB_K", "LAMBDA_D_K"),
+        "dipole_correction": tag("LDIPOL", "IDIPOL", "DIPOL"),
+        "smearing": tag("ISMEAR", "SIGMA"),
+        "precision": tag("PREC", "LREAL", "EDIFF", "EDIFFG"),
+        "kpoints": kpoints[:5],
+        "paw_datasets": vasp.get("potcar_variants")
+        or {k: Path(v).parent.name for k, v in (vasp.get("potcars") or {}).items()},
+        "magnetic_moments_start": vasp.get("magmom_by_element"),
+    }
+
+
 def method_card(campaign, config=None):
-    """Machine-readable description of the method (functional, U, dispersion, references, versions)."""
+    """Machine-readable description of the method (functional, U, dispersion, references, versions).
+
+    The electronic-structure block describes the stage whose energies the analysis uses
+    (04_static, or 02_final with frequency.central = final) as the jobs run it: INCAR_final
+    with vasp.common_overrides and that stage's stage_overrides. Every override, of any stage,
+    is recorded under protocol.vasp_overrides, so a later change shows in the change list.
+    """
     from .plugins import campaign_registry
 
     campaign = Path(campaign)
     config = config or read_json(campaign / "config.json")
-    incar = read_incar(campaign / "inputs" / "INCAR_final")
     vasp = config.get("vasp", {})
     thermo = config.get("thermodynamics", {})
     registry = campaign_registry(campaign, config=config)
@@ -276,12 +308,9 @@ def method_card(campaign, config=None):
         else []
     )
     references = thermo.get("references")
-
-    def tag(*names):
-        return {n: incar[n] for n in names if n in incar}
-
+    stage = energy_stage(config)
     card = {
-        "schema_version": 1,
+        "schema_version": 2,
         "written_utc": utc_now(),
         "mechanet_version": __version__,
         "python": platform.python_version(),
@@ -289,26 +318,18 @@ def method_card(campaign, config=None):
         "families": config.get("scope", {}).get("families"),
         "plugins": sorted({origin for _, _, origin in registry.loaded if origin != "builtin"}),
         "electronic_structure": {
-            "code": "VASP",
-            "functional": tag("GGA", "METAGGA", "LHFCALC", "AEXX", "HFSCREEN"),
-            "plane_wave_cutoff_eV": incar.get("ENCUT"),
-            "spin": tag("ISPIN"),
-            "hubbard_u": vasp.get("dft_u") or tag("LDAU", "LDAUTYPE", "LDAUL", "LDAUU", "LDAUJ"),
-            "dispersion": tag("IVDW"),
-            "solvation": tag("LSOL", "EB_K", "LAMBDA_D_K"),
-            "dipole_correction": tag("LDIPOL", "IDIPOL", "DIPOL"),
-            "smearing": tag("ISMEAR", "SIGMA"),
-            "precision": tag("PREC", "LREAL", "EDIFF", "EDIFFG"),
-            "kpoints": kpoints[:5],
-            "paw_datasets": vasp.get("potcar_variants")
-            or {k: Path(v).parent.name for k, v in (vasp.get("potcars") or {}).items()},
-            "magnetic_moments_start": vasp.get("magmom_by_element"),
+            "stage": stage,
+            **_electronic_structure(configured_incar(campaign, stage, config), vasp, kpoints),
         },
         "protocol": {
             "stages": protocol_stages(config),
             "frequency": config.get("frequency"),
             "max_attempts": vasp.get("max_attempts"),
             "max_continuations": vasp.get("max_continuations"),
+            "vasp_overrides": {
+                "common_overrides": vasp.get("common_overrides") or {},
+                "stage_overrides": vasp.get("stage_overrides") or {},
+            },
         },
         "thermodynamics": {
             "model": "computational hydrogen electrode",
@@ -325,12 +346,24 @@ def method_card(campaign, config=None):
     card["frozen_at_first_submission"] = frozen.is_file()
     if frozen.is_file():
         old = read_json(frozen)
-        changed = sorted(
+        current = card
+        if int(old.get("schema_version") or 1) < 2:
+            # Frozen by mechanet 0.1.4 or earlier from INCAR_final alone: compare like with like.
+            template = read_incar(campaign / "inputs" / "INCAR_final")
+            current = {
+                **card,
+                "electronic_structure": _electronic_structure(template, vasp, kpoints),
+                "protocol": {k: v for k, v in card["protocol"].items() if k != "vasp_overrides"},
+            }
+            card["frozen_card_note"] = (
+                "The frozen card was written by mechanet 0.1.4 or earlier from inputs/INCAR_final alone; "
+                "changes of vasp.common_overrides or stage_overrides since the first submission cannot be detected."
+            )
+        card["changed_since_first_submission"] = sorted(
             k
-            for k in ("electronic_structure", "protocol", "thermodynamics", "families")
-            if json.dumps(old.get(k), sort_keys=True) != json.dumps(card.get(k), sort_keys=True)
+            for k in METHOD_CARD_SECTIONS
+            if json.dumps(old.get(k), sort_keys=True) != json.dumps(current.get(k), sort_keys=True)
         )
-        card["changed_since_first_submission"] = changed
     return card
 
 

@@ -90,8 +90,8 @@ except those mechanet sets per stage (docs/execution.md §1), MAGMOM and the LDA
 | `magmom_default` | | Moment for elements missing from `magmom_by_element`. |
 | `dft_u` | `init` proposes the Materials Project U for oxides and fluorides | `{Ni: {L: 2, U: 6.2, J: 0}}`: LDAU arrays for the species present (LDAUTYPE 2); species not listed get no U. `mechanet init --dft-u Fe=5.3,Ni=6.2` (U on d, f for lanthanides and actinides; `Fe=5.3:2:0.5` sets L and J) or `--dft-u none`. |
 | `template_species_order` | slab order | Species order of LDAU arrays already present in the templates. |
-| `common_overrides` | {} | Tags for every stage (NCORE, KPAR, ...). |
-| `stage_overrides` | {} | Tags for one stage, e.g. `{01_loose: {NSW: 80}}`; changes that would break the protocol are refused. |
+| `common_overrides` | {} | Tags for every stage (NCORE, KPAR, ...); recorded in the method card. |
+| `stage_overrides` | {} | Tags for one stage, e.g. `{01_loose: {NSW: 80}}`; changes that would break the protocol are refused. Recorded in the method card. |
 | `max_attempts` | 2 | Attempts per stage (a failed attempt needs `--retry`). |
 | `max_continuations` | 8 | Continuations of interrupted attempts per stage or unit. |
 | `command` | from the cluster | The VASP launch command. Normally the profile's `vasp_command`; set here, it wins over the profile (for example `[srun, vasp_gam]` for one project), and `generate` says so. |

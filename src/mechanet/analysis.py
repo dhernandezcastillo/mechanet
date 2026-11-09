@@ -53,6 +53,8 @@ from .vasp import (
     STAGE_STATIC,
     STAGE_FREQ,
     central_mode,
+    energy_stage,
+    expand_values,
     frequency_gates,
     plan_mode,
     protocol_stages,
@@ -1719,6 +1721,99 @@ def edge_vector(edge):
     return clean({"H2O": -edge["water"], "H+": edge["pairs"], "O2": edge["oxygen"]})
 
 
+def _some(ids, limit=3):
+    shown = ", ".join(ids[:limit]) + (", ..." if len(ids) > limit else "")
+    return f"{len(ids)} state{'' if len(ids) == 1 else 's'}: {shown}"
+
+
+def _run_settings(state_dir, stage):
+    """What defines the Hamiltonian of one run: protocol tags, PAW dataset and DFT+U of each element.
+
+    The tags are those `references --collect` compares for the molecules (functional, hybrid
+    mixing, dispersion, cutoff, LASPH, solvation), read from the INCAR the stage ran with.
+    PAW datasets and the species order come from the state's potcar_provenance.json (else the
+    run's POTCAR or OUTCAR). Returns None when the stage has no INCAR.
+    """
+    from .references import CONDITIONAL_TAGS, PROTOCOL_TAGS, _paw_element, _paw_titles, _tag_value
+
+    folder = Path(state_dir) / stage
+    if not (folder / "INCAR").is_file():
+        return None
+    values = read_incar(folder / "INCAR")
+    entries = {}
+    for tag in PROTOCOL_TAGS:
+        switch = CONDITIONAL_TAGS.get(tag)
+        if switch and _tag_value(values.get(switch), switch) == "FALSE":
+            continue
+        entries[tag] = _tag_value(values.get(tag), tag)
+    provenance = _load(Path(state_dir) / "potcar_provenance.json", {}) or {}
+    datasets = {
+        record["element"]: " ".join(str(record.get("titel", "")).split())
+        for record in provenance.get("datasets", [])
+        if record.get("element")
+    }
+    if not datasets:
+        datasets = {_paw_element(t): t for t in _paw_titles(folder) if _paw_element(t)}
+    entries.update({f"PAW {element}": title for element, title in datasets.items()})
+    ldau = str(values.get("LDAU", "")).strip().strip(".").upper().startswith("T")
+    entries["DFT+U"] = "on" if ldau else "off"
+    species = provenance.get("species_order") or list(datasets)
+    try:
+        arrays = [expand_values(values.get(k, "")) for k in ("LDAUL", "LDAUU", "LDAUJ")] if ldau else []
+    except ValueError:
+        arrays = []
+    if arrays and all(len(a) == len(species) for a in arrays):
+        for element, l_value, u_value, j_value in zip(species, *arrays):
+            entries[f"U {element}"] = "none" if l_value < 0 else f"L={l_value:g} U={u_value:g} J={j_value:g}"
+    return entries
+
+
+def protocol_consistency(campaign, state_ids, stage):
+    """Whether the runs whose energies an analysis compares share one Hamiltonian.
+
+    Compares, between the given states, what :func:`_run_settings` reads for ``stage``. Starting
+    moments, parallelisation and convergence tags are not compared: they may differ between
+    states without changing the Hamiltonian. A difference is reported, not refused, since a
+    converged change of cutoff can be legitimate; the warning says what differs and where.
+    Returns {"stage", "states_checked", "unchecked", "consistent", "differences", "warning"}.
+    """
+    records, unchecked = {}, []
+    for sid in sorted(set(state_ids)):
+        entries = _run_settings(Path(campaign) / "states" / sid, stage)
+        if entries is None:
+            unchecked.append(sid)
+        else:
+            records[sid] = entries
+    differences = {}
+    for key in sorted({k for entries in records.values() for k in entries}):
+        seen = {}
+        for sid, entries in records.items():
+            if key in entries:
+                seen.setdefault(entries[key], []).append(sid)
+        if len(seen) > 1:
+            differences[key] = dict(sorted(seen.items()))
+    warning = None
+    if differences:
+        parts = [
+            f"{key} " + " vs ".join(f"{value} ({_some(sids)})" for value, sids in groups.items())
+            for key, groups in differences.items()
+        ]
+        warning = (
+            f"The energies compared here come from {stage} runs with different settings: "
+            + "; ".join(parts)
+            + ". A free-energy difference between such runs mixes two Hamiltonians; recompute the minority "
+            "with one protocol, or confirm that the difference is converged."
+        )
+    return {
+        "stage": stage,
+        "states_checked": len(records),
+        "unchecked": unchecked,
+        "consistent": not differences,
+        "differences": differences,
+        "warning": warning,
+    }
+
+
 def node_energies(campaign, network, collected, include_vibrations=True, energy_source="static", corrections=None):
     """Lowest accepted energy (or free energy) per computed node; symmetry images inherit it."""
     state_map = {s["state_id"]: s for s in collected["states"]}
@@ -1970,6 +2065,13 @@ def energy_inputs(
     selected, node_rows, assignment_key = node_energies(
         campaign, network, collected, include_vibrations, energy_source, corrections
     )
+    protocol_check = protocol_consistency(
+        campaign,
+        [row["selected_state_id"] for row in node_rows if row["selected_state_id"] and not row["computed_by"]],
+        energy_stage(config, energy_source),
+    )
+    if protocol_check["warning"]:
+        reservoirs.setdefault("warnings", []).append(protocol_check["warning"])
     level = (
         "CHE_with_partial_Hessian_free_energy"
         if include_vibrations
@@ -1998,6 +2100,7 @@ def energy_inputs(
         "selected": selected,
         "node_rows": node_rows,
         "assignment_key": assignment_key,
+        "protocol_check": protocol_check,
         "level": level,
     }
 
@@ -2354,6 +2457,7 @@ def analyze_thermodynamics(
         "reservoirs": reservoirs,
         "warnings": list(reservoirs.get("warnings") or []),
         "notes": notes + list(reservoirs.get("notes") or []),
+        "protocol_check": data["protocol_check"],
         "network_validation": validation,
         "nodes": node_rows,
         "node_energies_eV": selected,

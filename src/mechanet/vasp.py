@@ -231,6 +231,25 @@ def central_mode(config):
     return mode
 
 
+def energy_stage(config, energy_source=None):
+    """The stage whose E0 the node energies use: 02_final when frequency.central = "final" or
+    for a 02_final screening (``energy_source="final"``), otherwise 04_static."""
+    if energy_source == "final" or central_mode(config) == "final":
+        return STAGE_FINAL
+    return STAGE_STATIC
+
+
+def configured_incar(campaign, stage, config):
+    """The INCAR tags configured for ``stage``, the same for every state: its template with
+    vasp.common_overrides and vasp.stage_overrides[stage] applied. :func:`stage_settings` adds
+    the per-state moments and DFT+U arrays and the protocol's fixed switches on top."""
+    values = read_incar(template_path(campaign, stage))
+    vasp = (config or {}).get("vasp") or {}
+    for overrides in (vasp.get("common_overrides") or {}, (vasp.get("stage_overrides") or {}).get(stage) or {}):
+        values.update({str(k).upper(): incar_value(v) for k, v in overrides.items()})
+    return values
+
+
 def frequency_gates(config):
     """Checks on 04_static before 05_freq starts (and again in collect); defaults follow the protocol."""
     freq = (config or {}).get("frequency", {})

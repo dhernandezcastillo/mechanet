@@ -110,6 +110,9 @@ class WorkflowTests(unittest.TestCase):
         result = cli("thermo", self.campaign, "--electronic-only", "--potentials", "0,1.23,1.63")
         self.assertEqual(result["cycles_available"], 4)
         thermo = read_json(self.campaign / "analysis" / "thermodynamics.json")
+        # every intermediate ran with the same settings, so the same-settings check stays silent
+        self.assertTrue(thermo["protocol_check"]["consistent"])
+        self.assertGreater(thermo["protocol_check"]["states_checked"], 0)
         row = next(c for c in thermo["cycles"] if c["cycle_id"] == "aem_m0038_AEM" and c["potential_V"] == 0.0)
         self.assertEqual([round(x, 6) for x in row["step_deltaG_eV"]], [0.8, 1.6, 1.4, 1.12])
         self.assertAlmostEqual(row["limiting_potential_V"], 1.6, places=6)

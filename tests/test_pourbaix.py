@@ -5,11 +5,15 @@ import unittest
 
 import numpy as np
 
-from mechanet.pourbaix import _coefficients, formation_lines, lower_envelope, node_label, stability_regions
-from mechanet.reactions import OER
-from mechanet.thermo import Conditions
+from mechanet.pourbaix import _coefficients, _plane, formation_lines, lower_envelope, node_label, stability_regions
+from mechanet.reactions import OER, SPECIES, Species, register_species
+from mechanet.thermo import Conditions, formation_free_energy
 
 NERNST = Conditions().nernst
+
+
+def _mu_hydroxide(reservoirs, conditions):  # mu(OH-) = mu(H2O) - mu(H+), at U_SHE = 0
+    return reservoirs["mu_H2O_eV"] - (0.5 * reservoirs["mu_H2_eV"] - conditions.nernst * conditions.pH)
 
 
 class EnvelopeTests(unittest.TestCase):
@@ -98,6 +102,39 @@ class FormationLineTests(unittest.TestCase):
         lines, missing, _ = formation_lines(self.data({"ref": 0.0, "oh": -15.0}))
         self.assertEqual(missing, ["o"])
         self.assertTrue(all(math.isfinite(line["A_eV"]) for line in lines))
+
+
+class PluginSpeciesPlaneTests(unittest.TestCase):
+    """A plugin species whose chemical potential depends on the pH enters the plane with its own slope."""
+
+    reservoirs = {"valid": True, "errors": [], "mu_H2_eV": -6.8, "mu_H2O_eV": -14.2, "mu_O2_eV": -9.68}
+
+    def register(self, species):
+        register_species(species)
+        self.addCleanup(SPECIES.pop, species.name, None)
+
+    def test_hydroxide_basis_gives_the_proton_basis_plane(self):
+        self.register(Species("OH-", (("O", 1), ("H", 1)), -1, "aqueous", ("H2", "H2O"), _mu_hydroxide))
+        conditions = Conditions(298.15, 0.0)
+        acid = _plane({"H2O": -1, "H+": 1}, self.reservoirs, conditions)
+        base = _plane({"OH-": -1}, self.reservoirs, conditions)
+        for a, b in zip(acid, base):
+            self.assertAlmostEqual(a, b, places=12)
+        self.assertAlmostEqual(base[2], -NERNST, places=12)
+        # the plane reproduces the scalar formation free energy at every pH and potential
+        for pH, u_rhe in ((0.0, 0.5), (7.0, 1.2), (14.0, 1.2)):
+            at = Conditions(298.15, pH)
+            scalar = formation_free_energy(0.8, 0.0, {"OH-": -1}, self.reservoirs, u_rhe, at, "RHE")
+            plane = 0.8 + base[0] + base[1] * at.to_she(u_rhe, "RHE") + base[2] * pH
+            self.assertAlmostEqual(plane, scalar, places=10)
+
+    def test_a_rule_that_is_not_linear_in_the_ph_is_refused(self):
+        def curved(reservoirs, conditions):
+            return 0.01 * conditions.pH**2
+
+        self.register(Species("Y-", (("Cl", 1),), -1, "aqueous", (), curved))
+        with self.assertRaisesRegex(ValueError, "not linear in the pH"):
+            _plane({"Y-": -1}, self.reservoirs, Conditions(298.15, 0.0))
 
 
 if __name__ == "__main__":

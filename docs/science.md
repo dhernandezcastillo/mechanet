@@ -209,6 +209,16 @@ references check reports G_corr(H2O) − G_corr(H2) and the H2 stretch your corr
 implies: a correction from a finite-difference run with one H held fixed (a common mistake)
 shows up as a stretch near 4330/√2 cm⁻¹ instead of about 4330 cm⁻¹ with PBE.
 
+**Same settings across intermediates.** Every analysis (`thermo`, `pourbaix`,
+`pathways --rank`) also compares the intermediates with each other: for each state whose
+energy it uses, the protocol tags above, the PAW dataset and the DFT+U values of every
+element, read from the INCAR of the energy's stage (04_static, or 02_final with
+`frequency.central = final`) and from the state's `potcar_provenance.json`. A difference, such as a cutoff changed
+in project.yaml while part of the campaign had already been prepared, is reported as a
+warning that names the states (`protocol_check` in thermodynamics.json). It is not refused,
+since a converged change can be legitimate. Starting moments, parallelisation and
+convergence tags are not compared: they may differ without changing the Hamiltonian.
+
 ## 5. Descriptors
 
 For every complete cycle at each potential U, rotated into the turnover convention (a
@@ -313,10 +323,13 @@ Every computed node forms from the reference surface and the reaction's formatio
 (H2O and H⁺ for OER; also Cl⁻ for CER). Its CHE formation free energy is linear in the
 potential and the pH,
 
-    ΔG_f(U_SHE, pH) = A + B U_SHE + C pH,   B = −n_e,   C = −ν(H⁺) kT ln10,
+    ΔG_f(U_SHE, pH) = A + B U_SHE + C pH,   B = −n_e,
 
-and on the RHE scale C becomes (n_e − ν(H⁺)) kT ln10, which vanishes for terminations
-reached by proton-coupled electron transfers only. The stable region of each termination
+where C is the pH slope of the formation species' chemical potentials: −ν(H⁺) kT ln10 when
+H⁺ is the only one that depends on the pH, plus the slope of any plugin species whose rule
+does (OH⁻, a buffer ion). On the RHE scale C becomes C + n_e kT ln10, which vanishes for
+terminations reached by proton-coupled electron transfers only. A plugin rule that is not
+linear in the pH is refused here, since the regions would no longer be polygons. The stable region of each termination
 is the convex polygon where its plane is lowest (computed exactly by half-plane clipping);
 the transitions at a given pH are the exact breakpoints of the lower envelope. Symmetry
 images are not repeated; configurational entropy and interactions beyond the computed cell
