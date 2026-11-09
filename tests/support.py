@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import sys
+import unittest
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 EXAMPLE = ROOT / "examples" / "nife_ldh"
+
+# The SLURM execution layer runs on Linux clusters. Tests that drive it with POSIX signals
+# (SIGUSR1, SIGKILL), shell-script fakes of squeue and sbatch, or POSIX file semantics are
+# skipped on Windows; the rest of the suite, the runner's preparation included, runs there.
+POSIX_ONLY = unittest.skipIf(os.name == "nt", "needs POSIX signals and shell-script SLURM fakes")
 
 from mechanet.fileio import read_json, write_json  # noqa: E402
 from mechanet.structure import Structure, write_poscar  # noqa: E402

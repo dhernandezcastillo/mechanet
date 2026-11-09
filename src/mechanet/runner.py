@@ -17,7 +17,6 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import errno
-import fcntl
 import json
 import os
 import shutil
@@ -29,6 +28,11 @@ import uuid
 from pathlib import Path
 
 import numpy as np
+
+try:
+    import fcntl
+except ImportError:  # Windows: no flock; exclusive_lock uses its directory lock instead
+    fcntl = None
 
 from .clusters import DEFAULT_MIN_REMAINING_S
 from .fileio import atomic_text, file_hash, object_hash, read_json, write_json
@@ -188,7 +192,10 @@ def _link_potential(stage_dir, target):
         if link.is_file() and file_hash(link) == file_hash(target):
             return
         raise ValueError(f"Refusing to replace different POTCAR at {link}")
-    link.symlink_to(os.path.relpath(target, link.parent))
+    try:
+        link.symlink_to(os.path.relpath(target, link.parent))
+    except OSError:  # no symlink privilege (Windows without developer mode): an identical copy
+        shutil.copy2(target, link)
 
 
 def _require_current_campaign(campaign):
@@ -419,6 +426,8 @@ def _release_mkdir_lock(lock_dir, token):
 
 
 def _try_flock(handle, description, blocking, timeout):
+    if fcntl is None:
+        return False
     deadline = time.monotonic() + timeout
     while True:
         try:
@@ -525,7 +534,8 @@ class StopController:
         self._previous = {}
 
     def install(self):
-        for sig in (signal.SIGUSR1, signal.SIGTERM):
+        # SLURM sends SIGUSR1 before the time limit; Windows has no SIGUSR1 (and no SLURM).
+        for sig in [getattr(signal, name) for name in ("SIGUSR1", "SIGTERM") if hasattr(signal, name)]:
             try:
                 self._previous[sig] = signal.signal(sig, self._handle)
             except (ValueError, OSError):  # not the main thread

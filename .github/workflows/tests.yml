@@ -26,6 +26,24 @@ jobs:
       - name: Test
         run: python -m pytest -q
 
+  # The laptop side (inspection, generation, pathways, analysis) on the other systems; tests
+  # of the SLURM execution layer that need POSIX signals or shell scripts skip on Windows.
+  test-other-os:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e ".[test]"
+      - name: Test
+        run: python -m pytest -q
+
   docs:
     runs-on: ubuntu-latest
     steps:

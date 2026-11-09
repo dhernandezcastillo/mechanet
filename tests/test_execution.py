@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np  # noqa: E402
 
-from support import attempt, calls, make_campaign, marker, run_cli  # noqa: E402
+from support import POSIX_ONLY, attempt, calls, make_campaign, marker, run_cli  # noqa: E402
 from mechanet import runner  # noqa: E402
 from mechanet.fileio import read_json, write_json  # noqa: E402
 from mechanet.results import parse_run  # noqa: E402
@@ -319,6 +319,7 @@ class StageChainTests(_Base):
 
 
 class InterruptionTests(_Base):
+    @POSIX_ONLY
     def test_walltime_kill_continues_from_last_ionic_contcar_without_retry(self):
         marker(self.state, "kill_02_final")
         killed = run_cli(["run-state", str(self.state), "--through", "final", "--execute"])
@@ -341,6 +342,7 @@ class InterruptionTests(_Base):
             _archive_counts(self.state / STAGE_FINAL), {"failed": 0, "interrupted": 1, "launcher_error": 0}
         )
 
+    @POSIX_ONLY
     def test_stop_between_archiving_and_launch_keeps_the_continuation_geometry(self):
         marker(self.state, "kill_02_final")
         run_cli(["run-state", str(self.state), "--through", "final", "--execute"])
@@ -369,6 +371,7 @@ class InterruptionTests(_Base):
         self.assertFalse((self.state / STAGE_FINAL / "continuation.json").exists())
         self.assertEqual(_archive_counts(self.state / STAGE_FINAL)["interrupted"], 1)
 
+    @POSIX_ONLY
     def test_max_continuations_caps_automatic_continuation(self):
         self.set_config("vasp", max_continuations=1)
         for _ in range(2):
@@ -379,6 +382,7 @@ class InterruptionTests(_Base):
         with self.assertRaisesRegex(RuntimeError, "max_continuations=1"):
             run_state(self.state, through="final", execute=True)
 
+    @POSIX_ONLY
     def test_sigusr1_writes_stopcar_and_run_ends_incomplete_with_exit_zero(self):
         marker(self.state, "slow_02_final")
         process = run_cli(["run-state", str(self.state), "--through", "final", "--execute"], wait=False)
@@ -425,6 +429,7 @@ class InterruptionTests(_Base):
         self.assertEqual(run_state(self.state, through="static", execute=True)["status"], "complete")
         self.assertEqual(calls(self.state)[-1], "04_static")
 
+    @POSIX_ONLY
     def test_half_recorded_attempt_is_finalized(self):
         marker(self.state, "postkill_02_final")
         self.assertEqual(
@@ -486,6 +491,7 @@ class LockAndPreparationTests(_Base):
         )
         self.assertAlmostEqual(runner._measured_seconds(folder, per_ionic_step=True), 300.0)
 
+    @POSIX_ONLY
     def test_enosys_flock_falls_back_to_directory_lock(self):
         base = self.state / ".run.lock"
         unsupported = OSError(errno.ENOSYS, "Function not implemented")

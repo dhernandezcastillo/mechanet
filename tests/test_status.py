@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from support import EXAMPLE, SRC  # noqa: E402,F401  (puts src on sys.path)
+from support import POSIX_ONLY, EXAMPLE, SRC  # noqa: E402,F401  (puts src on sys.path)
 
 from mechanet.builder import Builder  # noqa: E402
 from mechanet.cli import main  # noqa: E402
@@ -263,6 +263,7 @@ class StatusTests(unittest.TestCase):
         cls.env.stop()
         cls.tmp.cleanup()
 
+    @POSIX_ONLY
     def test_every_state_lands_in_its_group(self):
         result = campaign_status(self.campaign)
         category = {s["state_id"]: s["category"] for s in result["states"]}

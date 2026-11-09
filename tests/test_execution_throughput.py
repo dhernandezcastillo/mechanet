@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from support import attempt, calls, make_campaign, marker, run_cli  # noqa: E402
+from support import POSIX_ONLY, attempt, calls, make_campaign, marker, run_cli  # noqa: E402
 from test_execution_frequencies import harmonic_model  # noqa: E402
 from mechanet import slurm as scheduler  # noqa: E402
 from mechanet.cli import main  # noqa: E402
@@ -151,6 +151,7 @@ class _Base(unittest.TestCase):
 
 
 class SkipHopelessStatesTests(_Base):
+    @POSIX_ONLY
     def test_failed_state_waits_for_retry_and_is_not_resubmitted(self):
         marker(self.state, "fail_02_final")
         with self.assertRaises(StageFailed):
@@ -163,6 +164,7 @@ class SkipHopelessStatesTests(_Base):
         self.assertEqual(self.statuses(out), {"s_a": "submitted"})
         self.assertIn("--retry", (self.state / "run_job.sh").read_text())
 
+    @POSIX_ONLY
     def test_exhausted_budgets_are_skipped_even_with_retry(self):
         self.set_config("vasp", max_attempts=1)
         marker(self.state, "fail_02_final")
@@ -187,6 +189,7 @@ class SkipHopelessStatesTests(_Base):
         self.assertEqual((check["action"], check["status"]), ("skip", "skipped_exhausted"))
         self.assertEqual(self.sbatch_count(), 0)
 
+    @POSIX_ONLY
     def test_force_gate_block_is_skipped_until_the_threshold_allows_it(self):
         marker(self.state, "bigforce_04_static")
         with self.assertRaisesRegex(StageFailed, "static active force"):
@@ -195,6 +198,7 @@ class SkipHopelessStatesTests(_Base):
         self.set_config("frequency", max_force_eVA=0.5)
         self.assertEqual(self.statuses(submit(self.campaign, through="freq", execute=True)), {"s_a": "submitted"})
 
+    @POSIX_ONLY
     def test_a_dead_runners_attempt_gets_a_verdict_so_it_is_not_queued_again(self):
         marker(self.state, "fail_02_final")
         marker(self.state, "postkill_02_final")  # VASP ends unconverged, then the runner dies
@@ -213,6 +217,7 @@ class SkipHopelessStatesTests(_Base):
         self.assertEqual(run_state(self.state, through="final", execute=True, retry=True)["status"], "complete")
         self.assertEqual(_archive_counts(self.state / STAGE_FINAL)["failed"], 1)
 
+    @POSIX_ONLY
     def test_a_dead_runner_after_the_last_continuation_is_recorded_as_exhausted(self):
         self.set_config("vasp", max_continuations=1)
         for _ in range(2):
@@ -225,6 +230,7 @@ class SkipHopelessStatesTests(_Base):
         self.assertEqual(attempt(self.state / STAGE_FINAL)["status"], "interrupted")
         self.assertEqual(submission_check(self.state, "final")["status"], "skipped_exhausted")
 
+    @POSIX_ONLY
     def test_an_interrupted_attempt_with_fatal_output_gets_a_failed_verdict(self):
         dying = self.root / "vasp_sigterm_then_killed.py"
         dying.write_text(DYING_VASP)
@@ -259,6 +265,7 @@ class SkipHopelessStatesTests(_Base):
         )
         self.assertIn("signals", run_state(self.state, through="loose", execute=True))
 
+    @POSIX_ONLY
     def test_limit_counts_submissions_not_the_first_states(self):
         self.clone("s_b")
         run_state(self.state, through="loose", execute=True)
@@ -270,6 +277,7 @@ class SkipHopelessStatesTests(_Base):
 
 
 class JobCapTests(_Base):
+    @POSIX_ONLY
     def test_cap_counts_active_campaign_jobs_and_prefers_started_states(self):
         b, c = self.clone("s_b"), self.clone("s_c")
         write_json(
@@ -294,6 +302,7 @@ class JobCapTests(_Base):
         self.assertEqual(self.sbatch_count(), 1)
         self.assertTrue(b.is_dir())
 
+    @POSIX_ONLY
     def test_refill_needs_a_cap_and_neither_a_preview_nor_a_failed_submission_enables_it(self):
         with self.assertRaisesRegex(ValueError, "needs a job cap"):
             submit(self.campaign, through="loose", refill=True)
@@ -319,6 +328,7 @@ class _RefillBase(_Base):
 
 
 class RefillTests(_RefillBase):
+    @POSIX_ONLY
     def test_finishing_jobs_top_the_campaign_up_and_problems_pause_it(self):
         self.clone("s_b")
         self.clone("s_c")
@@ -373,6 +383,7 @@ class RefillTests(_RefillBase):
         self.assertIn("launcher", status["disabled_reason"])
         self.assertEqual(self.sbatch_count(), n_jobs)
 
+    @POSIX_ONLY
     def test_cancelled_and_interactive_runs_submit_nothing(self):
         self.clone("s_b")
         submit(self.campaign, through="loose", execute=True, max_active=1, refill=True)
@@ -409,6 +420,7 @@ class RefillTests(_RefillBase):
         self.assertEqual(self.run_job(self.campaign / "states" / "s_b", "8888", through="loose")["status"], "complete")
         self.assertEqual((self.sbatch_count(), len(read_json(self.campaign / "refill.json")["events"])), (1, events))
 
+    @POSIX_ONLY
     def test_a_job_killed_at_its_time_limit_is_continued(self):
         self.clone("s_b")
         submit(self.campaign, through="loose", execute=True, max_active=1, refill=True)
@@ -435,6 +447,7 @@ class RefillTests(_RefillBase):
         self.assertEqual(self.sbatch_count(), 2)
         self.assertTrue(refill_status(self.campaign)["enabled"])
 
+    @POSIX_ONLY
     def test_a_cluster_that_refuses_sbatch_inside_jobs_pauses_the_refill(self):
         self.clone("s_b")
         out = submit(self.campaign, through="loose", execute=True, max_active=1, refill=True)
@@ -556,6 +569,7 @@ class RefillDecisionTests(unittest.TestCase):
 
 
 class SlurmViewTests(_Base):
+    @POSIX_ONLY
     def test_jobs_missing_from_the_listing_are_asked_for_and_squeue_settings_are_ignored(self):
         self.clone("s_b")
         write_json(
@@ -581,6 +595,7 @@ class SlurmViewTests(_Base):
         submit(self.campaign, through="loose", execute=True, max_active=1)
         self.assertEqual((self.bin / "squeue_calls.txt").read_text().count("--jobs 4001"), asked)
 
+    @POSIX_ONLY
     def test_a_job_in_a_state_folder_counts_even_when_the_ledger_does_not_know_it(self):
         self.clone("s_b")
         self.clone("s_c")
@@ -590,6 +605,7 @@ class SlurmViewTests(_Base):
         self.assertEqual((out["jobs"][0]["job_id"], out["jobs"][0]["found_in_folder"]), ("9001", True))
         self.assertEqual(out["active_jobs"], 2)
 
+    @POSIX_ONLY
     def test_an_sbatch_timeout_that_queued_the_job_is_not_submitted_twice(self):
         self.clone("s_b")
         (self.bin / "sbatch_timeout").write_text("")
@@ -622,6 +638,7 @@ class RefillSafetyTests(_RefillBase):
         folder.mkdir(exist_ok=True)
         write_json(folder / "attempt.json", {"status": status, "reason": "synthetic"})
 
+    @POSIX_ONLY
     def test_a_pause_wins_over_a_refill_waiting_for_the_lock(self):
         self.clone("s_b")
         out = submit(self.campaign, through="loose", execute=True, max_active=1, refill=True)
@@ -639,6 +656,7 @@ class RefillSafetyTests(_RefillBase):
         self.assertIn("refill_paused", event)
         self.assertEqual(out["jobs"][0]["status"], "submitted")
 
+    @POSIX_ONLY
     def test_three_failed_states_in_a_row_pause_the_refill(self):
         names = ["s_a", "s_b", "s_c", "s_d", "s_e"]
         for name in names[1:]:
@@ -660,6 +678,7 @@ class RefillSafetyTests(_RefillBase):
         self.assertEqual((event["decision"], event.get("submitted")), ("disable", None))
         self.assertIn("3 jobs in a row", refill_status(self.campaign)["disabled_reason"])
 
+    @POSIX_ONLY
     def test_sbatch_errors_in_three_refills_in_a_row_pause_it(self):
         for name in ("s_b", "s_c"):
             self.clone(name)
@@ -678,6 +697,7 @@ class RefillSafetyTests(_RefillBase):
             self.assertEqual(refill_status(self.campaign)["enabled"], k < 2)
         self.assertIn("sbatch failed in 3 refills in a row", refill_status(self.campaign)["disabled_reason"])
 
+    @POSIX_ONLY
     def test_the_refill_leaves_states_whose_last_job_made_no_progress_to_you(self):
         self.clone("s_b")
         enable_refill(self.campaign, {"s_a": "loose", "s_b": "loose"}, 1)
@@ -702,6 +722,7 @@ class RefillSafetyTests(_RefillBase):
             {"s_a": "dry_run"},
         )
 
+    @POSIX_ONLY
     def test_a_late_signal_cannot_kill_a_finished_run_and_sigterm_stops_the_refill(self):
         for name in ("s_b", "s_c"):
             self.clone(name)
@@ -745,6 +766,7 @@ class SecondReviewTests(_RefillBase):
         (state / "01_loose").mkdir(exist_ok=True)
         write_json(state / "01_loose" / "attempt.json", {"status": "complete"})
 
+    @POSIX_ONLY
     def test_jobs_ending_together_refill_every_slot(self):
         names = ["s_a", "s_b", "s_c", "s_d", "s_e", "s_f"]
         states = {"s_a": self.state, **{n: self.clone(n) for n in names[1:]}}
@@ -776,6 +798,7 @@ class SecondReviewTests(_RefillBase):
         ]
         self.assertEqual(replacements, ["s_d", "s_e", "s_f"])
 
+    @POSIX_ONLY
     def test_a_requeued_job_counts_again_and_clears_its_end_mark_when_it_restarts(self):
         self.clone("s_b")
         write_json(
@@ -805,6 +828,7 @@ class SecondReviewTests(_RefillBase):
             {"s_a": "skipped_active", "s_b": "deferred"},
         )
 
+    @POSIX_ONLY
     def test_login_mode_records_job_ends_and_tick_submits(self):
         for name in ("s_b", "s_c"):
             self.clone(name)
@@ -882,6 +906,7 @@ class SecondReviewTests(_RefillBase):
             self.finish(states[name], ledger["entries"][names.index(name)]["job_id"], record)
         self.assertIn("made no progress", refill_status(self.campaign)["disabled_reason"])
 
+    @POSIX_ONLY
     def test_small_cases_signal_killed_sbatch_failed_listing_two_jobs_in_a_folder(self):
         b = self.clone("s_b")
         self.clone("s_c")
@@ -898,6 +923,7 @@ class SecondReviewTests(_RefillBase):
         self.assertEqual(self.statuses(out), {"s_a": "submitted", "s_b": "skipped_active", "s_c": "deferred"})
         self.assertEqual(out["active_jobs"], 3, "two jobs in one folder take two slots")
 
+    @POSIX_ONLY
     def test_a_refill_waiting_for_the_lock_uses_a_changed_list_of_states_next_time(self):
         self.clone("s_b")
         out = submit(self.campaign, through="loose", execute=True, max_active=2, refill=True)
@@ -951,6 +977,7 @@ class SecondReviewTests(_RefillBase):
 
 
 class LedgerRepairTests(_Base):
+    @POSIX_ONLY
     def test_unknown_outcome_is_resolved_explicitly(self):
         write_json(
             self.campaign / "submissions.json",

@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ase  # noqa: E402
 import numpy as np  # noqa: E402
 
-from support import FINAL_PROTOCOL, POMASS, attempt, calls, make_campaign, marker, run_cli  # noqa: E402
+from support import POSIX_ONLY, FINAL_PROTOCOL, POMASS, attempt, calls, make_campaign, marker, run_cli  # noqa: E402
 from mechanet.fileio import read_json, write_json  # noqa: E402
 from mechanet.results import (
     FREQUENCY_CM1_PER_SQRT_EV_A2_AMU,
@@ -101,6 +101,7 @@ class DisplacementFrequencyTests(_Base):
             )
         )
 
+    @POSIX_ONLY
     def test_interrupted_displacement_set_reruns_only_missing_units(self):
         run_state(self.state, through="static", execute=True)
         marker(self.state, "kill_unit_u004")
@@ -121,6 +122,7 @@ class DisplacementFrequencyTests(_Base):
         self.assertEqual(read_json(killed_unit / "previous_attempts" / "001" / "archive.json")["kind"], "interrupted")
         self.assertTrue(parse_run(self.state / STAGE_FREQ)["frequency_converged"])
 
+    @POSIX_ONLY
     def test_sigusr1_during_units_finishes_the_current_unit_and_stops(self):
         run_state(self.state, through="static", execute=True)
         marker(self.state, "slow_unit_u003")
@@ -190,6 +192,7 @@ class DisplacementFrequencyTests(_Base):
         self.assertEqual(run_state(self.state, through="freq", execute=True)["status"], "complete")
         self.assertEqual(len(calls(self.state)), n_calls, "pruned units are not redone")
 
+    @POSIX_ONLY
     def test_cleanup_prunes_units_accepted_without_pruning(self):
         config = read_json(self.campaign / "config.json")
         config["frequency"]["prune_unit_outputs"] = False

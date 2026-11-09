@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np  # noqa: E402
 
-from support import make_campaign  # noqa: E402
+from support import POSIX_ONLY, make_campaign  # noqa: E402
 from mechanet import cli  # noqa: E402
 from mechanet.campaign import selection  # noqa: E402
 from mechanet.fileio import read_json, write_json  # noqa: E402
@@ -94,6 +94,7 @@ class SchedulerTests(unittest.TestCase):
         path = self.bin / "squeue_calls.txt"
         return path.read_text().splitlines() if path.exists() else []
 
+    @POSIX_ONLY
     def test_job_states(self):
         self.assertFalse(job_is_active("111"))  # purged: "Invalid job id specified"
         self.assertFalse(job_is_active("222"))  # finished, still listed for MinJobAge
@@ -106,6 +107,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertTrue({"PENDING", "RUNNING", "COMPLETING", "REQUEUED", "SUSPENDED"} <= ACTIVE_JOB_STATES)
         self.assertNotIn("COMPLETED", ACTIVE_JOB_STATES)
 
+    @POSIX_ONLY
     def test_purged_and_recently_finished_jobs_are_resubmitted(self):
         for job in ("111", "222"):
             self.ledger(job)
@@ -115,6 +117,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(entries[-1]["status"], "submitted")
         self.assertIn("run_job.sh", (self.bin / "sbatch_calls.txt").read_text())
 
+    @POSIX_ONLY
     def test_active_job_is_skipped_and_unknown_squeue_failure_refuses(self):
         self.ledger("333")
         self.assertEqual(submit(self.campaign, through="final", execute=True)["jobs"][0]["status"], "skipped_active")
@@ -139,6 +142,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(len(self.squeue_calls()), before)
         self.assertFalse((self.bin / "sbatch_calls.txt").exists())
 
+    @POSIX_ONLY
     def test_resubmitting_after_a_time_limited_job_continues_the_state(self):
         os.environ["SLURM_JOB_START_TIME"] = str(time.time() - 86390)  # a 24 h job with 10 s left
         os.environ["SLURM_JOB_END_TIME"] = str(time.time() + 10)
@@ -151,6 +155,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertIn("--through final --execute", script)
         self.assertNotIn("--retry", script)
 
+    @POSIX_ONLY
     def test_allocation_end_time_sources(self):
         self.assertIsNone(job_end_time({}))
         self.assertEqual(job_end_time({"SLURM_JOB_END_TIME": "1999999999", "SLURM_JOB_ID": "555"}), 1999999999.0)
