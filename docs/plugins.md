@@ -96,6 +96,17 @@ Pt(111) project with `reaction: her`, the core HER families, the HER potentials 
 the analysis treats the reaction as cathodic: limiting potentials are the highest potentials
 at which every step runs downhill, and η_TD = U_eq − U_L.
 
+## A second example: CO2 reduction to CO
+
+`examples/plugins/co2rr.py` adds CO2 + 2 (H⁺ + e⁻) → CO + H2O through \*COOH on metal top
+sites: two gas species (CO2, CO), the reaction, \*COOH and \*CO given atom by atom as
+templates (see [Adsorbates](#adsorbates)), the carboxyl family and its literature record.
+Nothing in mechanet itself is specific to it: the relaxed-structure checks follow C because an
+adsorbate brings it. `tests/test_co2rr_plugin.py` runs it on Pt(111) through generation,
+synthetic VASP runs, the checks of relaxed structures, thermodynamics, pathway ranking and the
+Pourbaix analysis. The references file needs CO2 and CO (E0 + G_corr, with whatever gas-phase
+correction you apply to them).
+
 ## Reactions
 
 A `Reaction` declares data only:
@@ -171,17 +182,50 @@ OH_MINUS = Species("OH-", (("O", 1), ("H", 1)), -1, "aqueous", references=("H2",
 
 ## Adsorbates
 
-An `Adsorbate` is data: its composition, the proximal element bound to the site, an
-optional distal heavy atom, and an internal geometry type (`none`, `atom`, `XH`, `water`,
-`XY`, `XYH`) with bond lengths, tilt list and metal distance. The builder places it with the
-same scored, clash-checked orientation search as the built-ins, and the analysis recognises
-it again in relaxed structures from its signature `(proximal, distal, H on proximal, H on
-distal)`. Two adsorbates may not share a signature.
+An `Adsorbate` is data: its composition, the proximal element bound to the site and an
+internal geometry. Small adsorbates use one of six fixed shapes (`none`, `atom`, `XH`,
+`water`, `XY`, `XYH`) with bond lengths, a tilt list and the metal distance; they are
+recognised in relaxed structures by the signature `(proximal, distal, H on proximal, H on
+distal)`. Anything larger is a **template**: the atoms beyond the proximal one, each with its
+element, the atom it is bonded to and a position. The builder places every kind with the same
+scored, clash-checked orientation search as the built-ins. Two adsorbates may not share a
+signature.
 
-The relaxed-structure classifier tracks O, Cl and H bound to O. An adsorbate bound through
-another element (such as \*H on a metal) is followed by its connectivity: while it keeps its
-bonds the state keeps its node; if its connectivity changes, the structure is listed for
-review instead of being reassigned automatically.
+A carboxyl bound through C, from `examples/plugins/co2rr.py`:
+
+```python
+CARBOXYL = Adsorbate(
+    "COOH",
+    {"C": 1, "O": 2, "H": 1},
+    "C",                                   # proximal element, bonded to the site
+    "template",
+    metal_distance_A=2.00,                 # M-C on an open metal site
+    atoms=(
+        # label, element, bonded to ("" = the proximal atom), (x, y, z) in A
+        ("o1", "O", "", (1.0822, 0.0, 0.5633)),
+        ("o2", "O", "", (-1.2063, 0.0, 0.6279)),
+        ("h", "H", "o2", (-1.0109, 0.0, 1.5882)),
+    ),
+    template_tilts_deg=(0.0, 25.0),        # tilts from the site's outward direction
+    template_roll_step_deg=30.0,           # rotations about the molecule's own axis
+)
+```
+
+The proximal atom sits at the origin and +z points away from the surface along its bond to
+the site. The atoms get the IDs `o1_<site>`, `o2_<site>`, `h_<site>`, and the bonds between
+them are the intended bonds of the starting structure. In a relaxed structure the
+adsorbate is recognised by the canonical tree of its atoms rooted at the site atom
+(`Adsorbate.graph_key`: `C(O,O(H))` here), so an H that moved to the other O still reads as
+\*COOH, while an OH that split off makes the structure need review.
+
+The relaxed-structure checks follow O, Cl and the H bound to O. Elements that registered
+adsorbates bring beyond O, H and Cl (C and N, say) join them automatically: they may hold H,
+their bonds to each other, to O and to the metals are watched, with bond lengths from covalent
+radii (lower hysteresis edge, initial bond and upper edge at 1.15, 1.25 and 1.35 times the sum
+of the radii), and released molecules that contain them are recognised. For oxygen and
+chlorine chemistry nothing changes. An adsorbate bound to a metal through H (such as \*H) is
+still followed by its connectivity only: while it keeps its bonds the state keeps its node;
+otherwise the structure is listed for review.
 
 ## Mechanism families
 

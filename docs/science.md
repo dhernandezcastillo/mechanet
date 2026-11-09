@@ -364,7 +364,9 @@ in the frozen region.
 
 Relaxed connectivity is compared with the starting structure with hysteresis (an O–H bond
 is lost beyond 1.35 Å and forms below 1.20 Å; O–O 1.75/1.95 Å; M–O 2.20/2.50 Å; O–Cl and
-M–Cl analogous). When it changed, the relaxed structure is classified site by site with the
+M–Cl analogous; for elements that plugin adsorbates bring, such as C or N, 1.15 and 1.35
+times the sum of the covalent radii, with 1.40 Å for a metal). When it changed, the relaxed
+structure is classified site by site with the
 adsorbate signatures of the registry and assigned to the node with that occupancy, where it
 competes with that node's own variants. Ambiguous structures (a proton in transit, a
 detached O–O fragment, an occupancy outside the network) are not assigned automatically and

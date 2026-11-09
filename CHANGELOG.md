@@ -2,7 +2,32 @@
 
 ## Unreleased
 
-Three corrections from an independent review of the thermodynamics.
+Chemistry beyond oxygen and chlorine without changes to the core, Windows support, and three
+corrections from an independent review of the thermodynamics.
+
+- **Adsorbates given atom by atom.** `geometry="template"` describes any small adsorbate by
+  its atoms (element, the atom it is bonded to, position relative to the proximal atom), such
+  as \*COOH bound through C. The builder places it with the usual scored orientation search
+  (tilts, azimuths and rolls about its own axis), and relaxed structures are recognised by the
+  canonical tree of the site's atoms (`Adsorbate.graph_key`, e.g. `C(O,O(H))`). The six fixed
+  shapes are unchanged.
+- **The checks of relaxed structures follow every element an adsorbate brings.** C, N or any
+  other element of a registered adsorbate beyond O, H and Cl can hold H, and its bonds to other
+  heavy atoms and to the metals are watched, with lengths from covalent radii; released
+  molecules containing it are recognised, and the starting-structure bond checks and atom
+  bookkeeping include it. For oxygen and chlorine chemistry every check, starting structure and
+  ID is unchanged (the frozen NiFe LDH build still matches to 10⁻⁶ Å).
+- **CO2 reduction to CO** (`examples/plugins/co2rr.py`): a plugin with CO2 and CO, \*COOH and
+  \*CO templates and the carboxyl route, run end to end in the tests.
+- **Reactions declare their coverage states** (`Reaction.coverage_states`), and the reference
+  molecules an analysis needs come from `Species.references`; nothing in the core names OER or
+  CER for either any more.
+- **Windows.** `runner.py` no longer imports `fcntl` unconditionally (the directory lock takes
+  over), only the stop signals the platform has are registered, and a POTCAR that cannot be
+  symlinked is copied. Tests that need POSIX signals or shell-script SLURM fakes skip on
+  Windows; CI runs the tests on Windows and macOS as well.
+
+Three corrections from an independent review of the thermodynamics:
 
 - **Pourbaix planes of pH-dependent plugin species.** The pH coefficient of a formation free
   energy is now the pH slope of the species' own chemical potentials, not only of explicit H⁺.

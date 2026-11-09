@@ -270,7 +270,10 @@ the entry-point groups `mechanet.reactions`, `mechanet.adsorbates`, `mechanet.fa
 `mechanet.commands`, or loaded from a local file listed under `plugins:` in project.yaml
 (`mechanet init SLAB --plugin FILE --reaction NAME` starts a project for a plugin reaction).
 The built-in OER and CER chemistry is registered the same way. A two-step family fits in a
-dozen lines; see [docs/plugins.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/plugins.md).
+dozen lines; larger adsorbates (\*COOH, \*NNH2, ...) are given atom by atom, and the checks of
+relaxed structures follow whatever elements they bring. `examples/plugins/her.py` and
+`examples/plugins/co2rr.py` (CO2 to CO through \*COOH) are complete examples; see
+[docs/plugins.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/plugins.md).
 
 ## Examples
 

@@ -38,6 +38,7 @@ from pathlib import Path
 import numpy as np
 
 from . import __version__, elements
+from .adsorbates import CORE_ELEMENTS, extra_elements
 from .fileio import dump_json, short_hash
 from .plugins import default_registry
 from .reactions import add as add_vectors, clean, electrons, oer_trio
@@ -92,6 +93,8 @@ BRIDGE_KINDS = ("bridge", "mu3", "framework")
 SITE_KINDS = TERMINAL_KINDS + BRIDGE_KINDS
 # Intended covalent bonds among adsorbate-type atoms in a starting structure.
 BASE_BOND_CUTOFFS = {frozenset({"O", "H"}): 1.25, frozenset({"O"}): 1.85, frozenset({"O", "Cl"}): 2.05}
+# Elements other adsorbates bring (C, N, ...) bond below this multiple of the covalent radii.
+GENERIC_BOND_SCALE = 1.25
 NATIVE_ID = re.compile(r"a\d{4}$")
 SITE_LABEL = re.compile(r"[am]\d{4}")
 
@@ -213,10 +216,11 @@ class Builder:
         self._anchor_angles = {}
         self.inv_cell = np.linalg.inv(self.seed.cell)
         self.seed_distances = distance_matrix(self.seed)
+        self.extra_elements = extra_elements(self.registry.adsorbates.values())
         self.base_bonds = []
         for i, sym in enumerate(self.seed.symbols):
             for j in range(i):
-                cutoff = BASE_BOND_CUTOFFS.get(frozenset((sym, self.seed.symbols[j])))
+                cutoff = self._construction_cutoff(sym, self.seed.symbols[j])
                 if cutoff and self.seed_distances[i, j] <= cutoff:
                     self.base_bonds.append([self.seed.ids[i], self.seed.ids[j]])
         self.floor_table, self.floors = self._floor_table(self.geo.get("clash_floors_A"))
@@ -487,6 +491,20 @@ class Builder:
     def adsorbate(self, status):
         return self.registry.adsorbate(status)
 
+    def _construction_cutoff(self, a, b):
+        """Bond cutoff of two elements in a starting structure, or None for a pair that is not checked.
+
+        O-H, O-O and O-Cl keep their fixed values. A pair with an element that other adsorbates
+        bring (C, N, ...) bonds below GENERIC_BOND_SCALE times the covalent radii, unless one atom
+        is a metal or a spectator cation; for oxygen and chlorine chemistry nothing changes.
+        """
+        cutoff = BASE_BOND_CUTOFFS.get(frozenset((a, b)))
+        if cutoff is not None or {a, b} <= CORE_ELEMENTS or not {a, b} & self.extra_elements:
+            return cutoff
+        if self._category(a) in (2, 3) or self._category(b) in (2, 3):
+            return None
+        return GENERIC_BOND_SCALE * (elements.covalent_radius(a) + elements.covalent_radius(b))
+
     def site_position(self, aid):
         site = self.sites[aid]
         if site["kind"] == "open_metal":
@@ -620,6 +638,14 @@ class Builder:
                 for a in self.azimuths
                 for x in torsions
             ]
+        if ads.geometry == "template":
+            rolls = [float(r) for r in np.arange(0.0, 360.0, float(ads.template_roll_step_deg))]
+            return [
+                {"tilt_deg": float(t), "azimuth_deg": a, "roll_deg": r}
+                for t in ads.template_tilts_deg
+                for a in ([0.0] if float(t) == 0.0 else self.azimuths)
+                for r in rolls
+            ]
         raise ValueError(f"No orientation grid for {status}")
 
     def _site_atoms(self, aid, status, params, binding_modes, records):
@@ -678,6 +704,26 @@ class Builder:
                 )
                 atoms.append((f"p_{aid}", "H", distal + ads.xh_A * hd, f"d_{aid}"))
             return atoms
+        if ads.geometry == "template":
+            # The template's z axis along the tilted direction, its x axis rolled about it.
+            d = self._direction(outward, t, v, params["tilt_deg"], params["azimuth_deg"])
+            e1 = t - np.dot(t, d) * d
+            if np.linalg.norm(e1) < 1e-6:
+                e1 = v - np.dot(v, d) * d
+            e1 = unit(e1)
+            e2 = unit(np.cross(d, e1))
+            roll = math.radians(params["roll_deg"])
+            x = math.cos(roll) * e1 + math.sin(roll) * e2
+            y = np.cross(d, x)
+            return [
+                (
+                    f"{label}_{aid}",
+                    element,
+                    origin + px * x + py * y + pz * d,
+                    f"{parent}_{aid}" if parent else aid,
+                )
+                for label, element, parent, (px, py, pz) in ads.atoms
+            ]
         raise ValueError(f"Unsupported oriented status {status}")
 
     def _environment(self, records, exclude, added):
@@ -968,7 +1014,7 @@ class Builder:
         observed = set()
         for i, sym in enumerate(st.symbols):
             for j in range(i):
-                cutoff = BASE_BOND_CUTOFFS.get(frozenset((sym, st.symbols[j])))
+                cutoff = self._construction_cutoff(sym, st.symbols[j])
                 if cutoff and distances[i, j] <= cutoff:
                     observed.add(tuple(sorted((st.ids[i], st.ids[j]))))
         if observed != intended:
@@ -1571,7 +1617,7 @@ class Builder:
 
     def _atom_bookkeeping(self):
         id_cache = {}
-        tracked = ("O", "H", "Cl")
+        tracked = ("O", "H", "Cl", *sorted(self.extra_elements))
         for edge in self.edges.values():
             endpoints = []
             for node_id in (edge["from"], edge["to"]):

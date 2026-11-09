@@ -43,6 +43,7 @@ POMASS = {
     "Ir": 192.22,
     "Pt": 195.08,
     "Cl": 35.453,
+    "C": 12.011,
 }
 # frequency settings of the two protocols (frequency.central)
 REFINE_PROTOCOL = {"central": "refine", "ediff": 1e-7, "max_force_eVA": 0.03, "warn_force_eVA": 0.02}
