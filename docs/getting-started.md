@@ -59,16 +59,17 @@ Each command is `mechanet COMMAND`; those that submit jobs show a preview until 
 | Step | Command | What happens |
 |---|---|---|
 | 1 | `init SLAB` | Finds the vacuum axis, active side, fixed region, reactive sites, symmetry and site pairs; proposes the partial-Hessian region, PAW datasets, starting moments and (for oxides) Hubbard U values; writes the project, the DFT inputs and the site map. [Tutorial 2](tutorials/own-slab.md) |
-| 2 | `generate` | Builds the network from the mechanism families of the scope, places every adsorbate without clashes, merges symmetry images, and writes the starting structures. No DFT. [Tutorial 1](tutorials/first-network.md#5-build-the-network) |
+| 2 | `generate` | Builds the network from the mechanism families of the scope, places every adsorbate without clashes, merges lattice-translation images, and writes the starting structures. No DFT. [Tutorial 1](tutorials/first-network.md#5-build-the-network) |
 | 3 | `plan`, `cycles`, `show-cycle` | Counts intermediates, cycles, structures and calculations, with node-hours once the pilot has run. [Tutorial 1](tutorials/first-network.md#6-see-what-it-will-cost) |
-| 4 | `submit --pilot` | The reference surface, one start per adsorbate and the most crowded start: checks your protocol and measures timings. [Tutorial 3](tutorials/cluster.md#5-run-the-pilot) |
-| 5 | `submit`, then `status` | Every structure through `02_final`; repeat it whenever you like, and jobs stopped at the time limit continue. `status` shows where everything stands. [Following a campaign](following-a-campaign.md) |
-| 6 | `collect`, `review`, `select` | Parses and checks every run and assigns each relaxed structure to the intermediate it became; `review` lists the finished structures that changed during the relaxation and records your decisions; `select` picks the variants that continue to frequencies. [Checking results](checking-results.md) |
-| 7 | `submit --selected --through freq` | The single point and the partial Hessian, by restartable finite displacements. [Execution](execution.md#5-frequencies-by-restartable-displacements) |
-| 8 | `thermo` | Free energies of every intermediate, step and cycle; limiting potentials, overpotentials, Gmax(U), resting states, and the magnetic moments along each cycle. [Tutorial 4](tutorials/analysis.md) |
-| 9 | `pathways --rank` | Every balanced cycle of the network, written down or not, ranked: the route of lowest limiting potential. [Tutorial 4](tutorials/analysis.md#5-rank-every-pathway-not-only-the-written-ones) |
-| 10 | `pourbaix --plot` | The most stable computed termination over pH and potential. [Tutorial 4](tutorials/analysis.md#6-draw-the-surface-pourbaix-diagram) |
-| 11 | `report` | `report.md` with the network, the progress and every analysis so far. [Tutorial 4](tutorials/analysis.md#7-write-the-report) |
+| 4 | `prescreen --calculator mace-mp` (optional) | Relaxes every start with an ML potential, checks it as a DFT result would be checked, and lists the starts worth DFT, for `submit --states @campaign/prescreen/suggested_states.txt`. Nothing in the campaign changes. [Pre-screening](prescreening.md) |
+| 5 | `submit --pilot` | The reference surface, one start per adsorbate and the most crowded start: checks your protocol and measures timings. [Tutorial 3](tutorials/cluster.md#5-run-the-pilot) |
+| 6 | `submit`, then `status` | Every structure through `02_final`; repeat it whenever you like, and jobs stopped at the time limit continue. `status` shows where everything stands. [Following a campaign](following-a-campaign.md) |
+| 7 | `collect`, `review`, `select` | Parses and checks every run and assigns each relaxed structure to the intermediate it became; `review` lists the finished structures that changed during the relaxation and records your decisions; `select` picks the variants that continue to frequencies. [Checking results](checking-results.md) |
+| 8 | `submit --selected --through freq` | The single point and the partial Hessian, by restartable finite displacements. [Execution](execution.md#5-frequencies-by-restartable-displacements) |
+| 9 | `thermo` | Free energies of every intermediate, step and cycle; limiting potentials, overpotentials, Gmax(U), resting states, and the magnetic moments along each cycle. [Tutorial 4](tutorials/analysis.md) |
+| 10 | `pathways --rank` | Every balanced cycle of the network, written down or not, ranked: the route of lowest limiting potential. [Tutorial 4](tutorials/analysis.md#5-rank-every-pathway-not-only-the-written-ones) |
+| 11 | `pourbaix --plot` | The most stable computed termination over pH and potential. [Tutorial 4](tutorials/analysis.md#6-draw-the-surface-pourbaix-diagram) |
+| 12 | `report` | `report.md` with the network, the progress and every analysis so far. [Tutorial 4](tutorials/analysis.md#7-write-the-report) |
 
 ::::
 

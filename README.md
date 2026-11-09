@@ -73,14 +73,15 @@ before generating. Every value `init` detected is marked `[auto]` in `project.ya
 | 1 | `mechanet init SLAB` | Finds the vacuum axis, active side, fixed region, reactive sites (O/OH/H2O ligands, open metal sites), symmetry and site pairs; proposes the partial-Hessian region, PAW datasets, starting moments and (for oxides) Materials Project U values; writes the project, INCAR templates, KPOINTS, a references template and the site map. Your own choices go in at once with `--dft-u Fe=5.3,Ni=6.2` (or `none`), `--potcar-variants Fe=Fe_pv,...` and `--potcar-dir DIR`. |
 | 2 | `mechanet generate` | Builds the network from the mechanism families in `scope.families`, places every adsorbate with a scored clash-free search, merges lattice-translation images, and writes one starting structure per variant into `campaign/states/`. No DFT. |
 | 3 | `mechanet plan` / `cycles` / `show-cycle` | Counts nodes, cycles, starts, DFT runs and displacement single points (node-hours once pilot timings exist); writes the method card. |
-| 4 | `mechanet submit --pilot --execute` | The reference, one start per adsorbate type and the most crowded start: checks the protocol and gives timings. |
-| 5 | `mechanet submit --execute` | All states through `02_final` (repeat the command to continue jobs stopped at the walltime; `--max-active N --refill` keeps N jobs running). `mechanet status` shows what is finished, running, queued or waiting, per state and per cycle. |
-| 6 | `mechanet collect`, `review`, then `select` | Parses results (convergence, forces, moments, topology) and assigns relaxed structures to the intermediates they became. `review` lists the finished structures that changed during the relaxation (which H moved where, which bond broke, the cycles they hold up) and records your decisions. `select` picks the variants that continue to frequencies (`--families aem,...` or `--cycles` to restrict them); variants that relaxed into the same minimum are merged first, and variants of one intermediate that converged to different magnetic solutions are reported. |
-| 7 | `mechanet submit --selected --through freq --execute` | `04_static` and the partial Hessian by restartable finite displacements. |
-| 8 | `mechanet thermo` | Free energies of every intermediate, step and cycle at the analysis potentials; Gmax(U), limiting potential, overpotential, resting states; the local moments of the active-site atoms along each cycle, with a spin check. `--electronic-only` gives a screening estimate before frequencies exist. `mechanet plot-profile CYCLE --potential U` draws the profile with the moments underneath. |
-| 9 | `mechanet pathways --rank` | Every balanced cycle of the network, curated or not, ranked per reaction with the project's references; the lowest limiting potential over all cycles, of any length, whose steps have energies. |
-| 10 | `mechanet pourbaix --plot` | The most stable computed termination over pH and potential. |
-| 11 | `mechanet report` | `report.md` with the network, progress and every analysis so far. |
+| 4 | `mechanet prescreen --calculator mace-mp` (optional) | Relaxes every start with an ML potential (MACE, UMA or any ASE calculator), checks each relaxed structure as `collect` checks a DFT result, and suggests the starts worth DFT; `submit --states @campaign/prescreen/suggested_states.txt` runs only those. Nothing in the campaign changes. |
+| 5 | `mechanet submit --pilot --execute` | The reference, one start per adsorbate type and the most crowded start: checks the protocol and gives timings. |
+| 6 | `mechanet submit --execute` | All states through `02_final` (repeat the command to continue jobs stopped at the walltime; `--max-active N --refill` keeps N jobs running). `mechanet status` shows what is finished, running, queued or waiting, per state and per cycle. |
+| 7 | `mechanet collect`, `review`, then `select` | Parses results (convergence, forces, moments, topology) and assigns relaxed structures to the intermediates they became. `review` lists the finished structures that changed during the relaxation (which H moved where, which bond broke, the cycles they hold up) and records your decisions. `select` picks the variants that continue to frequencies (`--families aem,...` or `--cycles` to restrict them); variants that relaxed into the same minimum are merged first, and variants of one intermediate that converged to different magnetic solutions are reported. |
+| 8 | `mechanet submit --selected --through freq --execute` | `04_static` and the partial Hessian by restartable finite displacements. |
+| 9 | `mechanet thermo` | Free energies of every intermediate, step and cycle at the analysis potentials; Gmax(U), limiting potential, overpotential, resting states; the local moments of the active-site atoms along each cycle, with a spin check. `--electronic-only` gives a screening estimate before frequencies exist. `mechanet plot-profile CYCLE --potential U` draws the profile with the moments underneath. |
+| 10 | `mechanet pathways --rank` | Every balanced cycle of the network, curated or not, ranked per reaction with the project's references; the lowest limiting potential over all cycles, of any length, whose steps have energies. |
+| 11 | `mechanet pourbaix --plot` | The most stable computed termination over pH and potential. |
+| 12 | `mechanet report` | `report.md` with the network, progress and every analysis so far. |
 
 Every command prints a readable summary, or JSON with `--json`. Nothing is ever submitted
 without `--execute`. Commands find the project and its campaign themselves when run inside
@@ -263,11 +264,30 @@ exact convex polygons (written to `pourbaix/pourbaix.json`) and the transitions 
 pH are exact. Add the `coverage` family to the scope to compute terminations for this
 purpose. Only computed terminations can appear.
 
+## Pre-screening with an ML potential
+
+```bash
+mechanet prescreen --calculator mace-mp --option model=medium
+mechanet submit --states @campaign/prescreen/suggested_states.txt --execute
+```
+
+Every start is relaxed with the ML potential, with the atoms the DFT relaxation would move,
+and checked with the topology rules of `collect`: kept its intermediate, relaxed into another
+one, gave its adsorbate off, or changed. Per intermediate, the starts that kept it are ranked
+by energy, starts that relaxed into the same structure (or a symmetry image of it) are merged,
+and those within 0.2 eV of the lowest (at most 3) are suggested. An intermediate none of whose
+starts held keeps all of them, so the potential never rules an intermediate out. The ML
+energies only compare starts of one intermediate; they are never used as reaction energies.
+`mace-mp`, any `module:callable` returning an ASE calculator, and calculators added by plugins
+(UMA through fairchem, say) work the same way; see
+[docs/prescreening.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/prescreening.md).
+
 ## Extending mechanet
 
-Reactions, adsorbates, mechanism families and CLI commands are plugins, registered through
-the entry-point groups `mechanet.reactions`, `mechanet.adsorbates`, `mechanet.families` and
-`mechanet.commands`, or loaded from a local file listed under `plugins:` in project.yaml
+Reactions, adsorbates, mechanism families, CLI commands and calculators are plugins,
+registered through the entry-point groups `mechanet.reactions`, `mechanet.adsorbates`,
+`mechanet.families`, `mechanet.commands` and `mechanet.calculators`, or loaded from a local
+file listed under `plugins:` in project.yaml
 (`mechanet init SLAB --plugin FILE --reaction NAME` starts a project for a plugin reaction).
 The built-in OER and CER chemistry is registered the same way. A two-step family fits in a
 dozen lines; larger adsorbates (\*COOH, \*NNH2, ...) are given atom by atom, and the checks of
@@ -304,7 +324,9 @@ mechanet only reports when intermediates or variants ended in different magnetic
 On metal surfaces adsorbates are placed on top sites only (one open site per surface metal);
 bridge and hollow sites are not generated yet, so a metal's preference for them is missed.
 Partial Hessians neglect vibrations of the frozen region. The
-execution layer drives VASP; other codes would need a calculator plugin (not yet available).
+DFT execution layer drives VASP. Calculators (any ASE calculator, such as an ML potential) only
+pre-screen starting structures; running another DFT code through the staged runner is not
+available yet.
 [docs/science.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/science.md) states what each number means.
 
 ## Citing

@@ -188,6 +188,9 @@ def _limits(kind, hysteresis):
 
 
 def _final_geometry(state_dir, geometry):
+    """The structure to judge: a stage's (or the latest) geometry of the state, or a file given as a Path."""
+    if isinstance(geometry, Path):
+        return geometry if geometry.is_file() else None
     candidates = {
         "latest": [(STAGE_STATIC, "POSCAR"), (STAGE_REFINE, "CONTCAR"), (STAGE_FINAL, "CONTCAR")],
         STAGE_FINAL: [(STAGE_FINAL, "CONTCAR")],
@@ -684,7 +687,7 @@ def _assign_microstate(meta, changes, coupling, reason, context, registry):
     )
 
 
-def topology_check(state_dir, meta, config=None, geometry="latest", registry=None):
+def topology_check(state_dir, meta, config=None, geometry="latest", registry=None, use_review=True):
     """Distance-based connectivity of the relaxed structure versus the initial guess.
 
     Bonds use fixed cutoffs (O-H 1.25, O-O 1.85, O-Cl 2.05, active M-O 2.35, M-Cl 2.75 A)
@@ -692,6 +695,11 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
     beyond the upper edge, a new bond forms only below the lower edge of
     ``topology.hysteresis_A``; crossings inside the band are reported as soft changes. A
     relaxed structure whose site occupancy matches another node is assigned to that node.
+
+    ``geometry`` names a stage ("latest", "02_final", ...) or is a Path to any structure with the
+    state's atoms in its order (``mechanet prescreen`` passes a relaxation by an ML potential).
+    ``use_review=False`` ignores the decisions of the state's review.json, which were made for
+    its DFT result.
     """
     config = config or {}
     registry = registry or default_registry()
@@ -705,7 +713,7 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
             "status": "not_available",
             "valid_for_assigned_node": False,
             "reason": "No final geometry is available.",
-            "geometry": geometry,
+            "geometry": str(geometry),
         }
     try:
         initial = read_poscar(Path(state_dir) / "POSCAR")
@@ -787,7 +795,7 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
             if d_final[ia, ib] > upper:
                 missing_required.append((a, b))
         changed = bool(missing_required or lost or formed or lost_metal or new_metal)
-        review = _load(Path(state_dir) / "review.json")
+        review = _load(Path(state_dir) / "review.json") if use_review else {}
         override = bool(review.get("accept_relaxed_topology") and review.get("comment"))
         context = _campaign_context(Path(state_dir).resolve().parent.parent)
         native = context["native"] if context is not None else None

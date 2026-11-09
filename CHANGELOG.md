@@ -2,9 +2,27 @@
 
 ## Unreleased
 
-Chemistry beyond oxygen and chlorine without changes to the core, Windows support, and three
-corrections from an independent review of the thermodynamics.
+Chemistry beyond oxygen and chlorine without changes to the core, pre-screening with ML
+potentials, Windows support, and three corrections from an independent review of the
+thermodynamics.
 
+- **`mechanet prescreen`: ML potentials before DFT.** Every start is relaxed inside Python with
+  a calculator (`mace-mp`, any `module:callable` returning an ASE calculator, or one a plugin
+  adds) with the selective dynamics of its DFT relaxation, and judged by the topology check of
+  `collect`. Per intermediate, the starts that kept it are ranked by energy, starts that relaxed
+  into the same structure or a symmetry image of it are merged, and those within 0.20 eV of the
+  lowest (at most 3) are written to `prescreen/suggested_states.txt` for `submit --states @FILE`.
+  An intermediate none of whose starts held keeps all of them, and starts the calculator failed
+  on are kept: the potential never rules an intermediate out. The ML energies only compare starts
+  of one intermediate; they are not used for thermodynamics. Results are reused while the
+  POSCAR, calculator and settings are unchanged. Nothing in the campaign is modified.
+- **Calculator interface** (`mechanet.calculators`): `Calculator` (`describe`, `relax`), an
+  ASE adapter that carries selective dynamics over exactly (FixAtoms, FixCartesian), the
+  `mechanet.calculators` entry-point group and `registry.add_calculator`; `mechanet plugins`
+  lists the calculators. DFT still runs through the staged VASP runner.
+- `topology_check` takes a structure file as `geometry` and can ignore review.json
+  (`use_review=False`); `symmetry.surface_images` gives the slab's rotations and mirrors that
+  keep its normal, fixed region, frequency region and MAGMOM (spglib).
 - **Adsorbates given atom by atom.** `geometry="template"` describes any small adsorbate by
   its atoms (element, the atom it is bonded to, position relative to the proximal atom), such
   as \*COOH bound through C. The builder places it with the usual scored orientation search

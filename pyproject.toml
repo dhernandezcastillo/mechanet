@@ -62,6 +62,11 @@ builtin = "mechanet.adsorbates:register"
 [project.entry-points."mechanet.commands"]
 pourbaix = "mechanet.pourbaix:register_command"
 pathways = "mechanet.pathways:register_command"
+prescreen = "mechanet.prescreen:register_command"
+
+[project.entry-points."mechanet.calculators"]
+emt = "mechanet.calculators:make_emt"
+mace-mp = "mechanet.calculators:make_mace_mp"
 
 [tool.setuptools.packages.find]
 where = ["src"]

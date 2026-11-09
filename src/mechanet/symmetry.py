@@ -9,7 +9,8 @@ the user sees how far from exact each translation is.
 Translations never flip the slab or rotate adsorbate orientations, so nodes related by
 one can be treated as the same calculation without any change of the starting geometry
 other than the shift. Rotations and mirrors are reported by the inspector (spglib) but
-not used for merging.
+not used for merging nodes. :func:`surface_images` gives them for comparing relaxed
+structures, where two minima related by one are the same minimum.
 """
 
 from __future__ import annotations
@@ -75,29 +76,34 @@ def lattice_translations(structure, masks=(), atom_values=None, tol=DEFAULT_SYMM
     return found
 
 
+def _dataset(structure, types, symprec):
+    """spglib's symmetry dataset, atoms told apart by the integer ``types``; None when spglib fails."""
+    try:
+        import spglib
+    except ImportError:  # pragma: no cover
+        return None
+    import warnings
+
+    frac = structure.positions @ np.linalg.inv(structure.cell)
+    try:
+        with warnings.catch_warnings():  # spglib 2.x warns about its legacy error handling
+            warnings.simplefilter("ignore", DeprecationWarning)
+            return spglib.get_symmetry_dataset((structure.cell, frac, np.asarray(types)), symprec=symprec)
+    except Exception:  # noqa: BLE001 - spglib raises on degenerate input in some versions
+        return None
+
+
 def surface_operations(structure, normal, fixed=None, symprec=0.01):
     """Number of spglib operations that keep the surface normal and the fixed/movable mask.
 
     Diagnostic only (reported by the inspector); returns None when spglib fails.
     """
-    try:
-        import spglib
-    except ImportError:  # pragma: no cover
-        return None
     from ase.data import atomic_numbers
 
     numbers = np.array([atomic_numbers[s] for s in structure.symbols])
     if fixed is not None:
         numbers = numbers + 200 * np.asarray(fixed, dtype=int)
-    frac = structure.positions @ np.linalg.inv(structure.cell)
-    import warnings
-
-    try:
-        with warnings.catch_warnings():  # spglib 2.x warns about its legacy error handling
-            warnings.simplefilter("ignore", DeprecationWarning)
-            dataset = spglib.get_symmetry_dataset((structure.cell, frac, numbers), symprec=symprec)
-    except Exception:  # noqa: BLE001 - spglib raises on degenerate input in some versions
-        return None
+    dataset = _dataset(structure, numbers, symprec)
     if dataset is None:
         return None
     lattice = structure.cell.T  # columns are lattice vectors
@@ -113,3 +119,38 @@ def surface_operations(structure, normal, fixed=None, symprec=0.01):
         "operations_keeping_surface": kept,
         "spacegroup": dataset.international,
     }
+
+
+def surface_images(structure, normal, labels=None, symprec=DEFAULT_SYMMETRY_TOLERANCE_A):
+    """Cartesian operations ``x -> R @ x + t`` that map the slab onto itself and keep its outward normal.
+
+    Atoms are told apart by element and, when given, by ``labels`` (one hashable per atom, such as
+    whether it is fixed and its initial magnetic moment), so no operation exchanges a fixed atom
+    with a movable one or a spin-up metal with a spin-down one. The identity comes first; it is
+    the only operation when spglib fails. Two relaxed structures related by one of these are the
+    same minimum seen from another place or angle (``mechanet prescreen`` merges them).
+    """
+    import json
+
+    identity = (np.eye(3), np.zeros(3))
+    # JSON text, so that a label may hold lists (a non-collinear MAGMOM, say)
+    keys = [
+        json.dumps([symbol, None if labels is None else labels[i]], sort_keys=True, default=str)
+        for i, symbol in enumerate(structure.symbols)
+    ]
+    kinds = {key: k + 1 for k, key in enumerate(dict.fromkeys(keys))}
+    dataset = _dataset(structure, [kinds[key] for key in keys], symprec)
+    if dataset is None:
+        return [identity]
+    lattice = structure.cell.T  # columns are lattice vectors
+    inverse = np.linalg.inv(lattice)
+    normal = np.asarray(normal, dtype=float) / np.linalg.norm(normal)
+    images = [identity]
+    for rotation, translation in zip(dataset.rotations, dataset.translations):
+        cartesian = lattice @ rotation @ inverse
+        if not np.allclose(cartesian @ normal, normal, atol=1e-3):
+            continue
+        if np.array_equal(rotation, np.eye(3, dtype=int)) and np.allclose(translation - np.rint(translation), 0):
+            continue
+        images.append((cartesian, lattice @ translation))
+    return images

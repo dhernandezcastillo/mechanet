@@ -8,6 +8,9 @@ registered the same way an external package would register its own:
 ``mechanet.adsorbates``    ``register(registry)`` adding :class:`Adsorbate` objects
 ``mechanet.families``      ``register(registry)`` adding :class:`Family` objects
 ``mechanet.commands``      ``register_command(subparsers, registry)`` adding CLI subcommands
+``mechanet.calculators``   a factory returning an ASE calculator (or a
+                           :class:`mechanet.calculators.Calculator`); the entry-point
+                           name is the calculator's name (``--calculator NAME``)
 =========================  ==========================================================
 
 A project can also load local plugin files (``plugins: [./my_families.py]`` in
@@ -28,7 +31,13 @@ from typing import Callable
 
 from .adsorbates import Adsorbate
 
-GROUPS = ("mechanet.reactions", "mechanet.adsorbates", "mechanet.families", "mechanet.commands")
+GROUPS = (
+    "mechanet.reactions",
+    "mechanet.adsorbates",
+    "mechanet.families",
+    "mechanet.commands",
+    "mechanet.calculators",
+)
 # Keys of the scope section of project.yaml that belong to mechanet itself (not to a family).
 SCOPE_BASE_KEYS = ("families", "pair_max_distance_A")
 
@@ -64,6 +73,7 @@ class Registry:
         self.adsorbates = {}
         self.families = {}
         self.commands = {}
+        self.calculators = {}  # name -> mechanet.calculators.CalculatorFactory
         self.sources = {}  # literature key -> record
         self.loaded = []  # (group, name, origin)
         self.errors = []
@@ -138,6 +148,16 @@ class Registry:
     def add_command(self, name, register, origin="builtin"):
         self.commands[name] = register
         self.loaded.append(("command", name, origin))
+
+    def add_calculator(self, name, make, description="", origin="builtin"):
+        """A calculator ``mechanet prescreen --calculator NAME`` can use: ``make(**options)`` returns
+        an ASE calculator or a :class:`mechanet.calculators.Calculator`."""
+        from .calculators import CalculatorFactory
+
+        if not callable(make):
+            raise ValueError(f"Calculator {name!r}: the factory must be callable")
+        self.calculators[str(name)] = CalculatorFactory(str(name), make, str(description or ""), origin)
+        self.loaded.append(("calculator", str(name), origin))
 
     def add_sources(self, records: dict):
         self.sources.update(records)
@@ -241,11 +261,13 @@ def _register_builtins(registry):
     oer.register(registry)
     cer.register(registry)
     coverage.register(registry)
-    from . import pourbaix, pathways
+    from . import calculators, pathways, pourbaix, prescreen
 
     pathways.register_family(registry)
     registry.add_command("pourbaix", pourbaix.register_command)
     registry.add_command("pathways", pathways.register_command)
+    registry.add_command("prescreen", prescreen.register_command)
+    calculators.register(registry)
     from .literature import LITERATURE
 
     registry.add_sources(LITERATURE)
@@ -313,6 +335,9 @@ def default_registry(plugin_files=(), fresh=False):
                 registry.add_reaction(obj, origin)
             elif group == "mechanet.commands":
                 registry.add_command(ep.name, obj, origin)
+            elif group == "mechanet.calculators":
+                summary = ((getattr(obj, "__doc__", None) or "").strip().splitlines() or [""])[0]
+                registry.add_calculator(ep.name, obj, summary, origin)
             else:
                 before = len(registry.loaded)
                 obj(registry)

@@ -1087,10 +1087,14 @@ def cmd_plugins(args, registry):
     adsorbates = [
         {"name": a.name, "geometry": a.geometry, "description": a.description} for a in registry.adsorbates.values()
     ]
+    calculators = [
+        {"name": c.name, "origin": c.origin, "description": c.description} for c in registry.calculators.values()
+    ]
     result = {
         "reactions": reactions,
         "families": families,
         "adsorbates": adsorbates,
+        "calculators": calculators,
         "commands": sorted(registry.commands),
         "errors": errors,
     }
@@ -1103,6 +1107,9 @@ def cmd_plugins(args, registry):
         "",
         "Adsorbates:",
         _table(adsorbates, ["name", "geometry", "description"]),
+        "",
+        "Calculators (mechanet prescreen --calculator NAME):",
+        _table(calculators, ["name", "origin", "description"]),
         "",
         "Plugin commands: " + ", ".join(result["commands"]),
     ]
@@ -1572,6 +1579,7 @@ COMMAND_ORDER = (
     "show-cycle",
     "list",
     "validate",
+    "prescreen",
     "cluster",
     "references",
     "prepare",

@@ -1,4 +1,4 @@
-# Extending mechanet: reactions, species, adsorbates, mechanisms and commands
+# Extending mechanet: reactions, species, adsorbates, mechanisms, commands and calculators
 
 Everything chemistry-specific in mechanet is a plugin, including the built-in OER and CER
 chemistry. A plugin can add:
@@ -10,6 +10,7 @@ chemistry. A plugin can add:
 | Adsorbate | `mechanet.adsorbates.Adsorbate` | `registry.add_adsorbate(ads)` | `mechanet.adsorbates` (`register`) |
 | Mechanism family | `mechanet.plugins.Family` | `registry.add_family(family)` | `mechanet.families` (`register`) |
 | CLI command | `register_command(subparsers, registry)` | `registry.add_command(name, fn)` | `mechanet.commands` |
+| Calculator for `prescreen` | a factory returning an ASE calculator | `registry.add_calculator(name, factory, description)` | `mechanet.calculators` (the factory) |
 
 Two ways to load one:
 
@@ -266,7 +267,40 @@ def run(args, registry):
     return {"states": 42, "file": "analysis/bader.csv"}   # printed readably, or as JSON with --json
 ```
 
-`mechanet pathways` and `mechanet pourbaix` are registered this way. Every subcommand gets
-`--json` and `--traceback` automatically (a plugin that defines them itself keeps its own).
-The handler returns a result (printed readably, or as JSON), or `(result, text)`, or
-`(result, text, exit_code)`; a `ValueError` is printed as `ERROR: ...` with exit code 2.
+`mechanet pathways`, `mechanet pourbaix` and `mechanet prescreen` are registered this way.
+Every subcommand gets `--json` and `--traceback` automatically (a plugin that defines them
+itself keeps its own). The handler returns a result (printed readably, or as JSON), or
+`(result, text)`, or `(result, text, exit_code)`; a `ValueError` is printed as `ERROR: ...`
+with exit code 2.
+
+## Calculators
+
+A calculator relaxes structures inside Python for
+[`mechanet prescreen`](prescreening.md), usually through a machine-learned potential. A plugin
+registers a factory, which is called with the `--option key=value` pairs and returns an ASE
+calculator:
+
+```python
+def make_uma(model="uma-s-1p1", task="oc20", device="cpu"):
+    from fairchem.core import FAIRChemCalculator, pretrained_mlip
+
+    return FAIRChemCalculator(pretrained_mlip.get_predict_unit(model, device=device), task_name=task)
+
+
+def register(registry):
+    registry.add_calculator("uma", make_uma, "UMA through fairchem (task oc20: slabs with adsorbates)")
+```
+
+A package offers it through an entry point (the entry-point name is the calculator's name):
+
+```toml
+[project.entry-points."mechanet.calculators"]
+uma = "my_package.calculators:make_uma"
+```
+
+`emt` and `mace-mp` are registered this way. Import the potential's package inside the
+factory, so that mechanet loads without it. The factory may also return an object of its own
+with `describe()` (a dict: what was used, stored with every result) and
+`relax(structure, fmax, steps)` returning a `mechanet.calculators.Relaxation`, for an engine
+that is not an ASE calculator; it must keep fixed the coordinates that the structure's
+`mobile` flags fix.
