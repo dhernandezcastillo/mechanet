@@ -5,9 +5,9 @@ type: software
 authors:
   - family-names: "Hernández Castillo"
     given-names: "David"
-version: 0.1.3
+version: 0.1.4
 repository-code: "https://github.com/dhernandezcastillo/mechanet"
-date-released: 2026-11-02
+date-released: 2026-11-09
 license: MIT
 keywords:
   - electrocatalysis

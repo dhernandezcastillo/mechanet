@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.4 (2026-11-09)
 
 What a relaxation can turn an intermediate into: another tautomer, a new intermediate, or nothing bound.
 
@@ -28,9 +28,9 @@ What a relaxation can turn an intermediate into: another tautomer, a new interme
   intermediate of this campaign"). `pathways --adopt` refuses a cycle through an intermediate
   that is no longer in network.json.
 - **No bound minimum**: a molecule that left the surface during a relaxation (no O or Cl atom
-  within the upper M–O (M–Cl) edge of any metal after a lost contact) is reported in chemical terms
-  ("O₂ (O a0065, O d_a0065) released from Fe a0003"; `released` in the topology record). When
-  it is the intermediate's own adsorbate and nothing else changed at the metals
+  within the upper M–O (M–Cl) edge of any metal after a lost contact) is reported in chemical
+  terms ("O₂ (O a0065, O d_a0065) released from Fe a0003"; `released` in the topology record).
+  When it is the intermediate's own adsorbate and nothing else changed at the metals
   (`adsorbate_released`), the structure is listed apart from those that need a decision; an
   intermediate whose finished starts all end that way shows "no bound minimum found from N
   starts" instead of holding its cycles up, and `status` marks it ∅ and counts its cycles
@@ -39,6 +39,8 @@ What a relaxation can turn an intermediate into: another tautomer, a new interme
 - `mechanet init` writes `geometry.orientation_search` with its defaults into project.yaml, and
   the science page describes the starting-structure recipe in full (outward direction, grids,
   bond lengths, clash floors, score, beam search, the second start as a hedge).
+- Installation from the repository, until mechanet is on PyPI:
+  `pip install "mechanet[plots] @ git+https://github.com/dhernandezcastillo/mechanet.git@v0.1.4"`.
 
 ## 0.1.3 (2026-11-02)
 

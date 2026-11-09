@@ -42,7 +42,7 @@ and a [reference of every command](https://mechanet.readthedocs.io/en/latest/com
 pip install mechanet              # Python >= 3.10; numpy, ase, spglib, networkx, pyyaml
 pip install "mechanet[plots]"     # adds matplotlib for profiles and Pourbaix figures
 # until mechanet is on PyPI, from the repository (a tag pins the version):
-pip install "mechanet[plots] @ git+https://github.com/dhernandezcastillo/mechanet.git@v0.1.3"
+pip install "mechanet[plots] @ git+https://github.com/dhernandezcastillo/mechanet.git@v0.1.4"
 ```
 
 Install it on the cluster, in an environment the compute nodes can see (for example a

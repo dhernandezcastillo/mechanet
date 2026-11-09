@@ -3,7 +3,7 @@
 The same workflow runs chlorine evolution, reactions added by a plugin, and mechanisms you write yourself. Parts A and B use files from the `examples` folder of the repository (and of the source archive), which the installed package does not include:
 
 ```bash
-git clone --depth 1 --branch v0.1.3 https://github.com/dhernandezcastillo/mechanet.git mechanet-src
+git clone --depth 1 --branch v0.1.4 https://github.com/dhernandezcastillo/mechanet.git mechanet-src
 ```
 
 ## A. Chlorine evolution on RuO2(110)
