@@ -67,6 +67,7 @@ ASCII = {
     "↻": "~",
     "⋅": ".",
     "✓": "#",
+    "∅": "0",
     "‘": "'",
     "’": "'",
     "“": '"',
@@ -449,6 +450,21 @@ class Notation:
                 terms.append(self.term(site, occupancy.get(site)))
                 done.add(site)
         return SEPARATOR.join(terms)
+
+    def occupancy_label(self, changes, coupling=None):
+        """The label of a site occupancy that need not be a node of the network.
+
+        ``changes`` holds the sites that differ from the native surface, in the order they
+        are written: {'a0065': 'OO', 'a0064': 'OH'} -> *OO₆₅ · μ-OH₆₄.
+        """
+        if not changes and not coupling:
+            return "native surface"
+        key = "\0occupancy"
+        self.nodes[key] = {"id": key, "occupancy": dict(changes or {}), "coupling": list(coupling or ()) or None}
+        try:
+            return self.label(key)
+        finally:
+            del self.nodes[key]
 
     # ------------------------------------------------------------------ steps
     def release_species(self, cycle):

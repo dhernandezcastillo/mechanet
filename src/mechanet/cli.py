@@ -430,6 +430,18 @@ def cmd_show_cycle(args, registry):
                 + ("; `mechanet review` shows why" if "accepted energy" in str(m["reason"]) else "")
                 for m in moments["missing"]
             ]
+        from .tautomers import CYCLE_STATUS_TEXT, TautomerCheck, cycle_text
+
+        thermo = read_json(analysis / "thermodynamics.json")
+        tautomers = TautomerCheck.from_analysis(campaign, analysis, network, thermo).cycle(view["node_ids"])
+        out["tautomers"] = tautomers
+        if tautomers["status"] != "not_available":
+            lines.append(f"  shared protons: {CYCLE_STATUS_TEXT[tautomers['status']]}")
+            lines += ["    " + line for line in cycle_text(tautomers, label)]
+            if tautomers["status"] == "needs_review":
+                lines.append(
+                    "    the step energies between these intermediates may contain the energy between two tautomers"
+                )
         stamp = (analysis / "thermodynamics.json").stat().st_mtime
         if any(p.stat().st_mtime > stamp for p in (campaign / "states").glob("*/review.json")):
             lines.append("  note: a review.json changed after the last thermo; run mechanet thermo again to use it")
@@ -789,6 +801,14 @@ def cmd_review(args, registry):
     from .review import decide, decision_text, review_report, review_text
 
     campaign = _campaign(args)
+    if args.discover or args.undiscover:
+        from .discovered import discover, discover_text, undiscover, undiscover_text
+
+        if args.discover:
+            result = discover(campaign, args.discover[0], args.discover[1])
+            return result, discover_text(result)
+        result = undiscover(campaign, args.undiscover)
+        return result, undiscover_text(result)
     if args.accept or args.assign or args.clear:
         if args.accept:
             result = decide(campaign, args.accept[0], accept=args.accept[1], registry=registry)
@@ -852,6 +872,11 @@ def cmd_thermo(args, registry):
             "cycles_needing_review": magnetism.get("cycles_needing_review") or [],
             "nodes_with_several_solutions": magnetism.get("nodes_with_several_solutions") or [],
         },
+        "tautomers": {
+            "cycles_checked": len((result.get("tautomers") or {}).get("cycles") or {}),
+            "cycles_needing_review": (result.get("tautomers") or {}).get("cycles_needing_review") or [],
+            "nodes_with_several_tautomers": (result.get("tautomers") or {}).get("nodes_with_several_tautomers") or [],
+        },
         "files": [
             "nodes.csv",
             "edges.csv",
@@ -896,6 +921,21 @@ def cmd_thermo(args, registry):
         lines.append(
             f"  variants of {len(several)} {_plural(len(several), 'intermediate')} converged to different magnetic "
             f"solutions: {', '.join(several[:5])}{', ...' if len(several) > 5 else ''} (thermodynamics.json magnetism)"
+        )
+    shared = out["tautomers"]
+    if shared["cycles_checked"]:
+        review = shared["cycles_needing_review"]
+        lines.append(
+            f"  shared protons: {len(review)} of {shared['cycles_checked']} cycles mix tautomers not computed for "
+            "every intermediate"
+            + (f" ({', '.join(review[:5])}{', ...' if len(review) > 5 else ''})" if review else "")
+            + "; `mechanet show-cycle ID` shows where each shared H sits"
+        )
+    several = shared["nodes_with_several_tautomers"]
+    if several:
+        lines.append(
+            f"  {len(several)} {_plural(len(several), 'intermediate')} computed in more than one tautomer (the "
+            f"lowest counts): {', '.join(several[:5])}{', ...' if len(several) > 5 else ''}"
         )
     lines.append(f"  tables in {out['out_dir']}")
     return out, "\n".join(lines)
@@ -1417,7 +1457,8 @@ def build_parser(registry):
         help="Finished structures that collect did not accept: what changed, which cycles they hold up, what to do",
         description="Without options: collect, then list every finished structure that gives no energy to its "
         "own intermediate (what changed in plain words, the cycles it holds up, other starts) and what to do. "
-        "--accept and --assign write the decision to states/STATE/review.json; mechanet thermo reads it.",
+        "--accept and --assign write the decision to states/STATE/review.json; --discover adds a relaxed "
+        "occupancy to network.json as a new intermediate; mechanet thermo reads them.",
     )
     p.add_argument("campaign", nargs="?")
     decision = p.add_mutually_exclusive_group()
@@ -1434,6 +1475,18 @@ def build_parser(registry):
         help="Count STATE for the intermediate NODE (same composition), with your reason",
     )
     decision.add_argument("--clear", metavar="STATE", help="Remove STATE's review.json")
+    decision.add_argument(
+        "--discover",
+        nargs=2,
+        metavar=("STATE", "COMMENT"),
+        help="STATE relaxed into a site occupancy that is no intermediate of the campaign: add that occupancy to "
+        "network.json as a new intermediate, with your reason",
+    )
+    decision.add_argument(
+        "--undiscover",
+        metavar="NODE",
+        help="Remove a discovered intermediate (with its symmetry images and the adopted steps and cycles using it)",
+    )
     p.set_defaults(handler=cmd_review)
 
     p = sub.add_parser("thermo", help="Free energies, cycle descriptors and resting states (CHE)")

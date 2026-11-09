@@ -38,6 +38,11 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(project["vasp"]["potcar_variants"]["Ru"], "Ru_pv")
         self.assertIsNone(project["vasp"]["dft_u"])  # Ru has no Materials Project U
         self.assertEqual(project["origins"]["sites"], "auto")
+        # The orientation search is written out with the values the builder uses.
+        from mechanet.builder import DEFAULT_SEARCH
+
+        self.assertEqual(project["geometry"]["orientation_search"], DEFAULT_SEARCH)
+        self.assertIn("construction choices, not fitted values", (self.root / "p" / "project.yaml").read_text())
         for name in (
             "slab/RuO2_110.vasp",
             "slab/inspection.json",

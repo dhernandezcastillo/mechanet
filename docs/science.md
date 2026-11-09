@@ -72,23 +72,68 @@ a declared search boundary, not proof that more distant chemistry is impossible.
 
 ## 3. Starting structures
 
-New atoms are placed from the actual local metal–ligand vectors and the outward normal by
-a scored search: tilt, azimuth (15° steps), the water roll about its bisector and the OOH
-torsion. A candidate is feasible only if every non-bonded contact involving a new or moved
-atom respects `geometry.clash_floors_A` (H···H 1.5, O···H 1.5, O···O 2.2, M···H 1.8,
-M···O 1.6, spectator···X 2.0 Å) and an atom bonded to a metal-coordinated O keeps the M–O–X
-angle at or above `geometry.anchor_min_M_O_X_angle_deg` (100°). A site whose geometry cannot
-reach that angle, an O bridging two metals in their plane (a CoO2-terminated perovskite: the
-outward direction is the surface normal, 90° from both M–O bonds), keeps the best angle it
-allows less 5°, so X stands perpendicular to the M–O–M axis. Among feasible candidates
-up to two placements per node and binding mode are kept, ranked by clearance and H-bond
-donation, differing by at least 0.75 Å with atom labels ignored (a water rotated by 180° is
-the same start). Nodes with several reacting sites are searched jointly over every placement
-order. Low-barrier protons shared between two O are moved to their donor when the acceptor
-changes. Intermediates without any feasible placement are reported in
-`nodes_without_viable_start` (with reasons in `rejected_placements.json`), never started
-from an unphysical geometry. Typical initial lengths: O–H 0.98, O–O 1.43 (OOH), 1.34 (OO),
-M–O 1.75 (O), 1.95 (OH), 2.15 Å (H2O). These are construction choices, not predictions.
+Every intermediate is built from the reference surface, the seed. Sites the intermediate
+leaves native keep their atoms where they are. A site it changes keeps its own atom (its O
+stays in place, its native H are removed); only an open metal site, which has no ligand of
+its own, gets a new proximal atom, at the distance in the table below along the site's
+outward direction. The new atoms of an adsorbate (the H of OH or water, the outer O of OO and
+OOH, the H of OOH) are then placed by a scored search.
+
+**The outward direction** of a site is the sum of its metal→ligand unit vectors. When that
+sum points more than about 75° from the surface normal (cosine below 0.25) it is blended with
+the normal; when it nearly cancels (an O bridging two metals in their plane) or the site has
+no metal, the normal is used. Tilts are measured from this direction and azimuths around it.
+
+**The grid** of each adsorbate (`geometry.orientation_search`, written into project.yaml by
+`mechanet init`):
+
+| Adsorbate | Built with | Searched | Candidates |
+|---|---|---|---|
+| OH | O–H 0.98 Å | tilt 20, 35, 50° × azimuth in 15° steps (24) | 72 |
+| H2O | O–H 0.98 Å, H–O–H 104.5° | bisector tilt 0, 25, 50° × 24 azimuths (one at 0°) × roll about the bisector in 15° steps (12) | 588 |
+| OO, end-on | O–O 1.34 Å | tilt 35, 55, 70° × 24 azimuths | 72 |
+| OO, side-on | O–O 1.34 Å, both M–O 1.95 Å (single-metal sites) | 12 azimuths | 12 |
+| OOH | O–O 1.43, O–H 0.98 Å, O–O–H 105° | tilt 35, 55, 70° × 24 azimuths × H torsion about O–O in 30° steps (12) | 864 |
+| OCl | O–Cl 1.65 Å | tilt 35, 55, 70° × 24 azimuths | 72 |
+
+At a terminal O, where the outward direction lies along the M–O bond, the OO/OOH tilts make
+M–O–O angles of 145, 125 and 110°. A new proximal atom on an open metal site starts at M–O
+1.75 (O), 1.95 (OH, OOH), 2.15 (H2O), 1.90 (OO, OCl) or M–Cl 2.35 Å.
+
+**Feasibility.** Every non-bonded contact of a new or moved atom must respect
+`geometry.clash_floors_A` (H···H 1.5, O···H 1.5, O···O 2.2, M···H 1.8, M···O 1.6, a
+spectator cation or a halogen with any atom 2.0, any other pair 1.35 Å), and an atom bonded
+to a metal-coordinated O keeps
+the M–O–X angle at or above `geometry.anchor_min_M_O_X_angle_deg` (100°). A site whose
+geometry cannot reach that angle, an O bridging two metals in their plane (a CoO2-terminated
+perovskite: the outward direction is the surface normal, 90° from both M–O bonds), keeps the
+best angle it allows less 5°, so X stands perpendicular to the M–O–M axis.
+
+**Score.** A feasible candidate scores min(its clearance above the floors, 0.6 Å) plus 0.15
+for each H-bond one of its new H donates (H···O 1.55–2.25 Å, angle at the H at least 130°;
+the O that holds the H, and for OOH the inner O, do not count). The clearance term prefers open placements
+up to the cap; the H-bond term prefers an H that points at a neighbouring O.
+
+**Selection.** The sites of an intermediate are placed one after another, keeping the
+`beam_width` (6) best partial structures, each extended by up to three of the best diverse
+candidates of the next site. Every placement order is tried and the results are pooled, so
+an early greedy choice cannot block a later site. The `variants_per_site` (2) best
+structures that differ by at least `diversity_min_displacement_A` (0.75 Å) are kept, with
+atoms matched by element and labels ignored (a water rotated by 180° is the same start).
+Intermediates without any feasible placement are reported in `nodes_without_viable_start`
+(with reasons in `rejected_placements.json`), never started from an unphysical geometry.
+
+**Shared protons.** An H of the seed within `topology.shared_proton_max_OH_A` (1.6 Å) of two
+O, one of them within 1.25 Å, is a proton shared in a short hydrogen bond (the inspector
+lists them). When the intermediate changes the site of its acceptor O, the proton is moved
+onto its donor at 0.98 Å; the relaxation decides where it ends (§8).
+
+These numbers are construction choices, not fitted values or predictions; the relaxation
+moves every atom it is allowed to. One limit is worth knowing: the H-bond term cannot tell a
+neighbouring O that only accepts an H-bond from a base that will take the proton during the
+relaxation. An OOH whose H points at such a base can lose it (the structure then relaxes into
+another intermediate, or into one the network does not list). The second start, at least
+0.75 Å away and usually with another H orientation, is the hedge.
 
 ## 4. Thermodynamic bookkeeping
 
@@ -312,8 +357,73 @@ competes with that node's own variants. Ambiguous structures (a proton in transi
 detached O–O fragment, an occupancy outside the network) are not assigned automatically and
 are listed for review: `mechanet review` describes the change, and a decision in
 `states/<state>/review.json` (accept the structure as its own node, or assign it to another
-node of the same composition, each with a comment) is applied at the next collect. Large electronic entropies (|EENTRO| above `analysis.max_eentro_eV`)
-are flagged, since E(σ→0) still depends on SIGMA for partially occupied states.
+node of the same composition, each with a comment) is applied at the next collect. Large
+electronic entropies (|EENTRO| above `analysis.max_eentro_eV`) are flagged, since E(σ→0)
+still depends on SIGMA for partially occupied states.
+
+**Shared protons are tautomers, not intermediates.** In a short hydrogen bond (O···O near
+2.5 Å) a proton is not owned by either oxygen in any chemically meaningful sense: in
+water–hydroxyl layers on metals, path-integral simulations find the distinction between the
+covalent bond and the hydrogen bond partly or almost entirely lost, depending on the O···O
+distances the substrate imposes [Li 2010], and protons hop quickly between surface oxygens
+at wet oxide surfaces [Merte 2012; Tocci 2014]. Which O a
+geometry optimization leaves such a proton on is therefore a configuration of the
+intermediate, as long as the intermediate does not act on either O. The rule: a shared proton
+of the seed (§3) is *background* for an intermediate when both of its oxygens are reactive
+sites the intermediate leaves at their native occupancy. Where it sits is read from the H
+atoms around its two oxygens, not from atom labels (protons are indistinguishable): as in the
+seed, transferred (one H went from the seed's oxygen to the other), or centred (an H within
+the upper O–H edge of both); an H bonded to neither, or also close to a third O, leaves it
+unread. When the relaxed occupancy, read literally, matches no node, it is read again with
+transferred or centred background protons put back as in the seed, and that reading is kept
+only if it leaves both of their oxygens native. A structure whose second reading is its own
+intermediate is accepted for it (`same_node_other_tautomer`); `analysis/states.json` records
+where each shared proton sits (`tautomer`). An exact match comes first: if the relaxed
+occupancy, read literally, is another node of the network, the structure counts for that
+node. A shared proton next to a site the intermediate changes is chemistry: the builder puts
+it on its donor (§3), and wherever it ends up decides the intermediate.
+
+The free energy of an intermediate is that of its lowest tautomer. Another tautomer weighs
+exp(−ΔE/kT) relative to it: 14 % at 0.05 eV, 2 % at 0.1 eV and 0.04 % at 0.2 eV (298 K), so
+the lowest one is a fair thermodynamic value whatever the gap; there is no threshold on it.
+The gap matters for consistency instead: when two intermediates of a cycle were computed in
+different tautomers, neither in the other's, the step between them contains the energy between
+two tautomers, which nobody computed. `select` lists the intermediates computed in several
+tautomers with their energies; `thermo` checks every cycle (`tautomer_check`:
+`consistent`, `mixed_both_computed` or `needs_review`, written to cycles.csv and to the
+`tautomers` section of thermodynamics.json), and `show-cycle` shows where each shared H sits
+and which intermediate was not computed in which tautomer. A proton is compared only between
+the intermediates that leave both its oxygens native, and the tautomer of an intermediate is
+compared as a whole (all its shared protons at once); a centred proton matches either side.
+"Computed" means an accepted structure of the intermediate: its 02_final geometry, the level at
+which `select` compares the structures of one intermediate, or the geometry its analysis-level
+energy belongs to.
+
+**Discovered intermediates.** A relaxation can end in a sensible intermediate the network did
+not list: the H of \*OOH handed to a neighbouring bridge O gives \*OO₆₅ · μ-OH₆₄. Its site
+occupancy is read as in the classification above (background protons back on their seed
+oxygens, so a tautomer never becomes a node) and named with the same notation as every other
+intermediate. `mechanet review --discover STATE "why"` adds it to network.json as a node of
+the campaign, with its composition, its lattice-translation images and where it came from;
+the structure then counts for it, and `mechanet pathways` proposes the balanced steps and
+cycles through it. As in automated reaction-network exploration, where a new minimum found
+along the way becomes a member of the network [Unsleber 2022], the node is defined by what
+the relaxed structure is; here the user decides, because a single accidental structure is
+thin evidence: no orientation search and no spin variants of its own.
+
+**No bound minimum.** A relaxation in which a molecule leaves the surface (an O₂ that lost
+its metal, a water that drifted off) is reported in chemical terms ("O₂ (O a0065, O d_a0065)
+released from Fe a0003") and gives its intermediate no energy, as relaxations that end in
+desorption or dissociation are discarded as anomalies in high-throughput adsorption work
+[Lan 2023]. A molecule is released when, after it lost a metal contact, none of its O or Cl
+atoms is within the upper M–O (M–Cl) hysteresis edge of any metal; the verdict needs it to be
+the intermediate's own adsorbate (an atom of a site the intermediate changes, or one it added)
+and no other contact to the metals to have changed. A spectator ligand that left still needs
+review. An intermediate whose finished
+starts all end that way has no bound minimum from those starts; its cycles are listed apart
+from the held-up ones (`mechanet review`, the ∅ mark of `mechanet status`). Every start began
+from the same magnetic moments (below), so a start from other moments could still find a
+bound one.
 
 Local magnetic moments (the projected moments VASP prints with LORBIT) are reported per atom
 and stage, and used in three diagnostics; none of them changes an energy:
@@ -372,3 +482,11 @@ The keys are those of `mechanet.literature.LITERATURE`, recorded in `network.jso
 
 Sources motivate the chemical possibilities. They do not establish their energies, kinetic
 accessibility or occurrence on a new surface.
+
+Method references (§8), not recorded in `network.json`:
+
+* Li 2010: Li, Probert, Alavi, Michaelides, *Phys. Rev. Lett.* **104**, 066102 (2010). https://doi.org/10.1103/PhysRevLett.104.066102
+* Merte 2012: Merte et al., *Science* **336**, 889 (2012). https://doi.org/10.1126/science.1219468
+* Tocci 2014: Tocci, Michaelides, *J. Phys. Chem. Lett.* **5**, 474 (2014). https://doi.org/10.1021/jz402646c
+* Unsleber 2022: Unsleber, Grimmel, Reiher, *J. Chem. Theory Comput.* **18**, 5393 (2022). https://doi.org/10.1021/acs.jctc.2c00193
+* Lan 2023: Lan et al., *npj Comput. Mater.* **9**, 172 (2023). https://doi.org/10.1038/s41524-023-01121-5

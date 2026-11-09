@@ -102,8 +102,8 @@ def outward_direction(rays, normal, min_norm=0.25):
     The surface normal is used when the site has no metal neighbours, when the rays nearly
     cancel (an O bridging two metals in their plane, as in a CoO2-terminated perovskite: an
     M-O-M angle above about 166 degrees leaves a sum shorter than ``min_norm``), and when
-    blending a sideways direction with the normal leaves nothing. A direction less than
-    about 75 degrees from the normal is blended with it.
+    blending a sideways direction with the normal leaves nothing. A direction more than
+    about 75 degrees from the normal (cosine below 0.25) is blended with it.
     """
     normal = np.asarray(normal, dtype=float)
     total = np.sum(rays, axis=0) if len(rays) else np.zeros(3)

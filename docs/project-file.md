@@ -71,7 +71,7 @@ direction of the missing ligand.
 | `symmetry_tolerance_A` | 0.005 | Maximum atom displacement for a translation to count as a symmetry. |
 | `anchor_min_M_O_X_angle_deg` | 100 | Minimum M–O–X angle for atoms bonded to a metal-coordinated O (lowered to the best angle less 5° at an O bridging two metals in their plane). |
 | `clash_floors_A` | H-H 1.5, O-H 1.5, O-O 2.2, M-H 1.8, M-O 1.6, S-any 2.0, X-any 2.0, default 1.35 | Non-bonded floors for new or moved atoms (S: spectator cations, X: halogens). |
-| `orientation_search` | see docs/science.md §3 | Azimuth step, tilt lists, water roll, OOH torsion, variants per site, H-bond bonus, beam width, diversity threshold. |
+| `orientation_search` | azimuth_step_deg 15; OH_tilts_deg [20, 35, 50]; OO_tilts_deg [35, 55, 70]; OOH_H_torsion_step_deg 30; H2O_tilts_deg [0, 25, 50]; H2O_roll_step_deg 15; variants_per_site 2; hbond_bonus 0.15; clearance_cap_A 0.6; beam_width 6; diversity_min_displacement_A 0.75 | The search that places new atoms ([science §3](science.md#3-starting-structures)); `mechanet init` writes these values into project.yaml. Unknown keys are reported and ignored. |
 
 ## inputs
 

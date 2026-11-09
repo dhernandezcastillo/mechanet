@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+
+What a relaxation can turn an intermediate into: another tautomer, a new intermediate, or nothing bound.
+
+- **Shared protons are tautomers.** A proton of the seed shared between two oxygens in a short
+  hydrogen bond (the inspector's `shared_protons`) that a relaxation moved to its other oxygen
+  (or left between both), both oxygens being reactive sites the intermediate leaves native, no
+  longer makes the structure another intermediate: it is accepted for its own
+  (`same_node_other_tautomer`), and `analysis/states.json` records where each shared proton
+  sits (`tautomer`, read from the H counts on the two oxygens, not from atom labels). An exact
+  match with another node still comes first, the reading holds only if it leaves both oxygens
+  native, and a shared proton next to a site the intermediate changes is still chemistry.
+  `select` lists the intermediates computed in several tautomers (`nodes_with_several_tautomers`,
+  with energies); the lowest counts. `thermo` checks every cycle (`tautomer_check` in
+  cycles.csv, a `tautomers` section in thermodynamics.json) and flags those whose intermediates
+  use different tautomers without each having been computed in the others'; `show-cycle` and
+  the report show where each shared H sits and what was not computed. `review` lists the
+  structures accepted in another tautomer.
+- **Discovered intermediates**: `mechanet review --discover STATE "why"` adds the relaxed site
+  occupancy of a structure that matches no intermediate to network.json as a new one (same
+  definition and notation as the generated ones, with its symmetry images and where it came
+  from) and collects again; the structure counts for it, `pathways` proposes the cycles
+  through it, `validate` and `status` know it. `--undiscover NODE` removes it with its images
+  and the adopted steps and cycles that use it (also from pathways/pathways.json). `review`
+  names the new arrangement ("the sites are now *OO₆₅ · *(H₂O)₆₈, which is not an
+  intermediate of this campaign"). `pathways --adopt` refuses a cycle through an intermediate
+  that is no longer in network.json.
+- **No bound minimum**: a molecule that left the surface during a relaxation (no O or Cl atom
+  within the upper M–O (M–Cl) edge of any metal after a lost contact) is reported in chemical terms
+  ("O₂ (O a0065, O d_a0065) released from Fe a0003"; `released` in the topology record). When
+  it is the intermediate's own adsorbate and nothing else changed at the metals
+  (`adsorbate_released`), the structure is listed apart from those that need a decision; an
+  intermediate whose finished starts all end that way shows "no bound minimum found from N
+  starts" instead of holding its cycles up, and `status` marks it ∅ and counts its cycles
+  separately. A spectator ligand that left still needs review.
+- `review` names a reassignment through a symmetry image by the image ("*O₆₇, image of *O₆₅").
+- `mechanet init` writes `geometry.orientation_search` with its defaults into project.yaml, and
+  the science page describes the starting-structure recipe in full (outward direction, grids,
+  bond lengths, clash floors, score, beam search, the second start as a hedge).
+
 ## 0.1.3 (2026-11-02)
 
 Seeing why a finished calculation gives no energy, and documentation with pictures.

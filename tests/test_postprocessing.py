@@ -1381,7 +1381,35 @@ class BindingModeTests(unittest.TestCase):
         result = topology_check(self.state, self.meta)
         self.assertEqual(result["lost_active_metal_contacts"], [("a0001", "a0065")])
         self.assertIsNone(result["assigned_node_id"])
-        self.assertEqual(result["microstate"]["status"], "metal_attachment_changed")
+        # 2.95 A from the only metal: the O2 left the surface.
+        self.assertEqual(result["microstate"]["status"], "adsorbate_released")
+        self.assertEqual(result["released"], [{"formula": "O₂", "atoms": ["a0065", "d_a0065"], "from": ["a0001"]}])
+        self.assertIn("no bound minimum", result["microstate"]["reason"])
+
+    def test_a_ligand_that_moved_to_another_metal_is_not_released(self):
+        import numpy as np
+
+        from mechanet.analysis import DEFAULT_HYSTERESIS, released_fragments
+
+        ids = ["a0001", "a0002", "a0065", "d_a0065", "p_a0065"]
+        symbols = ["Fe", "Ni", "O", "O", "H"]
+        d = np.full((5, 5), 9.0)
+        np.fill_diagonal(d, 0.0)
+
+        def put(i, j, value):
+            d[i, j] = d[j, i] = value
+
+        put(2, 3, 1.40)  # O-O of the OOH
+        put(3, 4, 0.99)  # O-H
+        put(2, 0, 2.90)  # left Fe a0001
+        put(2, 1, 2.05)  # now on Ni a0002
+        lost = [("a0001", "a0065")]
+        self.assertEqual(released_fragments(ids, symbols, d, {"Fe", "Ni"}, lost, DEFAULT_HYSTERESIS), [])
+        put(2, 1, 3.10)  # nowhere near a metal: an OOH radical left the surface
+        self.assertEqual(
+            released_fragments(ids, symbols, d, {"Fe", "Ni"}, lost, DEFAULT_HYSTERESIS),
+            [{"formula": "OOH", "atoms": ["a0065", "d_a0065", "p_a0065"], "from": ["a0001"]}],
+        )
 
 
 if __name__ == "__main__":

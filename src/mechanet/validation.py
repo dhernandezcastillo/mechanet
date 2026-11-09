@@ -81,10 +81,19 @@ def validate_campaign(campaign, registry=None):
                 or nodes[target]["delta_atoms"] != node["delta_atoms"]
             ):
                 errors.append(f"{nid}: computed_by {representative} has a different composition")
-            elif not nodes[target].get("state_ids"):
+            elif not nodes[target].get("state_ids") and not nodes[target].get("discovered_from"):
                 warnings.append(f"{nid}: representative {target} has no realizable geometry")
             continue
-        if not node.get("state_ids"):
+        origin = (node.get("discovered_from") or {}).get("state_id")
+        if origin is not None:
+            # Found by a relaxation (mechanet review --discover): its structure was built for another node.
+            if origin not in states:
+                errors.append(f"{nid}: discovered from missing state {origin}")
+            elif {k: v for k, v in states[origin]["delta_atoms"].items() if v} != {
+                k: v for k, v in node["delta_atoms"].items() if v
+            }:
+                errors.append(f"{nid}: discovered from {origin}, which has a different composition")
+        elif not node.get("state_ids"):
             warnings.append(f"{nid}: no realizable geometry (all proposed placements rejected)")
         for sid in node.get("state_ids", []):
             if sid not in states:

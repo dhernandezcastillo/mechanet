@@ -1318,11 +1318,31 @@ def render_project(d):
         if d["cluster"]
         else c("cluster: null", "set to a profile from `mechanet cluster list`")
     )
+    from .builder import DEFAULT_SEARCH
+
+    search = DEFAULT_SEARCH
     lines += [
         "",
         "scope:",
         c(f"  families: {_flow(d['families'])}", tag("scope.families")),
         c(f"  pair_max_distance_A: {d['pair_max_distance_A']}", "two-site families pair sites within this distance"),
+        "",
+        c("geometry:", "starting structures (docs: science, section 3)"),
+        c("  orientation_search:", "construction choices, not fitted values"),
+        c(f"    azimuth_step_deg: {search['azimuth_step_deg']}", "around the outward direction of a site"),
+        c(f"    OH_tilts_deg: {_flow(search['OH_tilts_deg'])}", "O-H from the outward direction"),
+        c(f"    OO_tilts_deg: {_flow(search['OO_tilts_deg'])}", "O-O of OO, OOH and O-Cl of OCl"),
+        c(f"    OOH_H_torsion_step_deg: {search['OOH_H_torsion_step_deg']}", "rotation of the OOH H about O-O"),
+        c(f"    H2O_tilts_deg: {_flow(search['H2O_tilts_deg'])}", "water bisector from the outward direction"),
+        c(f"    H2O_roll_step_deg: {search['H2O_roll_step_deg']}", "water rotation about its bisector"),
+        c(f"    variants_per_site: {search['variants_per_site']}", "starts kept per intermediate and binding mode"),
+        c(f"    hbond_bonus: {search['hbond_bonus']}", "score per H-bond a new H donates"),
+        c(f"    clearance_cap_A: {search['clearance_cap_A']}", "clearance above the floors counts up to this"),
+        c(f"    beam_width: {search['beam_width']}", "partial structures kept per placed site"),
+        c(
+            f"    diversity_min_displacement_A: {search['diversity_min_displacement_A']}",
+            "kept starts differ by this (labels ignored)",
+        ),
         "",
         c("inputs:", "DFT templates; INCAR tags are used as written"),
         "  incar_loose: inputs/INCAR_loose",

@@ -26,6 +26,15 @@ from .plugins import campaign_registry, default_registry
 from .reactions import SPECIES, clean, electrons as vector_electrons
 from .results import FREQUENCY_CM1_PER_SQRT_EV_A2_AMU, parse_run, read_incar, same_solution
 from .structure import distance_matrix, minimum_image, read_poscar
+from .tautomers import (
+    NOTE as TAUTOMER_NOTE,
+    TautomerCheck,
+    background_protons,
+    normalized_owners,
+    pair_hydrogens,
+    pair_side,
+    tautomer_record,
+)
 from .thermo import (
     DOWNHILL_TOLERANCE_EV,
     Conditions,
@@ -170,8 +179,10 @@ def _final_geometry(state_dir, geometry):
 def _shared_protons(state_dir, ids, symbols, d_initial, shared_max, meta=None, initial=None):
     """Native low-barrier protons of the seed that are still at their seed position.
 
-    Used only to annotate a transfer of such a proton between its two oxygens; a transfer
-    still counts as a change of the intermediate (a different tautomer).
+    {H index: {O index, O index}}. A transfer of such a proton between two reactive sites that
+    the intermediate leaves native gives the same intermediate in another tautomer (see
+    :mod:`mechanet.tautomers`); protons the builder localized next to a changed site are not
+    listed (they are part of the intermediate's chemistry).
     """
     meta = meta or {}
     variant = meta.get("variant") if isinstance(meta.get("variant"), dict) else {}
@@ -259,7 +270,17 @@ def _signatures(registry):
     return {ads.signature: ads.name for ads in registry.adsorbates.values() if ads.proximal}
 
 
-def classify_microstate(structure, ids, distances, context, hysteresis, initial_distances=None, registry=None):
+def classify_microstate(
+    structure,
+    ids,
+    distances,
+    context,
+    hysteresis,
+    initial_distances=None,
+    registry=None,
+    tautomers=None,
+    moved=None,
+):
     """Reactive-site occupancy of a relaxed structure.
 
     Every H must sit on exactly one O (closest O below the lower O-H hysteresis edge and no
@@ -267,6 +288,10 @@ def classify_microstate(structure, ids, distances, context, hysteresis, initial_
     A site atom with one bonded non-site heavy atom is an OO/OOH/OCl-type group; otherwise
     its element and H count give O/OH/H2O/Cl. Two bonded site oxygens form a coupled pair.
     Protons on framework oxygens must be unchanged relative to the initial structure.
+    ``tautomers`` ({h: (seed_o, partner_o)}, see :mod:`mechanet.tautomers`) are background
+    shared protons: when the H around their two oxygens are in the transferred or centred
+    arrangement (counted, not by label), they are read as in the seed, and ``h`` is appended
+    to ``moved``. This needs ``initial_distances``.
     Returns (changes, coupling, reason), or (None, None, reason) outside the site model.
     """
     registry = registry or default_registry()
@@ -276,8 +301,22 @@ def classify_microstate(structure, ids, distances, context, hysteresis, initial_
     lo_oh, hi_oh = hysteresis["O-H"]
     heavy = [i for i, s in enumerate(symbols) if s in ("O", "Cl")]
     oxygen = [i for i, s in enumerate(symbols) if s == "O"]
+    hydrogen = [i for i, s in enumerate(symbols) if s == "H"]
+    handled = {}
+    if tautomers and initial_distances is not None:
+        for h, (seed, partner) in tautomers.items():
+            start = pair_hydrogens(seed, partner, hydrogen, oxygen, initial_distances, lo_oh, hi_oh)
+            end = pair_hydrogens(seed, partner, hydrogen, oxygen, distances, lo_oh, hi_oh)
+            if pair_side(start, end) in ("partner", "centred"):
+                for o, members in normalized_owners(seed, partner, start, end, distances).items():
+                    handled.update({x: o for x in members})
+                if moved is not None:
+                    moved.append(h)
     owner = {}
-    for h in (i for i, s in enumerate(symbols) if s == "H"):
+    for h in hydrogen:
+        if h in handled:
+            owner.setdefault(handled[h], []).append(h)
+            continue
         near = sorted((float(distances[h, o]), o) for o in oxygen)
         if not near or near[0][0] >= lo_oh:
             if near and near[0][0] <= hi_oh:
@@ -358,6 +397,132 @@ def classify_microstate(structure, ids, distances, context, hysteresis, initial_
                 return None, None, f"the proton count on framework oxygen {ids[o]} changed"
     changes = {s: v for s, v in occupancy.items() if v != context["native"][s]}
     return changes, (sorted(coupling) or None), None
+
+
+FRAGMENT_NAMES = {
+    (("O", 2),): "O₂",
+    (("H", 1), ("O", 2)): "OOH",
+    (("H", 2), ("O", 1)): "H₂O",
+    (("H", 1), ("O", 1)): "OH",
+    (("H", 2), ("O", 2)): "H₂O₂",
+    (("O", 1),): "O",
+    (("Cl", 2),): "Cl₂",
+    (("Cl", 1), ("O", 1)): "ClO",
+    (("Cl", 1), ("H", 1), ("O", 1)): "HOCl",
+    (("Cl", 1), ("H", 1)): "HCl",
+}
+# Bonds within a released molecule: the lower hysteresis edges where they exist.
+_FRAGMENT_BONDS = {"H-H": 0.90, "Cl-H": 1.45, "Cl-Cl": 2.30}
+_SUBSCRIPT = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+
+
+def fragment_formula(symbols):
+    """'O₂', 'OOH', 'H₂O', ... for a released molecule; a Hill formula otherwise."""
+    counts = {}
+    for symbol in symbols:
+        counts[symbol] = counts.get(symbol, 0) + 1
+    key = tuple(sorted(counts.items()))
+    if key in FRAGMENT_NAMES:
+        return FRAGMENT_NAMES[key]
+    if "C" in counts:
+        order = ["C"] + (["H"] if "H" in counts else []) + sorted(e for e in counts if e not in ("C", "H"))
+    else:
+        order = sorted(counts, key=lambda e: (e != "H", e))
+    return "".join(e + (str(counts[e]).translate(_SUBSCRIPT) if counts[e] > 1 else "") for e in order)
+
+
+def _named(atom_id, ids, symbols):
+    """'Fe a0003': an atom by element and ID."""
+    return f"{symbols[ids.index(atom_id)]} {atom_id}" if atom_id in ids else str(atom_id)
+
+
+def _own_release(released, lost_metal, new_metal, occupancy, coupling, native, symbol_of):
+    """True when the intermediate's own adsorbate left the surface and nothing else changed at the metals.
+
+    Every released molecule must hold an O or Cl atom of a site the intermediate changes (or one
+    it added: an H it added does not make a spectator water its own), every lost metal contact
+    must belong to such a molecule, and no new contact formed: a spectator ligand that left, or
+    one that moved to another metal, still needs review.
+    """
+    if not released or new_metal:
+        return False
+    own = {s for s, v in (occupancy or {}).items() if (native or {}).get(s) != v} | set(coupling or ())
+
+    def owned(atom_id):
+        return symbol_of.get(atom_id) in ("O", "Cl") and (atom_id in own or not _NATIVE_ID.match(atom_id))
+
+    if not all(any(owned(a) for a in item["atoms"]) for item in released):
+        return False
+    gone = {a for item in released for a in item["atoms"]}
+    return all(gone.intersection(pair) for pair in lost_metal)
+
+
+def released_text(released, ids, symbols):
+    """'O₂ (O a0065, O d_a0065) left Fe a0003' for every released molecule (its heavy atoms named)."""
+    parts = []
+    for item in released:
+        heavy = [_named(a, ids, symbols) for a in item["atoms"] if a in ids and symbols[ids.index(a)] != "H"]
+        metals = ", ".join(_named(m, ids, symbols) for m in item["from"])
+        parts.append(f"{item['formula']} ({', '.join(heavy)}) left {metals}")
+    return "; ".join(parts)
+
+
+def released_fragments(ids, symbols, distances, metals, lost_metal, hysteresis):
+    """Molecules that left the metal during the relaxation: no bound minimum from this start.
+
+    From every ligand that lost its contact with an active metal, the molecule is the set of
+    O, H and Cl atoms bonded to it in the relaxed structure (below the lower O-H, O-O, O-Cl
+    hysteresis edges); it is released when none of its atoms lies within the upper M-O (M-Cl)
+    edge of any metal atom. Returns [{"formula", "atoms", "from"}], ``from`` being the metals
+    it lost contact with.
+    """
+    if not lost_metal:
+        return []
+    index = {aid: k for k, aid in enumerate(ids)}
+    light = [i for i, s in enumerate(symbols) if s in ("O", "H", "Cl")]
+    metal_atoms = [i for i, s in enumerate(symbols) if s in metals]
+    reach = {"O": hysteresis["M-O"][1], "Cl": hysteresis.get("M-Cl", DEFAULT_HYSTERESIS["M-Cl"])[1]}
+
+    def bonded(i, j):
+        kind = _pair_type(symbols[i], symbols[j], set()) or "-".join(sorted((symbols[i], symbols[j])))
+        limit = hysteresis[kind][0] if kind in hysteresis else _FRAGMENT_BONDS.get(kind)
+        return limit is not None and float(distances[i, j]) < limit
+
+    lost_from = {}
+    for pair in lost_metal:
+        a, b = (index.get(x) for x in pair[:2])
+        if a is None or b is None:
+            continue
+        ligand, metal = (a, b) if symbols[a] in ("O", "Cl") else (b, a)
+        lost_from.setdefault(ligand, set()).add(ids[metal])
+    out, seen = [], set()
+    for start in sorted(lost_from):
+        if start in seen:
+            continue
+        group, stack = {start}, [start]
+        while stack:
+            i = stack.pop()
+            for j in light:
+                if j not in group and bonded(i, j):
+                    group.add(j)
+                    stack.append(j)
+        seen |= group
+        if any(
+            float(distances[i, m]) <= reach.get(symbols[i], hysteresis["M-O"][1])
+            for i in group
+            if symbols[i] != "H"
+            for m in metal_atoms
+        ):
+            continue
+        atoms = sorted(group, key=lambda i: (symbols[i] == "H", ids[i]))
+        out.append(
+            {
+                "formula": fragment_formula([symbols[i] for i in atoms]),
+                "atoms": [ids[i] for i in atoms],
+                "from": sorted(set().union(*(lost_from.get(i, set()) for i in group))),
+            }
+        )
+    return out
 
 
 def _binding_mode_only(metal_changes, ids, symbols, distances, hysteresis):
@@ -502,9 +667,10 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
                         "from": ids[start],
                         "to": ids[end],
                         "final_distances_A": {ids[o]: float(d_final[h, o]) for o in sorted(partner_set)},
-                        "note": "Transfer of a native low-barrier proton: a different tautomer. The state is "
-                        "assigned to the node with the resulting occupancy when one exists; otherwise "
-                        "it needs review.",
+                        "note": "Transfer of a native shared proton. The state is assigned to the node with "
+                        "the resulting occupancy when one exists; otherwise, when both oxygens are sites "
+                        "this intermediate leaves native (background), it counts for its own node as "
+                        "another tautomer; otherwise it needs review.",
                     }
                 )
         required = {tuple(sorted(b[:2])) for b in meta.get("expected_bonds", []) if isinstance(b, list) and len(b) >= 2}
@@ -523,6 +689,18 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
         review = _load(Path(state_dir) / "review.json")
         override = bool(review.get("accept_relaxed_topology") and review.get("comment"))
         context = _campaign_context(Path(state_dir).resolve().parent.parent)
+        native = context["native"] if context is not None else None
+        index_of = {aid: k for k, aid in enumerate(ids)}
+        own_occupancy, own_coupling = meta.get("occupancy"), meta.get("coupling")
+        if own_occupancy is None and context is not None and meta.get("node_id") in context["nodes"]:
+            node = context["nodes"][meta["node_id"]]
+            own_occupancy, own_coupling = node.get("occupancy"), node.get("coupling")
+        released = released_fragments(ids, symbols, d_final, metals, lost_metal, hysteresis)
+        gone = {index_of[a] for item in released for a in item["atoms"] if a in index_of}
+        background = background_protons(shared, ids, d_initial, native, own_occupancy, own_coupling, gone)
+        tautomer = tautomer_record(shared, ids, symbols, d_initial, d_final, native, background, hysteresis, gone)
+        for shift in shifts:
+            shift["background"] = bool((tautomer.get(shift["H"]) or {}).get("background"))
         own_node = meta.get("node_id")
         microstate = None
         if review.get("assign_to_node") and review.get("comment"):
@@ -543,9 +721,39 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
                 final, ids, d_final, context, hysteresis, d_initial, registry
             )
             microstate = _assign_microstate(meta, changes, coupling, reason, context, registry)
+            if background and microstate["status"] in ("unlisted_microstate", "outside_site_model"):
+                # Background shared protons may sit on either of their oxygens: the same
+                # intermediate in another tautomer (see mechanet.tautomers).
+                moved = []
+                alt_changes, alt_coupling, alt_reason = classify_microstate(
+                    final, ids, d_final, context, hysteresis, d_initial, registry, tautomers=background, moved=moved
+                )
+                # The reading holds only if the protons stay background for the occupancy it gives.
+                pair_sites = {ids[o] for h in moved for o in background[h]}
+                if moved and alt_changes is not None and not pair_sites & (set(alt_changes) | set(alt_coupling or ())):
+                    alternative = _assign_microstate(meta, alt_changes, alt_coupling, alt_reason, context, registry)
+                    if alternative["status"] != "outside_site_model":
+                        microstate = dict(
+                            alternative,
+                            tautomer_moved=sorted(ids[h] for h in moved),
+                            exact_occupancy={
+                                "status": microstate["status"],
+                                "occupancy_changes": microstate.get("occupancy_changes"),
+                                "reason": microstate.get("reason"),
+                            },
+                        )
             metal_changes = lost_metal + new_metal
             if metal_changes and _binding_mode_only(metal_changes, ids, symbols, d_final, hysteresis):
                 microstate = dict(microstate, binding_mode_changed=True)
+            elif metal_changes and _own_release(
+                released, lost_metal, new_metal, own_occupancy, own_coupling, native, dict(zip(ids, symbols))
+            ):
+                microstate = dict(
+                    microstate,
+                    status="adsorbate_released",
+                    assigned_node_id=None,
+                    reason=released_text(released, ids, symbols) + ": no bound minimum from this start",
+                )
             elif metal_changes:
                 microstate = dict(
                     microstate,
@@ -560,6 +768,8 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
                 "same_occupancy": (
                     "same_occupancy_binding_mode_changed"
                     if microstate.get("binding_mode_changed")
+                    else "same_node_other_tautomer"
+                    if microstate.get("tautomer_moved")
                     else "same_occupancy_proton_labels_permuted"
                 ),
                 "reassigned": "reassigned_to_existing_node",
@@ -590,6 +800,8 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
             "lost_active_metal_contacts": sorted(set(lost_metal)),
             "new_active_metal_contacts": sorted(set(new_metal)),
             "shared_proton_transfers": shifts,
+            "tautomer": tautomer,
+            "released": released,
             "soft_changes_within_hysteresis": soft,
             "threshold_ambiguities": ambiguous,
             "hysteresis_A": {k: list(v) for k, v in hysteresis.items()},
@@ -1274,7 +1486,7 @@ def select_for_thermo(
     wanted = _cycle_nodes(network, restrict) if (cycles or families) else None
     selected, per_node, waiting, unresolved = [], [], [], []
     evaluated, own_variants, moment_rows, magmoms = {}, {}, [], {}
-    merged_total = []
+    merged_total, tautomer_rows = [], []
     for node in computed:
         own_variants[node["id"]] = []
         for sid in node.get("state_ids", []):
@@ -1323,11 +1535,21 @@ def select_for_thermo(
                             "final_topology": topology,
                         }
                     )
+                    tautomer_rows.append(
+                        {
+                            "state_id": sid,
+                            "final_valid": not reasons,
+                            "final_assigned_node_id": topology.get("assigned_node_id"),
+                            "final_topology": topology,
+                        }
+                    )
                     magmoms[sid] = final.get("magmoms")
                 evaluated[sid] = record
             own_variants[node["id"]].append(evaluated[sid])
     moments = MomentTracker(campaign, network, moment_rows, {}, STAGE_FINAL, "final_topology", config)
-    several_solutions = []
+    context = _campaign_context(campaign)
+    tautomers = TautomerCheck(network, (context or {}).get("native"), tautomer_rows, {}, "final_topology")
+    several_solutions, several_tautomers = [], []
     for node in computed:
         if wanted is not None and node["id"] not in wanted:
             continue
@@ -1406,6 +1628,15 @@ def select_for_thermo(
             if len(solutions) > 1:
                 extra["magnetic_solutions"] = solutions
                 several_solutions.append(node["id"])
+            energy = {v["state_id"]: v["energy_final_e0_eV"] for v in accepted}
+            groups = []
+            for group in tautomers.variants(node["id"]):
+                sids = sorted((sid for sid in group["state_ids"] if sid in energy), key=lambda sid: energy[sid])
+                if sids:
+                    groups.append({"on": group["on"], "state_ids": sids, "relative_eV": energy[sids[0]] - minimum})
+            if len(groups) > 1:
+                extra["tautomers"] = sorted(groups, key=lambda g: g["relative_eV"])
+                several_tautomers.append(node["id"])
         per_node.append(
             {
                 "node_id": node["id"],
@@ -1443,6 +1674,7 @@ def select_for_thermo(
         "waiting_nodes": waiting,
         "unresolved_nodes": unresolved,
         "nodes_with_several_magnetic_solutions": several_solutions,
+        "nodes_with_several_tautomers": several_tautomers,
         "nodes": per_node,
         "note": (
             "Re-run after more 02_final results arrive (or use --include-partial to select from the variants "
@@ -1454,6 +1686,7 @@ def select_for_thermo(
             "converged to different magnetic solutions; nodes.magnetic_solutions lists them, lowest first. "
             "Selection is by energy only."
         ),
+        "tautomers_note": TAUTOMER_NOTE,
     }
     previous = _load(campaign / "thermo_selection.json")
     for sid in previous.get("state_ids", []):
@@ -1825,6 +2058,19 @@ def analyze_thermodynamics(
         row["magnetic_solutions"] = len(solutions) if solutions else None
         if solutions and len(solutions) > 1:
             variant_solutions[row["node_id"]] = {"selected_state_id": row["selected_state_id"], "solutions": solutions}
+    tautomer_check = TautomerCheck(
+        network,
+        tracker.native,
+        collected["states"],
+        {row["node_id"]: row.get("selected_state_id") for row in node_rows},
+        tracker.topology_key,
+    )
+    node_tautomers = {}
+    for row in node_rows:
+        groups = tautomer_check.variants(row["node_id"]) if row["computed_by"] is None else []
+        row["tautomers"] = len(groups) if len(groups) > 1 else None
+        if len(groups) > 1:
+            node_tautomers[row["node_id"]] = {"selected_state_id": row["selected_state_id"], "tautomers": groups}
     scale = (scale or thermo_cfg.get("potential_scale") or main.potential_scale).upper()
     conditions = Conditions(
         settings["temperature_K"],
@@ -1929,7 +2175,7 @@ def analyze_thermodynamics(
                         "delta_atoms": nodes[nid]["delta_atoms"],
                     }
                 )
-    cycle_rows, cycles_full, cycle_moments = [], [], {}
+    cycle_rows, cycles_full, cycle_moments, cycle_tautomers = [], [], {}, {}
     for cycle in network.get("cycles", []):
         rx = registry.reaction(cycle.get("reaction") or main.name)
         declared = cycle["edge_ids"]
@@ -1951,6 +2197,9 @@ def analyze_thermodynamics(
         moments = tracker.cycle(node_ids)
         if moments["status"] != "not_available":
             cycle_moments[cycle["id"]] = moments
+        tautomers = tautomer_check.cycle(node_ids)
+        if tautomers["status"] != "not_available":
+            cycle_tautomers[cycle["id"]] = tautomers
         for potential in potentials:
             row = {
                 "cycle_id": cycle["id"],
@@ -1966,6 +2215,7 @@ def analyze_thermodynamics(
                 "missing_edges": missing,
                 "spin_check": moments["status"],
                 "spin_flags": len(moments["flags"]),
+                "tautomer_check": tautomers["status"],
             }
             if complete:
                 metrics = cycle_metrics(
@@ -2013,6 +2263,7 @@ def analyze_thermodynamics(
             "node_energy_eV",
             "status",
             "magnetic_solutions",
+            "tautomers",
             "reassigned_in",
             "reassigned_out",
         ],
@@ -2048,6 +2299,7 @@ def analyze_thermodynamics(
             "contains_condensed_multi_electron_step",
             "spin_check",
             "spin_flags",
+            "tautomer_check",
             "symmetry_equivalent_cycles",
             "missing_edges",
         ],
@@ -2148,6 +2400,16 @@ def analyze_thermodynamics(
             "cycles": cycle_moments,
             "variants": variant_solutions,
             "note": MAGNETISM_NOTE,
+        },
+        "tautomers": {
+            "topology_key": tautomer_check.topology_key,
+            "cycles_needing_review": sorted(
+                cycle_id for cycle_id, entry in cycle_tautomers.items() if entry["status"] == "needs_review"
+            ),
+            "nodes_with_several_tautomers": sorted(node_tautomers),
+            "cycles": cycle_tautomers,
+            "nodes": node_tautomers,
+            "note": TAUTOMER_NOTE,
         },
         "variant_selection": "lowest accepted energy among the calculated structures whose relaxed site occupancy "
         "matches each node (including structures built for another node that relaxed into "

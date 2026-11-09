@@ -25,12 +25,13 @@ from .vasp import STAGE_FINAL
 
 REVIEW_FILE = "review.json"
 DECIDED = ("accepted_by_explicit_review", "assigned_by_explicit_review")
-NOT_ACCEPTED = ("needs_review", "rejected", "reassigned")
+NOT_ACCEPTED = ("needs_review", "rejected", "reassigned", "no_bound_minimum")
 # Reasons the change list already explains.
 CONNECTIVITY_REASONS = ("relaxed connectivity is unavailable or needs explicit review",)
 MICROSTATE_TEXT = {
     "unlisted_microstate": "the new arrangement of the sites is not an intermediate of this campaign",
     "metal_attachment_changed": "a bond between the metal and an adsorbate or ligand changed",
+    "adsorbate_released": "no bound minimum from this start",
     "cell_changed": "the cell changed during the relaxation",
     "atom_mapping_mismatch": "the atoms of the relaxed structure do not match the starting structure",
 }
@@ -69,12 +70,13 @@ def _pairs(values):
     return [tuple(str(x) for x in pair[:2]) for pair in values or [] if len(pair) >= 2]
 
 
-def describe_changes(topology, meta):
+def describe_changes(topology, meta, occupancy_label=None):
     """Plain sentences for the changes collect found in a relaxed structure.
 
     ``topology`` is a ``topology_check`` result (``states.json``: ``final_topology``) and
     ``meta`` the state's state.json. Atoms are named by element and ID, e.g. "H a0087 moved
-    from O a0067 to O a0066".
+    from O a0067 to O a0066". ``occupancy_label(changes, coupling)`` names a relaxed site
+    occupancy that is no intermediate of the campaign.
     """
     topology = topology or {}
     symbols = dict(zip(meta.get("atom_ids") or [], meta.get("symbols") or []))
@@ -84,6 +86,19 @@ def describe_changes(topology, meta):
 
     lost, new = _pairs(topology.get("lost_bonds")), _pairs(topology.get("new_bonds"))
     lines, explained = [], set()
+    released = topology.get("released") or []
+    gone = {a for item in released for a in item.get("atoms", [])}
+    for item in released:
+        heavy = [a for a in item.get("atoms", []) if symbols.get(a) != "H"]
+        lines.append(
+            f"{item['formula']} ({', '.join(map(atom, heavy))}) released from {' and '.join(map(atom, item['from']))}"
+        )
+    tautomer = {
+        h: entry
+        for h, entry in (topology.get("tautomer") or {}).items()
+        if entry.get("background") and entry.get("moved")
+    }
+    tautomer_note = ": a shared H between two sites this intermediate leaves native, another tautomer"
     moves, loose_ends = {}, []
     for h in sorted({a for pair in lost + new for a in pair if symbols.get(a) == "H"}):
         before = [x for pair in lost if h in pair for x in pair if x != h]
@@ -100,10 +115,13 @@ def describe_changes(topology, meta):
         targets = {x for _before, after in moves.values() for x in after}
         h = next((h for h, (before, _a) in moves.items() if not targets.intersection(before)), next(iter(moves)))
         before, after = moves.pop(h)
-        lines.append(f"H {h} moved from {' and '.join(map(atom, before))} to {' and '.join(map(atom, after))}")
+        lines.append(
+            f"H {h} moved from {' and '.join(map(atom, before))} to {' and '.join(map(atom, after))}"
+            + (tautomer_note if h in tautomer else "")
+        )
     lines += loose_ends
     for pair in lost:
-        if not explained.intersection(pair):
+        if not explained.intersection(pair) and not gone.intersection(pair):
             lines.append(f"the {atom(pair[0])}–{atom(pair[1])} bond broke")
     for pair in new:
         if not explained.intersection(pair):
@@ -111,7 +129,10 @@ def describe_changes(topology, meta):
     for shift in topology.get("shared_proton_transfers") or []:
         if shift.get("H") not in explained:
             start, end = atom(shift.get("from")), atom(shift.get("to"))
-            lines.append(f"the shared H {shift.get('H')} moved from {start} to {end}")
+            lines.append(
+                f"the shared H {shift.get('H')} moved from {start} to {end}"
+                + (tautomer_note if shift.get("H") in tautomer else "")
+            )
             explained.add(shift.get("H"))
     missing = [p for p in _pairs(topology.get("missing_expected_bonds")) if p not in lost and p[::-1] not in lost]
     lines += [f"the expected {atom(a)}–{atom(b)} bond is missing" for a, b in missing]
@@ -122,12 +143,21 @@ def describe_changes(topology, meta):
 
     for pair in _pairs(topology.get("lost_active_metal_contacts")):
         metal, ligand = metal_first(pair)
-        lines.append(f"{atom(ligand)} is no longer bound to {atom(metal)}")
+        if ligand not in gone:
+            lines.append(f"{atom(ligand)} is no longer bound to {atom(metal)}")
     for pair in _pairs(topology.get("new_active_metal_contacts")):
         metal, ligand = metal_first(pair)
         lines.append(f"{atom(ligand)} is now bound to {atom(metal)}")
     micro = topology.get("microstate") or {}
     status, reason = micro.get("status") or topology.get("status"), micro.get("reason") or topology.get("reason")
+    if status == "unlisted_microstate" and occupancy_label is not None and micro.get("occupancy_changes"):
+        try:
+            label = occupancy_label(micro["occupancy_changes"], micro.get("coupling"))
+        except Exception:  # noqa: BLE001 - the plain sentence below still says it
+            label = None
+        if label:
+            lines.append(f"the sites are now {label}, which is not an intermediate of this campaign")
+            return lines
     if status in MICROSTATE_TEXT:
         lines.append(MICROSTATE_TEXT[status])
     elif status == "outside_site_model" and reason:
@@ -142,9 +172,10 @@ def classify(row):
 
     kind: ``accepted`` (for its own intermediate), ``reviewed`` (settled by review.json),
     ``reassigned`` (relaxed into another intermediate, which its energy counts for),
-    ``needs_review`` (the connectivity changed into something that needs a decision) or
-    ``rejected`` (other reasons: files, convergence, forces). ``counts_for`` is the
-    intermediate the structure's energy counts for, or None.
+    ``no_bound_minimum`` (a molecule left the surface), ``needs_review`` (the connectivity
+    changed into something that needs a decision) or ``rejected`` (other reasons: files,
+    convergence, forces). ``counts_for`` is the intermediate the structure's energy counts
+    for, or None.
     """
     topology = row.get("final_topology") or row.get("topology") or {}
     assigned = row.get("final_assigned_node_id", row.get("assigned_node_id"))
@@ -153,6 +184,8 @@ def classify(row):
         if assigned in (None, row["node_id"]):
             return ("reviewed" if decided else "accepted"), row["node_id"]
         return ("reviewed" if decided else "reassigned"), assigned
+    if (topology.get("microstate") or {}).get("status") == "adsorbate_released":
+        return "no_bound_minimum", None
     usable = bool(topology.get("valid_for_assigned_node") or topology.get("assigned_node_id"))
     return ("rejected" if usable else "needs_review"), None
 
@@ -161,6 +194,13 @@ def other_reasons(row):
     """The exclusion reasons of a row that the change list does not already explain."""
     reasons = row.get("final_exclusion_reasons") or []
     return [r for r in reasons if not any(c in r.lower() for c in CONNECTIVITY_REASONS)]
+
+
+def tautomer_lines(topology):
+    """'the shared H a0087 moved from O a0067 to O a0066' for the background shared protons that moved."""
+    from .tautomers import moved_lines
+
+    return moved_lines((topology or {}).get("tautomer"))
 
 
 def _summary(kind, changes, reasons, counts_for_label):
@@ -207,6 +247,9 @@ class _Campaign:
         except Exception:  # noqa: BLE001 - an unknown node keeps its ID
             return node_id
 
+    def occupancy_label(self, changes, coupling=None):
+        return self.notation.occupancy_label(changes, coupling)
+
     def state_dir(self, state_id):
         return self.root / "states" / state_id
 
@@ -217,9 +260,14 @@ def _item(camp, row):
     kind, counts_for = classify(row)
     meta = _read(state_dir / "state.json", {}) or {}
     topology = row.get("final_topology") or row.get("topology") or {}
-    changes = describe_changes(topology, meta) if kind in ("needs_review", "reassigned", "reviewed") else []
-    reasons = other_reasons(row) if kind in ("needs_review", "rejected") else []
+    described = ("needs_review", "reassigned", "reviewed", "no_bound_minimum")
+    changes = describe_changes(topology, meta, camp.occupancy_label) if kind in described else []
+    reasons = other_reasons(row) if kind in ("needs_review", "rejected", "no_bound_minimum") else []
     counts_label = camp.label(counts_for) if counts_for and counts_for != row["node_id"] else None
+    micro = topology.get("microstate") or {}
+    image = micro.get("via_symmetry_image")
+    if counts_label and image and image != counts_for:
+        counts_label = f"{camp.label(image)}, image of {counts_label}"
     return {
         "state_id": sid,
         "node_id": row["node_id"],
@@ -232,6 +280,8 @@ def _item(camp, row):
         "summary": _summary(kind, changes, reasons, counts_label),
         "review": _read(state_dir / REVIEW_FILE),
         "geometry": str(Path("states") / sid / STAGE_FINAL / "CONTCAR"),
+        "discoverable": kind == "needs_review" and micro.get("status") == "unlisted_microstate" and not reasons,
+        "released": [item["formula"] for item in topology.get("released") or []],
     }
 
 
@@ -251,9 +301,9 @@ def review_report(campaign, rows=None, registry=None):
         by_node[row["node_id"]].append(row["state_id"])
     accepted, finished_nodes = set(), set()
     providers = defaultdict(list)  # intermediate -> the structures whose energy it gets
-    items, decided = [], []
+    items, decided, tautomers = [], [], []
     finished = 0
-    kinds = {}
+    kinds, released = {}, {}
     for row in rows:
         kind, counts_for = classify(row)
         if row.get("final_valid") and counts_for:
@@ -264,7 +314,19 @@ def review_report(campaign, rows=None, registry=None):
         finished += 1
         finished_nodes.add(row["node_id"])
         kinds[row["state_id"]] = kind
+        topology = row.get("final_topology") or row.get("topology") or {}
+        released[row["state_id"]] = [item["formula"] for item in topology.get("released") or []]
         if kind == "accepted":
+            moved = tautomer_lines(topology)
+            if moved:
+                tautomers.append(
+                    {
+                        "state_id": row["state_id"],
+                        "node_id": row["node_id"],
+                        "label": camp.label(row["node_id"]),
+                        "moved": moved,
+                    }
+                )
             continue
         item = _item(camp, row)
         item["other_starts"] = [
@@ -274,14 +336,30 @@ def review_report(campaign, rows=None, registry=None):
     for item in items + decided:
         item["energy_from"] = [s for s in providers.get(camp.owner(item["node_id"]), []) if s != item["state_id"]]
 
+    def unbound(node_id):
+        """The finished starts of an intermediate, when every one of them lost its adsorbate; else 0."""
+        done = [s for s in by_node[node_id] if s in kinds]
+        return len(done) if done and all(kinds[s] == "no_bound_minimum" for s in done) else 0
+
     def why(node_id):
         """Why one intermediate has no accepted structure, in a few words."""
         words = []
+        n_unbound = unbound(node_id)
+        if n_unbound:
+            formulas = sorted({f for s in by_node[node_id] for f in released.get(s, [])})
+            words.append(
+                f"no bound minimum found from {n_unbound} {'start' if n_unbound == 1 else 'starts'}: "
+                f"{' or '.join(formulas) or 'the adsorbate'} left the surface (the starts differ in geometry, "
+                "not in their starting magnetic moments)"
+            )
         for kind, text in (
             ("needs_review", "needs review"),
             ("reassigned", "relaxed into another intermediate"),
+            ("no_bound_minimum", "no bound minimum"),
             ("rejected", "rejected"),
         ):
+            if kind == "no_bound_minimum" and n_unbound:
+                continue
             n = sum(1 for s in by_node[node_id] if kinds.get(s) == kind)
             if n:
                 words.append(text if n == 1 else f"{text} ({n} structures)")
@@ -290,7 +368,7 @@ def review_report(campaign, rows=None, registry=None):
             words.append(f"{len(waiting)} more {'start' if len(waiting) == 1 else 'starts'} not finished")
         return "; ".join(words) or "no finished structure"
 
-    held, available, total = [], 0, 0
+    held, unbound_cycles, available, total = [], [], 0, 0
     for cycle in camp.network.get("cycles", []):
         if not cycle.get("symmetry_representative", True):
             continue
@@ -303,25 +381,34 @@ def review_report(campaign, rows=None, registry=None):
         if not all(o in finished_nodes for o in owners):
             continue
         missing = [
-            {"node_id": node_id, "label": label, "why": why(owner)}
+            {"node_id": node_id, "label": label, "why": why(owner), "no_bound_minimum": bool(unbound(owner))}
             for node_id, owner, label in zip(view["node_ids"], owners, view["labels"])
             if owner not in accepted
         ]
-        held.append(
-            {
-                "cycle_id": cycle["id"],
-                "title": view["title"] + (f" ({view['variant']})" if view.get("variant") else ""),
-                "site_key": view["site_key"],
-                "missing": missing,
-            }
-        )
+        entry = {
+            "cycle_id": cycle["id"],
+            "title": view["title"] + (f" ({view['variant']})" if view.get("variant") else ""),
+            "site_key": view["site_key"],
+            "missing": missing,
+        }
+        (unbound_cycles if all(m["no_bound_minimum"] for m in missing) else held).append(entry)
+    unbound_nodes = sorted({camp.owner(n) for n in by_node if unbound(n) and camp.owner(n) not in accepted})
     return {
         "campaign": str(camp.root),
         "finished": finished,
         "accepted": finished - len(items) - len(decided),
         "not_accepted": items,
         "decided": decided,
-        "cycles": {"symmetry_unique": total, "with_every_intermediate_accepted": available, "held_up": held},
+        "tautomers": tautomers,
+        "no_bound_minimum": [
+            {"node_id": n, "label": camp.label(n), "starts": unbound(n), "why": why(n)} for n in unbound_nodes
+        ],
+        "cycles": {
+            "symmetry_unique": total,
+            "with_every_intermediate_accepted": available,
+            "held_up": held,
+            "no_bound_minimum": unbound_cycles,
+        },
     }
 
 
@@ -338,6 +425,7 @@ def review_text(report, ascii=False):
     ]
     sections = (
         ("needs_review", "Needs your review: the relaxed structure changed"),
+        ("no_bound_minimum", "No bound minimum from this start: a molecule left the surface"),
         ("reassigned", "Relaxed into another intermediate: the energy counts there"),
         ("rejected", "Not accepted for other reasons"),
     )
@@ -358,6 +446,11 @@ def review_text(report, ascii=False):
             for other in item["other_starts"]:
                 if other["run"] != "finished":
                     lines.append(f"      another start of {item['label']}: {other['state_id']} ({other['run']})")
+    if report.get("tautomers"):
+        lines += ["", "Accepted in another tautomer: a shared H between two sites the intermediate leaves native moved"]
+        for item in report["tautomers"]:
+            lines.append(f"  {item['state_id']}  {item['label']}")
+            lines += [f"      {line}" for line in item["moved"]]
     if report["decided"]:
         lines += ["", "Settled by review.json"]
         for item in report["decided"]:
@@ -379,14 +472,32 @@ def review_text(report, ascii=False):
         for cycle in cycles["held_up"]:
             lines.append(f"  {cycle['cycle_id']}  {cycle['title']}")
             lines += [f"      {m['label']}: {m['why']}" for m in cycle["missing"]]
-    if items:
+    if cycles.get("no_bound_minimum"):
+        lines.append("With an intermediate that has no bound minimum (every finished start lost its adsorbate):")
+        for cycle in cycles["no_bound_minimum"]:
+            lines.append(f"  {cycle['cycle_id']}  {cycle['title']}")
+            lines += [f"      {m['label']}: {m['why']}" for m in cycle["missing"]]
+    if any(i["kind"] != "no_bound_minimum" for i in items):
         lines += [
             "",
             "What to do: look at each structure (states/STATE/02_final/CONTCAR), then",
             '  mechanet review --accept STATE "why"         it is still its intermediate',
             '  mechanet review --assign STATE NODE "why"    it is another intermediate of the same composition',
+        ]
+        if any(i.get("discoverable") for i in items):
+            lines.append(
+                '  mechanet review --discover STATE "why"       it is a new intermediate: add it to the campaign'
+            )
+        lines += [
             "  mechanet submit --states STATE --execute     run another start of the intermediate",
             "and run mechanet thermo again: it reads the decisions.",
+        ]
+    if any(i["kind"] == "no_bound_minimum" for i in items):
+        lines += [
+            "",
+            "A structure without a bound minimum needs no decision: it gives its intermediate no energy. Every start "
+            "of an intermediate begins from the same magnetic moments (vasp.magmom_*), so a start from other moments "
+            "could still find a bound one.",
         ]
     return text("\n".join(lines))
 

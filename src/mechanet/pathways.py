@@ -588,6 +588,22 @@ def adopt(campaign, cycle_ids):
     if unknown:
         raise ValueError(f"Not in pathways/pathways.json: {unknown}")
     chosen = [by_id[i] for i in dict.fromkeys(cycle_ids) if not by_id[i]["curated"]]
+    known = {n["id"] for n in network["nodes"]}
+    proposed_edges = {e["id"]: e for e in report.get("new_edges", [])}
+    for r in chosen:
+        absent = sorted(set(r.get("node_ids", [])) - known) or sorted(
+            {
+                x
+                for k in r["edge_ids"]
+                if k in proposed_edges
+                for x in (proposed_edges[k]["from"], proposed_edges[k]["to"])
+            }
+            - known
+        )
+        if absent:
+            raise ValueError(
+                f"{r['id']} passes through {', '.join(absent)}, no longer in network.json; run mechanet pathways again"
+            )
     backup = campaign / "network.before_pathways.json"
     if chosen and not backup.exists():
         dump_json(backup, network)

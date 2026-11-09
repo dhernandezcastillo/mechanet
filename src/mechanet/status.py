@@ -60,6 +60,9 @@ RANK = {c: k for k, c in enumerate(CATEGORIES)}
 # An intermediate whose finished structures the last collect did not accept.
 HELD_ICON = "?"
 HELD_EXPLAIN = "finished, but the last collect did not accept it (mechanet review shows why)"
+# An intermediate whose finished starts all lost their adsorbate (no bound minimum).
+UNBOUND_ICON = "∅"
+UNBOUND_EXPLAIN = "no bound minimum: every finished start lost its adsorbate (mechanet review)"
 UNKNOWN_SUBMISSION = ("submitting", "submission_unknown")
 
 
@@ -259,11 +262,15 @@ def campaign_status(campaign, through=None, slurm=True, registry=None):
         owner = node.get("computed_by") or node["id"]
         owner_node = notation.nodes.get(owner) or node
         sids = [s for s in owner_node.get("state_ids", []) if s in by_id]
+        origin = (owner_node.get("discovered_from") or {}).get("state_id")
+        if not sids and origin in by_id:
+            sids = [origin]  # a discovered intermediate: the structure that relaxed into it
         nodes[node["id"]] = {
             "label": notation.label(node["id"], _standalone_sites(notation, node["id"])),
             "state_ids": sids,
             "categories": [by_id[s]["category"] for s in sids],
             "computed_by": node.get("computed_by"),
+            "discovered": bool(owner_node.get("discovered_from")),
         }
     for state in states:
         node = nodes.get(state.get("node_id") or "")
@@ -275,6 +282,7 @@ def campaign_status(campaign, through=None, slurm=True, registry=None):
         ready = sum(1 for cats in progress if "finished" in cats)
         view.update(
             progress=progress,
+            owners=[nodes.get(n, {}).get("computed_by") or n for n in view["node_ids"]],
             state_ids=[nodes.get(n, {}).get("state_ids", []) for n in view["node_ids"]],
             n_intermediates=len(progress),
             n_finished=ready,
@@ -331,9 +339,16 @@ def campaign_status(campaign, through=None, slurm=True, registry=None):
             "partial": sum(1 for c in shown if c["n_finished"] and not c["complete"]),
             "none": sum(1 for c in shown if not c["n_finished"]),
             "held_up": sum(1 for c in shown if c.get("held_up")),
-            "computed_intermediates": sum(1 for n in nodes.values() if not n["computed_by"]),
+            "no_bound_minimum": sum(1 for c in shown if c.get("no_bound_minimum")),
+            "computed_intermediates": sum(1 for n in nodes.values() if not n["computed_by"] and not n["discovered"]),
             "intermediates_finished": sum(
-                1 for n in nodes.values() if not n["computed_by"] and "finished" in n["categories"]
+                1
+                for n in nodes.values()
+                if not n["computed_by"] and not n["discovered"] and "finished" in n["categories"]
+            ),
+            "discovered_intermediates": sum(1 for n in nodes.values() if not n["computed_by"] and n["discovered"]),
+            "intermediates_without_bound_minimum": sum(
+                1 for n in nodes.values() if not n["computed_by"] and n.get("no_bound_minimum")
             ),
         },
     }
@@ -363,9 +378,14 @@ def _last_collect(campaign, network, notation, states, nodes, cycles):
         node["held"] = bool(
             judged and all(v["kind"] != "unknown" for v in judged) and owner not in collected["accepted_nodes"]
         )
+        node["no_bound_minimum"] = (
+            len(judged) if node["held"] and all(v["kind"] == "no_bound_minimum" for v in judged) else 0
+        )
     for cycle in cycles:
         cycle["held"] = [nodes.get(n, {}).get("held", False) for n in cycle["node_ids"]]
-        cycle["held_up"] = cycle["complete"] and any(cycle["held"])
+        cycle["unbound"] = [bool(nodes.get(n, {}).get("no_bound_minimum")) for n in cycle["node_ids"]]
+        cycle["held_up"] = cycle["complete"] and any(h and not u for h, u in zip(cycle["held"], cycle["unbound"]))
+        cycle["no_bound_minimum"] = cycle["complete"] and any(cycle["unbound"])
     return collected["collected_utc"]
 
 
@@ -388,11 +408,14 @@ def state_list(result, which):
 # ---------------------------------------------------------------------------
 
 
-def _marks(categories_per_node, held=None):
-    """One mark per intermediate: the best status among its structures (? when none was accepted)."""
+def _marks(categories_per_node, held=None, unbound=None):
+    """One mark per intermediate: the best status among its structures (? when none was accepted,
+    ∅ when every finished start lost its adsorbate)."""
     out = []
     for k, cats in enumerate(categories_per_node):
-        if held and k < len(held) and held[k]:
+        if unbound and k < len(unbound) and unbound[k]:
+            out.append(UNBOUND_ICON)
+        elif held and k < len(held) and held[k]:
             out.append(HELD_ICON)
         else:
             out.append(ICONS[min(cats, key=RANK.get)] if cats else ICONS["no_structure"])
@@ -422,7 +445,12 @@ def status_text(result, show_cycles=False, html_path=None, ascii=False):
     lines += [
         "",
         f"Intermediates: {summary['intermediates_finished']} of {summary['computed_intermediates']} have a finished "
-        "structure",
+        "structure"
+        + (
+            f"; {summary['discovered_intermediates']} more found by a relaxation (mechanet review --discover)"
+            if summary.get("discovered_intermediates")
+            else ""
+        ),
         f"Cycles ({summary['symmetry_unique_cycles']} symmetry-unique): {summary['complete']} with every "
         f"intermediate finished, {summary['partial']} partly, {summary['none']} not yet",
     ]
@@ -430,6 +458,11 @@ def status_text(result, show_cycles=False, html_path=None, ascii=False):
         lines.append(
             f"  {summary['held_up']} of the {summary['complete']} complete held up: an intermediate has no structure "
             "the last collect accepted (mechanet review)"
+        )
+    if summary.get("no_bound_minimum"):
+        lines.append(
+            f"  {summary['no_bound_minimum']} of the {summary['complete']} complete with an intermediate that has no "
+            "bound minimum: every finished start lost its adsorbate (mechanet review)"
         )
     for name, entry in result["families"].items():
         lines.append(
@@ -449,7 +482,7 @@ def status_text(result, show_cycles=False, html_path=None, ascii=False):
                 lines.append(f"  {family}")
             lines.append(
                 f"    {text(cycle['site_key']).ljust(width)}  {text(cycle['short']).ljust(short)}  "
-                f"{text(_marks(cycle['progress'], cycle.get('held'))).ljust(marks)}  "
+                f"{text(_marks(cycle['progress'], cycle.get('held'), cycle.get('unbound'))).ljust(marks)}  "
                 f"{cycle['n_finished']}/{cycle['n_intermediates']}  "
                 f"{cycle['cycle_id']}"
             )
@@ -582,9 +615,18 @@ def _e(text):
 
 
 def _square(category, title="", flag=False):
-    """One structure; ``flag``: finished, but the last collect did not accept it."""
+    """One structure; ``flag``: finished, but the last collect did not accept it ("unbound": because its
+    adsorbate left the surface)."""
     label = LABELS[category] + (", not accepted" if flag else "")
-    icon = HELD_ICON if flag else ICONS[category] if category != "not_started" else ""
+    icon = (
+        UNBOUND_ICON
+        if flag == "unbound"
+        else HELD_ICON
+        if flag
+        else ICONS[category]
+        if category != "not_started"
+        else ""
+    )
     return (
         f'<span class="sq s-{category}{" flag" if flag else ""}" role="img" aria-label="{_e(label)}" '
         f'title="{_e(title or label)}">{icon}</span>'
@@ -596,24 +638,42 @@ def _flag_text(state):
     return f"; not accepted at the last collect: {verdict['summary']}" if verdict else ""
 
 
-def _intermediate_squares(label, state_ids, categories, states):
+def _flag(state):
+    verdict = (state or {}).get("not_accepted")
+    return ("unbound" if verdict.get("kind") == "no_bound_minimum" else True) if verdict else False
+
+
+def _not_accepted_for(state, owner):
+    """The last collect's verdict, unless the structure's energy counts for ``owner`` (a discovered one)."""
+    verdict = (state or {}).get("not_accepted")
+    return None if verdict and owner and verdict.get("counts_for") == owner else verdict
+
+
+def _intermediate_squares(label, state_ids, categories, states, owner=None, unbound=False):
     """One intermediate: a column of squares, one per structure (up to four per column)."""
     if not state_ids:
         return f'<span class="inter">{_square("no_structure", f"{label}: no starting structure was built")}</span>'
     parts = []
     for sid, category in zip(state_ids, categories):
-        state = states.get(sid) or {}
+        state = dict(states.get(sid) or {})
+        state["not_accepted"] = _not_accepted_for(state, owner)
         detail = state.get("detail") or ""
         title = f"{label} | {sid}: {LABELS[category]}" + (f" ({detail})" if detail else "") + _flag_text(state)
-        parts.append(_square(category, title, flag=bool(state.get("not_accepted"))))
+        if unbound:
+            title += f"; {UNBOUND_EXPLAIN}"
+        parts.append(_square(category, title, flag=_flag(state)))
     rows = min(len(parts), 4)
     return f'<span class="inter" style="--rows:{rows}">{"".join(parts)}</span>'
 
 
 def _cycle_squares(cycle, states):
+    owners = cycle.get("owners") or [None] * len(cycle["labels"])
+    unbound = cycle.get("unbound") or [False] * len(cycle["labels"])
     return "".join(
-        _intermediate_squares(label, sids, cats, states)
-        for label, sids, cats in zip(cycle["labels"], cycle["state_ids"], cycle["progress"])
+        _intermediate_squares(label, sids, cats, states, owner, gone)
+        for label, sids, cats, owner, gone in zip(
+            cycle["labels"], cycle["state_ids"], cycle["progress"], owners, unbound
+        )
     )
 
 
@@ -653,7 +713,10 @@ def _grid(result, states):
                     tip += f": {cycle['n_finished']} of {cycle['n_intermediates']} intermediates finished"
                     if cycle.get("held_up"):
                         tip += "; held up: an intermediate has no structure the last collect accepted"
-                    cls = "cyc done" if cycle["complete"] and not cycle.get("held_up") else "cyc"
+                    if cycle.get("no_bound_minimum"):
+                        tip += "; an intermediate has no bound minimum (every finished start lost its adsorbate)"
+                    blocked = cycle.get("held_up") or cycle.get("no_bound_minimum")
+                    cls = "cyc done" if cycle["complete"] and not blocked else "cyc"
                     links.append(
                         f'<a class="{cls}" href="#{_e(_anchor(cycle["cycle_id"]))}" title="{_e(tip)}">'
                         f"{_cycle_squares(cycle, states)}"
@@ -667,13 +730,19 @@ def _grid(result, states):
 
 def _cycle_details(cycle, states):
     sid_rows = []
-    for label, node_id, sids, cats in zip(cycle["labels"], cycle["node_ids"], cycle["state_ids"], cycle["progress"]):
+    owners = cycle.get("owners") or list(cycle["node_ids"])
+    for label, node_id, sids, cats, owner in zip(
+        cycle["labels"], cycle["node_ids"], cycle["state_ids"], cycle["progress"], owners
+    ):
+        shown = {sid: dict(states.get(sid) or {}) for sid in sids}
+        for state in shown.values():
+            state["not_accepted"] = _not_accepted_for(state, owner)
         chips = (
             "".join(
-                f'<span class="chip">{_square(cat, flag=bool(states.get(sid, {}).get("not_accepted")))}'
+                f'<span class="chip">{_square(cat, flag=_flag(shown[sid]))}'
                 f"<code>{_e(sid)}</code> "
-                f"{_e(LABELS[cat])}{(': ' + _e(states[sid]['detail'])) if states.get(sid, {}).get('detail') else ''}"
-                f"{_e(_flag_text(states.get(sid)))}</span><br>"
+                f"{_e(LABELS[cat])}{(': ' + _e(shown[sid]['detail'])) if shown[sid].get('detail') else ''}"
+                f"{_e(_flag_text(shown[sid]))}</span><br>"
                 for sid, cat in zip(sids, cats)
             )
             if sids
@@ -700,7 +769,8 @@ def _cycle_details(cycle, states):
         f"<span>{_cycle_squares(cycle, states)}</span><b>{_e(title)}</b>"
         f'<span class="lbl">{_e(cycle["site_key"])}</span><code>{_e(cycle["cycle_id"])}</code>'
         f'<span class="frac">{cycle["n_finished"]}/{cycle["n_intermediates"]} intermediates finished'
-        f"{'; held up at the last collect' if cycle.get('held_up') else ''}</span>"
+        f"{'; held up at the last collect' if cycle.get('held_up') else ''}"
+        f"{'; an intermediate has no bound minimum' if cycle.get('no_bound_minimum') else ''}</span>"
         f'</summary><div class="body">'
         f'<p class="src">{_e(cycle["sources"])}</p>'
         f'<p class="sites">Sites: {_e("; ".join(cycle["site_legend"]))}</p>'
@@ -731,6 +801,8 @@ def status_page(result):
     legend += f'<span class="item">{_square("no_structure")} no structure: no starting structure was built</span>'
     if result.get("last_collect"):
         legend += f'<span class="item">{_square("finished", flag=True)} {_e(HELD_EXPLAIN)}</span>'
+        if any(_flag(st) == "unbound" for st in result["states"]):
+            legend += f'<span class="item">{_square("finished", flag="unbound")} {_e(UNBOUND_EXPLAIN)}</span>'
     summary = result["summary"]
     parts = [
         "<!DOCTYPE html>",
@@ -751,6 +823,18 @@ def status_page(result):
         + (
             f"; {summary['held_up']} of the complete ones are held up by structures the last collect did not accept"
             if summary.get("held_up")
+            else ""
+        )
+        + (
+            f"; {summary['no_bound_minimum']} have an intermediate with no bound minimum (every finished start "
+            "lost its adsorbate)"
+            if summary.get("no_bound_minimum")
+            else ""
+        )
+        + (
+            f". {summary['discovered_intermediates']} more intermediates were found by a relaxation "
+            "(<code>mechanet review --discover</code>)"
+            if summary.get("discovered_intermediates")
             else ""
         )
         + ".</p>",

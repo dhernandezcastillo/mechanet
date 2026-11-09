@@ -437,6 +437,37 @@ def _magnetism_section(result, label=None):
     return lines
 
 
+def _tautomer_section(result, label=None):
+    """Report lines on shared-proton tautomers: intermediates computed in several, cycles that mix them."""
+    label = label or (lambda cycle_id, node_id: node_id)
+    tautomers = result.get("tautomers") or {}
+    cycles, nodes = tautomers.get("cycles") or {}, tautomers.get("nodes") or {}
+    if not cycles and not nodes:
+        return []
+    review = tautomers.get("cycles_needing_review") or []
+    lines = [
+        "## Shared protons",
+        "",
+        "A proton shared between two reactive sites that an intermediate leaves native may sit on either "
+        "oxygen: the same intermediate in two tautomers, whose lowest counts. A cycle needs review when its "
+        "intermediates use different tautomers and some were not computed in the others'.",
+        "",
+        f"- {len(review)} of {len(cycles)} cycles with shared protons need review"
+        + (f": {', '.join(review[:10])}{', ...' if len(review) > 10 else ''}" if review else ""),
+    ]
+    for node_id in sorted(nodes)[:10]:
+        lines.append(
+            f"- {label(None, node_id)} ({node_id}) was computed in {len(nodes[node_id]['tautomers'])} tautomers"
+        )
+    for cycle_id in review[:3]:
+        for node_id, wanted in (cycles[cycle_id].get("not_computed") or {}).items():
+            for key in wanted:
+                where = " and ".join(f"H {h} on O {o}" for h, o in sorted(key.items()))
+                lines.append(f"- {cycle_id}: {label(cycle_id, node_id)} was not computed with {where}")
+    lines.append("")
+    return lines
+
+
 def _notation(campaign, network):
     from .notation import Notation
     from .plugins import campaign_registry
@@ -559,6 +590,7 @@ def report(campaign):
             return labels.get((cycle_id, node_id)) or notation.label(node_id)
 
         lines += _magnetism_section(result, label)
+        lines += _tautomer_section(result, label)
     ranking = campaign / "pathways" / "ranking.json"
     if ranking.is_file():
         data = read_json(ranking)
