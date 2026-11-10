@@ -32,7 +32,7 @@ lengths and hysteresis, and gets one of these outcomes:
 | kept its intermediate | the bonds of the intermediate are still there (protons that only changed places count as kept, as in `collect`) |
 | relaxed into another intermediate | the sites now hold another intermediate of the network |
 | gave its adsorbate off | the adsorbate left the surface (no bound minimum from this start) |
-| changed bonds (would need review) | something changed that matches no intermediate of the network |
+| changed bonds (would need review) | something changed that matches no intermediate of the network; this includes an adsorbate that left with an atom of the surface (a lattice O in the O₂), whose surface left behind is named as a possible new intermediate |
 | could not be checked, calculator failed | no verdict |
 
 A `review.json` written for a state's DFT result is not applied to the prescreen's structure.

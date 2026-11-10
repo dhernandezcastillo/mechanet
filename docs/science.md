@@ -462,7 +462,14 @@ desorption or dissociation are discarded as anomalies in high-throughput adsorpt
 atoms is within the upper M–O (M–Cl) hysteresis edge of any metal; the verdict needs it to be
 the intermediate's own adsorbate (an atom of a site the intermediate changes, or one it added)
 and no other contact to the metals to have changed. A spectator ligand that left still needs
-review. An intermediate whose finished
+review. When the adsorbate left together with an atom of the surface that the intermediate
+did not change (O₂ made of an adsorbed O and a lattice O, the step of a lattice-oxygen
+route), the structure still gives its intermediate no energy, but it is not filed as an
+anomaly: the surface left behind is read from the structure without the molecule and named,
+as an intermediate of the campaign (the vacancy of a bridging O, say) or as a possible one the
+campaign does not list. It has no structure of its own yet (docs/pending.md). An atom of the
+slab that is not a declared site cannot be followed this way; the report says which atom to
+declare. An intermediate whose finished
 starts all end that way has no bound minimum from those starts; its cycles are listed apart
 from the held-up ones (`mechanet review`, the ∅ mark of `mechanet status`). Every start began
 from the same magnetic moments (below), so a start from other moments could still find a

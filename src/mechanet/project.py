@@ -20,6 +20,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import platform
 import re
 import shutil
 import sys
@@ -562,8 +563,20 @@ def generate(project_path=None, out=None, families=None):
                 f"scope.{key} configures the {family.name} family, which this campaign does not build "
                 f"(scope.families: {sorted(listed)}): the block has no effect"
             )
+    machine = platform.machine().lower()
+    if machine and machine not in X86_MACHINES:
+        # PENDING(tie-break): said on every build until the order of equal scores is settled.
+        report["warnings"].append(
+            f"This processor ({machine}) can keep another of two equally scored orientations than Intel and AMD "
+            "processors do: a few starts may differ from a build of the same project on another machine "
+            "(docs/pending.md, tie-break)."
+        )
     report["campaign"] = str(out)
     return report
+
+
+# Processors whose floating-point rounding the frozen builds were made with (see docs/pending.md).
+X86_MACHINES = ("x86_64", "amd64", "x86-64", "x64", "i386", "i686")
 
 
 def _stray_potentials(project, reaction):

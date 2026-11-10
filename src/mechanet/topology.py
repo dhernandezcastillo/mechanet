@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -460,8 +461,8 @@ def _named(atom_id, ids, symbols):
     return f"{symbols[ids.index(atom_id)]} {atom_id}" if atom_id in ids else str(atom_id)
 
 
-def _own_release(released, lost_metal, new_metal, occupancy, coupling, native, symbol_of, heavy=("O", "Cl")):
-    """True when the intermediate's own adsorbate left the surface and nothing else changed at the metals.
+def _release_kind(released, lost_metal, new_metal, occupancy, coupling, native, symbol_of, heavy=("O", "Cl")):
+    """How the intermediate's adsorbate left the surface, when that is all that changed at the metals.
 
     Every released molecule must hold a heavy atom (O or Cl, or an element another adsorbate
     brings) of a site the intermediate changes (or one it added: an H it added does not make a
@@ -469,10 +470,15 @@ def _own_release(released, lost_metal, new_metal, occupancy, coupling, native, s
     must consist of such sites' own atoms only, so an H2 that took the H of another ligand along
     is not the intermediate's own. Every lost metal contact must belong to such a molecule, and
     no new contact formed: a spectator ligand that left, or one that moved to another metal,
-    still needs review.
+    still needs review (None).
+
+    Returns ("own", []) when the adsorbate left by itself, or ("with_surface_atom", atoms) when a
+    molecule also holds heavy atoms of the slab that the intermediate did not change: the O of
+    the lattice or of a site it left native, as in O2 made of an adsorbed O and a lattice O. The
+    surface is then another one, a possible intermediate of a lattice route.
     """
     if not released or new_metal:
-        return False
+        return None, []
     own = {s for s, v in (occupancy or {}).items() if (native or {}).get(s) != v} | set(coupling or ())
 
     def owned(atoms):
@@ -481,9 +487,80 @@ def _own_release(released, lost_metal, new_metal, occupancy, coupling, native, s
         return any(symbol_of.get(a) in heavy and (a in own or not _NATIVE_ID.match(a)) for a in atoms)
 
     if not all(owned(item["atoms"]) for item in released):
-        return False
+        return None, []
     gone = {a for item in released for a in item["atoms"]}
-    return all(gone.intersection(pair) for pair in lost_metal)
+    if not all(gone.intersection(pair) for pair in lost_metal):
+        return None, []
+    taken = sorted(a for a in gone if symbol_of.get(a) in heavy and _NATIVE_ID.match(a) and a not in own)
+    return ("with_surface_atom", taken) if taken else ("own", [])
+
+
+def _own_release(released, lost_metal, new_metal, occupancy, coupling, native, symbol_of, heavy=("O", "Cl")):
+    """True when the intermediate's own adsorbate left the surface by itself (see :func:`_release_kind`)."""
+    return _release_kind(released, lost_metal, new_metal, occupancy, coupling, native, symbol_of, heavy)[0] == "own"
+
+
+def _occupancy_delta(changes, context, registry):
+    """Atoms the site changes add to (or take from) the native surface, per element."""
+    delta = {"O": 0, "H": 0}
+    for site, status in changes.items():
+        new = registry.adsorbate(status).composition
+        old = registry.adsorbate(context["native"][site]).composition
+        for element in set(new) | set(old):
+            delta[element] = delta.get(element, 0) + new.get(element, 0) - old.get(element, 0)
+    return {k: v for k, v in delta.items() if k in ("O", "H") or v}
+
+
+def _surface_left(symbols, ids, d_final, d_initial, released, context, hysteresis, registry):
+    """The surface a release leaves behind, as an occupancy of the sites.
+
+    The relaxed structure is read again without the released molecules: a site whose atom left
+    is empty, one whose ligand lost an H is what remains. Atoms of the slab that are not part of
+    a site (a lattice O that was not declared as one) cannot be written that way; the record
+    then says so. Returns {"occupancy_changes", "coupling", "delta_atoms", "node_id",
+    "matched_node_id"} (the node of the campaign with that occupancy, or None), or
+    {"occupancy_changes": None, "reason"}.
+
+    PENDING(surface-left-structure): the surface is named, but the relaxed structure still holds
+    the released molecule and cannot give its energy; no start is written for it (docs/pending.md).
+    """
+    sites = set(context["native"])
+    index = {aid: k for k, aid in enumerate(ids)}
+    gone = [a for item in released for a in item["atoms"] if a in index]
+    cutoff_oh = BOND_CUTOFF["O-H"]
+
+    def of_a_site(atom):
+        if atom in sites:
+            return True
+        if symbols[index[atom]] != "H":
+            return False  # the H of a site's own ligand goes with the site
+        return any(s in index and d_initial[index[atom], index[s]] <= cutoff_oh for s in sites)
+
+    outside = sorted(a for a in gone if _NATIVE_ID.match(a) and not of_a_site(a))
+    if outside:
+        named = ", ".join(f"{symbols[index[a]]} {a}" for a in outside)
+        verb = "is not part of a reactive site" if len(outside) == 1 else "are not part of a reactive site"
+        return {
+            "occupancy_changes": None,
+            "node_id": None,
+            "reason": f"{named} {verb}: declare it as a site to follow this route",
+        }
+    keep = [k for k, aid in enumerate(ids) if aid not in set(gone)]
+    rest = SimpleNamespace(symbols=[symbols[k] for k in keep])
+    sub = np.ix_(keep, keep)
+    changes, coupling, reason = classify_microstate(
+        rest, [ids[k] for k in keep], d_final[sub], context, hysteresis, d_initial[sub], registry
+    )
+    if changes is None:
+        return {"occupancy_changes": None, "node_id": None, "reason": reason}
+    target = context["lookup"].get(_occupancy_key(changes, coupling))
+    return {
+        "occupancy_changes": changes,
+        "coupling": coupling,
+        "delta_atoms": _occupancy_delta(changes, context, registry),
+        "node_id": _representative_node(context, target) if target else None,
+        "matched_node_id": target,
+    }
 
 
 def released_text(released, ids, symbols):
@@ -589,13 +666,7 @@ def _assign_microstate(meta, changes, coupling, reason, context, registry):
     original = meta.get("node_id")
     if changes is None:
         return {"status": "outside_site_model", "assigned_node_id": None, "reason": reason}
-    delta = {"O": 0, "H": 0}
-    for site, status in changes.items():
-        new = registry.adsorbate(status).composition
-        old = registry.adsorbate(context["native"][site]).composition
-        for element in set(new) | set(old):
-            delta[element] = delta.get(element, 0) + new.get(element, 0) - old.get(element, 0)
-    delta = {k: v for k, v in delta.items() if k in ("O", "H") or v}
+    delta = _occupancy_delta(changes, context, registry)
     record = {"occupancy_changes": changes, "coupling": coupling, "delta_atoms": delta}
     expected = meta.get("delta_atoms")
     if expected is not None and {k: int(v) for k, v in expected.items() if k in ("O", "H") or v} != delta:
@@ -793,25 +864,44 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
                             },
                         )
             metal_changes = lost_metal + new_metal
+            release, taken = (None, [])
+            if metal_changes:
+                release, taken = _release_kind(
+                    released,
+                    lost_metal,
+                    new_metal,
+                    own_occupancy,
+                    own_coupling,
+                    native,
+                    dict(zip(ids, symbols)),
+                    heavy=("O", "Cl", *sorted(extra)),
+                )
             if metal_changes and _binding_mode_only(metal_changes, ids, symbols, d_final, hysteresis):
                 microstate = dict(microstate, binding_mode_changed=True)
-            elif metal_changes and _own_release(
-                released,
-                lost_metal,
-                new_metal,
-                own_occupancy,
-                own_coupling,
-                native,
-                dict(zip(ids, symbols)),
-                heavy=("O", "Cl", *sorted(extra)),
-            ):
+            elif release == "own":
                 microstate = dict(
                     microstate,
                     status="adsorbate_released",
                     assigned_node_id=None,
                     reason=released_text(released, ids, symbols) + ": no bound minimum from this start",
                 )
+            elif release == "with_surface_atom":
+                # The adsorbate left with an atom of the surface (O2 of an adsorbed O and a lattice
+                # O): no bound minimum of this intermediate, and the surface left behind is a
+                # possible intermediate of a lattice route. It is named, never dropped.
+                left = _surface_left(symbols, ids, d_final, d_initial, released, context, hysteresis, registry)
+                names = ", ".join(_named(a, ids, symbols) for a in taken)
+                microstate = dict(
+                    microstate,
+                    status="surface_atom_released",
+                    assigned_node_id=None,
+                    reason=released_text(released, ids, symbols) + f", taking {names} of the surface along",
+                    taken_surface_atoms=taken,
+                    surface_left=left,
+                )
             elif metal_changes:
+                # PENDING(two-site-adsorbates): an adsorbate whose second atom now binds a metal ends
+                # here and waits for review; no intermediate describes it (docs/pending.md).
                 microstate = dict(
                     microstate,
                     status="metal_attachment_changed",

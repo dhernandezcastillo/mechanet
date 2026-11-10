@@ -116,6 +116,16 @@ def new_intermediate(topology, occupancy_label=None):
     """The label of the arrangement a relaxed structure reached when it is an intermediate the
     network does not list (what ``mechanet review --discover`` accepts), else None."""
     micro = topology.get("microstate") or {}
+    if micro.get("status") == "surface_atom_released":
+        # the adsorbate left with an atom of the surface: what it leaves, when the campaign lacks it
+        from .review import surface_left_label
+
+        left = micro.get("surface_left") or {}
+        label = surface_left_label(micro, occupancy_label)
+        if label is None or left.get("node_id"):
+            return None
+        formulas = " + ".join(item["formula"] for item in topology.get("released") or [])
+        return f"{label} (after {formulas or 'a molecule'} left with a surface atom)"
     changes = micro.get("occupancy_changes")
     if micro.get("status") != "unlisted_microstate" or not changes:
         return None

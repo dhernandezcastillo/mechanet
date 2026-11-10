@@ -53,6 +53,8 @@ def binds_through_hydrogen(adsorbates):
 class Adsorbate:
     name: str
     composition: dict = field(default_factory=dict)
+    # PENDING(two-site-adsorbates): one binding atom on one site. An adsorbate bound through two
+    # atoms on two sites (formate through both O, CO on a bridge) cannot be written: docs/pending.md.
     proximal: str | None = None  # element bound to the site; None for "empty"
     geometry: str = "atom"  # one of GEOMETRIES
     distal: str | None = None  # distal heavy atom (XY, XYH)

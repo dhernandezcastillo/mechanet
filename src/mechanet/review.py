@@ -32,6 +32,7 @@ MICROSTATE_TEXT = {
     "unlisted_microstate": "the new arrangement of the sites is not an intermediate of this campaign",
     "metal_attachment_changed": "a bond between the metal and an adsorbate or ligand changed",
     "adsorbate_released": "no bound minimum from this start",
+    "surface_atom_released": "no bound minimum from this start: the adsorbate left with an atom of the surface",
     "cell_changed": "the cell changed during the relaxation",
     "atom_mapping_mismatch": "the atoms of the relaxed structure do not match the starting structure",
 }
@@ -164,12 +165,54 @@ def describe_changes(topology, meta, occupancy_label=None):
         if label:
             lines.append(f"the sites are now {label}, which is not an intermediate of this campaign")
             return lines
-    if status in MICROSTATE_TEXT:
+    if status == "surface_atom_released":
+        lines += surface_left_lines(micro, atom, occupancy_label)
+    elif status in MICROSTATE_TEXT:
         lines.append(MICROSTATE_TEXT[status])
     elif status == "outside_site_model" and reason:
         lines.append(f"outside the site model: {reason}")
     elif reason:
         lines.append(str(reason))
+    return lines
+
+
+def surface_left_label(micro, occupancy_label=None):
+    """The surface a release with a surface atom leaves behind, in the campaign's notation (or None)."""
+    left = micro.get("surface_left") or {}
+    changes = left.get("occupancy_changes")
+    if changes is None:
+        return None
+    if occupancy_label is not None:
+        try:
+            return occupancy_label(changes, left.get("coupling"))
+        except Exception:  # noqa: BLE001 - the sites themselves still name it
+            pass
+    return ", ".join(f"{site}: {status}" for site, status in changes.items()) or "native surface"
+
+
+def surface_left_lines(micro, atom=str, occupancy_label=None):
+    """What a release that took a surface atom along means, in sentences (see ``topology._surface_left``)."""
+    left = micro.get("surface_left") or {}
+    taken = " and ".join(map(atom, micro.get("taken_surface_atoms") or [])) or "an atom of the surface"
+    lines = [f"it took {taken} of the surface along: no bound minimum from this start"]
+    label = surface_left_label(micro, occupancy_label)
+    if label is None:
+        why = left.get("reason") or "it cannot be written with the sites"
+        lines.append(
+            "the surface left behind is a possible intermediate that the sites of this campaign cannot describe "
+            f"({why})"
+        )
+    elif left.get("node_id"):
+        node = left.get("matched_node_id") or left["node_id"]
+        lines.append(
+            f"the surface left behind is {label} ({node}), an intermediate of this campaign: "
+            "a lattice route leads there from this one"
+        )
+    else:
+        lines.append(
+            f"the surface left behind is {label}, a possible intermediate that this campaign does not list: "
+            "add it through the families of the project to compute it"
+        )
     return lines
 
 
@@ -190,7 +233,7 @@ def classify(row):
         if assigned in (None, row["node_id"]):
             return ("reviewed" if decided else "accepted"), row["node_id"]
         return ("reviewed" if decided else "reassigned"), assigned
-    if (topology.get("microstate") or {}).get("status") == "adsorbate_released":
+    if (topology.get("microstate") or {}).get("status") in ("adsorbate_released", "surface_atom_released"):
         return "no_bound_minimum", None
     usable = bool(topology.get("valid_for_assigned_node") or topology.get("assigned_node_id"))
     return ("rejected" if usable else "needs_review"), None
@@ -274,7 +317,7 @@ def _item(camp, row):
     image = micro.get("via_symmetry_image")
     if counts_label and image and image != counts_for:
         counts_label = f"{camp.label(image)}, image of {counts_label}"
-    return {
+    item = {
         "state_id": sid,
         "node_id": row["node_id"],
         "label": camp.label(row["node_id"]),
@@ -287,8 +330,18 @@ def _item(camp, row):
         "review": _read(state_dir / REVIEW_FILE),
         "geometry": str(Path("states") / sid / STAGE_FINAL / "CONTCAR"),
         "discoverable": kind == "needs_review" and micro.get("status") == "unlisted_microstate" and not reasons,
-        "released": [item["formula"] for item in topology.get("released") or []],
+        "released": [molecule["formula"] for molecule in topology.get("released") or []],
     }
+    if micro.get("status") == "surface_atom_released":
+        # a release that took an atom of the surface along: what it leaves is a possible intermediate
+        left = micro.get("surface_left") or {}
+        item["surface_left"] = {
+            "taken": micro.get("taken_surface_atoms") or [],
+            "label": surface_left_label(micro, camp.occupancy_label),
+            "node_id": left.get("matched_node_id") or left.get("node_id"),
+            "occupancy": left.get("occupancy_changes"),
+        }
+    return item
 
 
 def review_report(campaign, rows=None, registry=None):
@@ -504,6 +557,13 @@ def review_text(report, ascii=False):
             "A structure without a bound minimum needs no decision: it gives its intermediate no energy. Every start "
             "of an intermediate begins from the same magnetic moments (vasp.magmom_*), so a start from other moments "
             "could still find a bound one.",
+        ]
+    if any(i.get("surface_left") for i in items):
+        lines += [
+            "",
+            "Where the molecule took an atom of the surface along (a lattice oxygen in the O2), the surface left "
+            "behind is a possible intermediate of a lattice route. Its structure here still holds the molecule, so "
+            "its energy has to come from a structure of its own.",
         ]
     return text("\n".join(lines))
 

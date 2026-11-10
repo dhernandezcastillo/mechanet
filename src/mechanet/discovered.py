@@ -145,6 +145,25 @@ def discover(campaign, state_id, comment):
         raise ValueError(f"{state_id} relaxed into {camp.label(target)} ({target}), an intermediate of this campaign")
     if status == "adsorbate_released":
         raise ValueError(f"{state_id}: {micro.get('reason')}; a released molecule is not an intermediate")
+    if status == "surface_atom_released":
+        from .review import surface_left_label
+
+        left = micro.get("surface_left") or {}
+        label = surface_left_label(micro, camp.occupancy_label)
+        if label is None:
+            raise ValueError(f"{state_id}: {micro.get('reason')}; the surface left behind: {left.get('reason')}")
+        if left.get("node_id"):
+            raise ValueError(
+                f"{state_id}: {micro.get('reason')}; the surface left behind, {label} ({left['node_id']}), "
+                "is already an intermediate of this campaign"
+            )
+        # PENDING(surface-left-structure): it could be registered with a start made from this
+        # structure without the released molecule (docs/pending.md).
+        raise ValueError(
+            f"{state_id}: {micro.get('reason')}; the surface left behind, {label}, is a possible intermediate, but "
+            "this structure still holds the released molecule and cannot stand for it: add that intermediate "
+            "through the families of the project and generate again"
+        )
     if status == "metal_attachment_changed":
         raise ValueError(
             f"{state_id}: a bond to the metal changed, which the site occupancy does not describe; "

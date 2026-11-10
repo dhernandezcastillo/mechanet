@@ -298,6 +298,19 @@ def away(atoms, metal, shift=4.0):
     return change
 
 
+def leave(atoms, offsets, metal, height=4.5):
+    """Move ``atoms`` off the surface as one molecule: the first one ``height`` away from ``metal``
+    along their line, the others at ``offsets`` from it."""
+
+    def change(st, k):
+        v = minimum_image(st.positions[k[atoms[0]]] - st.positions[k[metal]], st.cell)
+        base = st.positions[k[atoms[0]]] + height * v / np.linalg.norm(v)
+        for atom, offset in zip(atoms, offsets):
+            st.positions[k[atom]] = base + np.asarray(offset, dtype=float)
+
+    return change
+
+
 @unittest.skipIf(os.environ.get("MECHANET_SKIP_INTEGRATION"), "integration test disabled by environment")
 class CampaignTests(unittest.TestCase):
     """AEM on the four terminal sites of the LDH (shared protons a0085: O65/O68, a0087: O67/O66)."""
@@ -604,6 +617,62 @@ class CampaignTests(unittest.TestCase):
         self.assertIn("∅", line)
         self.assertIn("no bound minimum: every finished start lost its adsorbate", status_page(status))
         self.assertIn("0", status_text(status, show_cycles=True, ascii=True))
+
+    def test_an_adsorbate_that_left_with_a_surface_atom_names_the_surface_left_behind(self):
+        """The O of *O leaves as O2 with a lattice O (not a site), or with the OH of the next site:
+        no energy for *O, no decision to take, and the surface left behind is named."""
+        sid = f"{self.O65}__v1"
+        cases = (
+            # atoms that leave, where, what left the surface, the atom of the surface, the surface left
+            (["a0065", "a0064"], [(0, 0, 0), (1.21, 0, 0)], "O₂", "a0064", None),
+            (["a0065", "a0068", "a0088"], [(0, 0, 0), (1.45, 0, 0), (1.75, 0.92, 0)], "OOH", "a0068", "*₆₅ · *₆₈"),
+        )
+        for atoms, offsets, formula, taken, label in cases:
+            with self.subTest(taken=taken):
+                campaign = self.copy()
+                _edit(campaign, sid, leave(atoms, offsets, "a0003"))
+                rows = self.rows(campaign)
+                topology = rows[sid]["final_topology"]
+                micro = topology["microstate"]
+                self.assertEqual(micro["status"], "surface_atom_released")
+                self.assertEqual(micro["taken_surface_atoms"], [taken])
+                self.assertEqual([m["formula"] for m in topology["released"]], [formula])
+                self.assertFalse(rows[sid]["final_valid"])
+                report = review_report(campaign, rows=list(rows.values()))
+                item = next(i for i in report["not_accepted"] if i["state_id"] == sid)
+                self.assertEqual((item["kind"], item["discoverable"]), ("no_bound_minimum", False))
+                self.assertEqual(item["surface_left"]["taken"], [taken])
+                self.assertEqual(item["surface_left"]["label"], label)
+                self.assertIsNone(item["surface_left"]["node_id"])
+                self.assertEqual(
+                    item["changes"][-2], f"it took O {taken} of the surface along: no bound minimum from this start"
+                )
+                text = review_text(report)
+                self.assertIn("the surface left behind is a possible intermediate of a lattice route", text)
+                self.assertNotIn("What to do", text)
+                if label is None:
+                    self.assertEqual(
+                        item["changes"][-1],
+                        "the surface left behind is a possible intermediate that the sites of this campaign cannot "
+                        "describe (O a0064 is not part of a reactive site: declare it as a site to follow this route)",
+                    )
+                    with self.assertRaisesRegex(ValueError, "declare it as a site"):
+                        discover(campaign, sid, "why")
+                else:
+                    self.assertEqual(
+                        item["changes"][-1],
+                        f"the surface left behind is {label}, a possible intermediate that this campaign does not "
+                        "list: add it through the families of the project to compute it",
+                    )
+                    self.assertEqual(item["surface_left"]["occupancy"], {"a0065": "empty", "a0068": "empty"})
+                    with self.assertRaisesRegex(ValueError, "still holds the released molecule"):
+                        discover(campaign, sid, "why")
+                # the intermediate has no accepted structure, and the status page copes
+                self.assertEqual([n["node_id"] for n in report["no_bound_minimum"]], [self.O65])
+                status = campaign_status(campaign, slurm=False)
+                self.assertEqual(status["summary"]["intermediates_without_bound_minimum"], 1)
+                code, text = run_cli("validate", str(campaign))
+                self.assertEqual(code, 0, text)
 
 
 if __name__ == "__main__":

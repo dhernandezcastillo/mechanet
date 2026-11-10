@@ -199,7 +199,24 @@ No bound minimum from this start: a molecule left the surface
 
 There is nothing to decide: the structure gives its intermediate no energy. (When the molecule
 that left is not the intermediate's own adsorbate, a water of a neighbouring site say, the
-structure needs your review instead.) When every
+structure needs your review instead.)
+
+A molecule can also take an atom of the surface along: O₂ made of the adsorbed O and a lattice
+O. That is the step of a lattice-oxygen route, and the surface it leaves behind is a possible
+intermediate, so `review` names it:
+
+```text
+  n_m0038O_d0b786__v1  *O₃₈
+      O₂ (O a0019, O m0038) released from Ru a0038 and Ru a0039 and Ru a0045
+      a O a0019–O m0038 bond formed
+      it took O a0019 of the surface along: no bound minimum from this start
+      the surface left behind is μ-□₁₉ (n_0019empty_e98bc7), an intermediate of this campaign: a lattice route leads there from this one
+```
+
+When the campaign does not list that surface, the line says so, and you can add it through the
+families of the project. When the atom is not a declared site, the line names the atom to
+declare. The structure itself still holds the molecule, so it gives the surface left behind no
+energy either. When every
 finished start of an intermediate ends this way, its cycles are listed apart from the held-up
 ones ("no bound minimum found from 3 starts: O₂ left the surface"), and on the status page the
 intermediate is marked ∅. All starts of an intermediate begin from the same magnetic moments,

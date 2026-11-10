@@ -962,6 +962,10 @@ class Builder:
             key = json.dumps(item[0], sort_keys=True)
             if key not in unique or item[2] > unique[key][2]:
                 unique[key] = item
+        # PENDING(tie-break): candidates with exactly equal scores keep the order the last digit
+        # of their scores gives them, which x86-64 and arm64 round differently (4 of the 128 NiFe
+        # LDH starts differ on Apple Silicon). A rule every processor follows changes the starts
+        # of existing campaigns: docs/pending.md.
         ranked = sorted(unique.values(), key=lambda x: -x[2])
 
         def atoms_of(item):
@@ -1034,6 +1038,7 @@ class Builder:
             for placement, added, total, clear_min, hb in partials:
                 env = self._environment(records, {aid} if moves_site else set(), added)
                 clearance, score, hbonds, worst = self._score(cand, env)
+                # PENDING(tie-break): equal scores are ordered here too (see _search).
                 feasible = [k for k in np.argsort(-score, kind="stable") if clearance[k] >= 0]
                 if not feasible:
                     k = int(np.argmax(clearance))

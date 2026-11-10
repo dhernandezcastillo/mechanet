@@ -164,5 +164,6 @@ plugins
 :caption: Reference
 
 commands
+pending
 changelog
 ```

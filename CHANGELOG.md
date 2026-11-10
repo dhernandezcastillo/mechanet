@@ -8,6 +8,19 @@ symmetric sites, Windows and macOS support, a smaller `analysis.py`, and three c
 an independent review of the thermodynamics. Everything 0.1.4 offered is still there, and a
 test now checks it.
 
+- **An adsorbate that leaves with an atom of the surface points to a possible intermediate.**
+  O₂ made of an adsorbed O and a lattice O used to be filed as "released, no bound minimum",
+  like any desorption. It is the step of a lattice-oxygen route: the checks now say which
+  surface atom left, read the surface left behind from the structure without the molecule, and
+  name it, as an intermediate of the campaign, as a possible one the campaign does not list, or
+  as outside the declared sites (with the atom to declare). `review`, `review --discover` and
+  `prescreen` report it. The structure still gives no energy, since it holds the molecule. An
+  adsorbate that leaves by itself is reported as before.
+- **Open design questions are marked.** `docs/pending.md` lists what was left open on purpose
+  (the order of equally scored orientations on different processors, adsorbates bound through
+  two sites, a structure for the surface a lattice route leaves behind); the code carries
+  `PENDING(id)` comments where a fix would go, and a test keeps the two in step. `generate`
+  warns on processors other than x86-64, where a few starts can differ.
 - **No two starts of an intermediate are symmetry images of each other.** `generate` used to
   merge only lattice translations, so on a symmetric site it could write the same start twice
   (on a top site of Pt(111), \*COOH and the same \*COOH turned by 120°), and DFT computed it
