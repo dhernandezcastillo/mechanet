@@ -9,13 +9,17 @@ thermodynamics.
 - **`mechanet prescreen`: ML potentials before DFT.** Every start is relaxed inside Python with
   a calculator (`mace-mp`, any `module:callable` returning an ASE calculator, or one a plugin
   adds) with the selective dynamics of its DFT relaxation, and judged by the topology check of
-  `collect`. Per intermediate, the starts that kept it are ranked by energy, starts that relaxed
-  into the same structure or a symmetry image of it are merged, and those within 0.20 eV of the
-  lowest (at most 3) are written to `prescreen/suggested_states.txt` for `submit --states @FILE`.
-  An intermediate none of whose starts held keeps all of them, and starts the calculator failed
-  on are kept: the potential never rules an intermediate out. The ML energies only compare starts
-  of one intermediate; they are not used for thermodynamics. Results are reused while the
-  POSCAR, calculator and settings are unchanged. Nothing in the campaign is modified.
+  `collect`. Only redundancy is removed: among the starts that kept their intermediate, those
+  that relaxed into the same structure as a lower one or a symmetry image of it, those more than
+  0.20 eV above the lowest, and those beyond the 3 lowest. Every start the potential changed
+  (into another intermediate, without its adsorbate, into a new arrangement of the sites) or
+  failed on stays in `prescreen/suggested_states.txt` (for `submit --states @FILE`), since DFT
+  may confirm a change as a new intermediate (`review --discover`); an arrangement that reads as
+  an intermediate the network does not list is named as a possible new intermediate. The ML
+  energies only compare starts of one intermediate; they are not used for thermodynamics. The
+  approach follows AdsorbML (Lan et al., npj Comput. Mater. 2023, doi:10.1038/s41524-023-01121-5),
+  which discards such changed structures; a reaction network keeps them. Results are reused
+  while the POSCAR, calculator and settings are unchanged. Nothing in the campaign is modified.
 - **Calculator interface** (`mechanet.calculators`): `Calculator` (`describe`, `relax`), an
   ASE adapter that carries selective dynamics over exactly (FixAtoms, FixCartesian), the
   `mechanet.calculators` entry-point group and `registry.add_calculator`; `mechanet plugins`

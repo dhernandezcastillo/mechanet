@@ -21,14 +21,17 @@ from unittest.mock import patch
 
 import numpy as np
 import yaml
+from support import EXAMPLE, write_potcars
 
 from mechanet import symmetry
+from mechanet.builder import Builder
 from mechanet.calculators import ASECalculator, Relaxation, load_calculator, parse_options, to_ase
 from mechanet.cli import main
 from mechanet.fileio import read_json
 from mechanet.plugins import Registry, default_registry
 from mechanet.prescreen import prescreen, prescreen_text
-from mechanet.structure import Structure, from_ase, read_poscar
+from mechanet.project import load_project, resolve_config
+from mechanet.structure import Structure, from_ase, minimum_image, read_poscar
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "examples" / "plugins" / "co2rr.py"
@@ -200,17 +203,19 @@ class PrescreenTests(unittest.TestCase):
         rows = {s["state_id"]: s for s in result["states"]}
         self.assertEqual(rows[v1.name]["outcome"], "kept")
         self.assertTrue(rows[v1.name]["suggested"])
+        # A start the calculator changed stays in the DFT list although another start kept *COOH:
+        # the change may be real, and DFT is where review --discover finds new intermediates.
         self.assertEqual(rows[v2.name]["outcome"], "changed")
-        self.assertFalse(rows[v2.name]["suggested"])
-        self.assertEqual(rows[v2.name]["why_not"], "changed bonds (would need review)")
+        self.assertTrue(rows[v2.name]["suggested"])
+        self.assertIsNone(rows[v2.name]["why_not"])
+        self.assertIsNone(rows[v2.name]["new_intermediate"])  # a lone H is no site occupancy
         self.assertIn("H h_m0010 is no longer bonded to O o2_m0010", rows[v2.name]["changes"])
-        # every start of *CO gave CO off, so all are suggested: the calculator does not rule *CO out
         self.assertEqual(rows[co.name]["outcome"], "released")
         self.assertTrue(rows[co.name]["suggested"])
         self.assertEqual(rows["ref"]["outcome"], "failed")
         self.assertTrue(rows["ref"]["suggested"])
         self.assertIn("no parameters", rows["ref"]["error"])
-        self.assertEqual(result["suggested_state_ids"], sorted([v1.name, co.name, "ref"]))
+        self.assertEqual(result["suggested_state_ids"], sorted([v1.name, v2.name, co.name, "ref"]))
         counts = {name: n for name, n in result["counts"].items() if n}
         self.assertEqual(counts, {"kept": 1, "changed": 1, "released": 1, "failed": 1})
         notes = {n["node_id"]: n.get("note", "") for n in result["nodes"]}
@@ -223,8 +228,35 @@ class PrescreenTests(unittest.TestCase):
         self.assertFalse((folder / "ref" / "CONTCAR").exists())
         np.testing.assert_allclose(read_poscar(folder / v1.name / "CONTCAR").positions, positions(v1), atol=1e-9)
         text = prescreen_text(result)
-        self.assertIn("suggested for DFT: 3 of 4 starts", text)
+        self.assertIn(
+            "suggested for DFT: 4 of 4 starts: 1 kept their intermediate, 2 changed by the calculator "
+            "(DFT decides), 1 without a verdict",
+            text,
+        )
+        self.assertIn("changed by the calculator, kept for DFT:", text)
         self.assertIn(f"{v2.name} (*COOH", text)
+        self.assertNotIn("left out", text)
+
+    def test_only_redundant_starts_are_left_out(self):
+        """The rule itself: copies and higher-energy starts that kept their intermediate are left out,
+        never a start the calculator changed or gave no verdict on."""
+        from mechanet.prescreen import _suggest
+
+        def row(sid, outcome, energy=None):
+            return {"state_id": sid, "node_id": "n", "outcome": outcome, "energy_eV": energy, "converged": True}
+
+        rows = [
+            row("low", "kept", -10.0),
+            row("high", "kept", -9.5),
+            row("other", "became_other", -11.0),
+            row("gone", "released", -8.0),
+            row("new", "changed", -9.0),
+            row("failed", "failed"),
+        ]
+        identity = [(np.eye(3), np.zeros(3))]
+        (node,) = _suggest(self.campaign, rows, 0.2, 3, identity)
+        self.assertEqual(node["suggested"], ["failed", "gone", "low", "new", "other"])
+        self.assertEqual(rows[1]["why_not"], "0.50 eV above low")
 
     def test_reuse_window_and_cap(self):
         v1, v2 = self.cooh
@@ -310,6 +342,50 @@ class PrescreenTests(unittest.TestCase):
             code = main(["prescreen", str(self.campaign), "--calculator", "emt", "--option", "nonsense"])
         self.assertEqual(code, 2)
         self.assertIn("key=value", err.getvalue())
+
+
+@unittest.skipIf(os.environ.get("MECHANET_SKIP_INTEGRATION"), "integration test disabled by environment")
+class PossibleNewIntermediateTests(unittest.TestCase):
+    """NiFe LDH, AEM on the four terminal sites (generated only). A calculator that hands the
+    proton of *OOH₆₅ to the neighbouring OH a0068 gives *OO₆₅ · *(H₂O)₆₈, an arrangement the
+    network does not list: the prescreen names it and keeps the start for DFT."""
+
+    def test_an_unlisted_arrangement_is_named_and_kept(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        cfg = resolve_config(load_project(EXAMPLE / "project.yaml"), cluster=False)
+        cfg["scope"]["families"] = ["aem"]
+        cfg["sites"] = [s for s in cfg["sites"] if s["id"] in ("a0065", "a0066", "a0067", "a0068")]
+        cfg["vasp"].update(potcars=write_potcars(tmp))
+        campaign = tmp / "campaign"
+        Builder(cfg, campaign).finish()
+        starts = sorted((campaign / "states").glob("n_0065OOH_*"))
+        target = starts[-1]
+        ids = read_json(target / "state.json")["atom_ids"]
+        cell = read_poscar(target / "POSCAR").cell
+
+        def hand_over(xyz, symbols):
+            h, o = ids.index("p_a0065"), ids.index("a0068")
+            v = minimum_image(xyz[h] - xyz[o], cell)
+            xyz[h] = xyz[o] + 0.98 * v / np.linalg.norm(v)
+            return xyz
+
+        plan = {start_key(positions(s)): (hand_over if s == target else same, -1.0) for s in starts}
+        result = prescreen(campaign, Scripted(plan), states=[s.name for s in starts])
+        row = next(s for s in result["states"] if s["state_id"] == target.name)
+        self.assertEqual(row["outcome"], "changed")
+        self.assertTrue(row["suggested"])
+        self.assertEqual(row["new_intermediate"], "*OO₆₅ · *(H₂O)₆₈")
+        self.assertIn(
+            "the sites are now *OO₆₅ · *(H₂O)₆₈, which is not an intermediate of this campaign", row["changes"]
+        )
+        self.assertEqual(
+            [(x["state_id"], x["label"]) for x in result["possible_new_intermediates"]],
+            [(target.name, "*OO₆₅ · *(H₂O)₆₈")],
+        )
+        text = prescreen_text(result)
+        self.assertIn("possible new intermediates", text)
+        self.assertIn(f"{target.name} (*OOH₆₅): the sites read as *OO₆₅ · *(H₂O)₆₈", text)
 
 
 if __name__ == "__main__":

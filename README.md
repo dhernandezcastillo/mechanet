@@ -273,11 +273,14 @@ mechanet submit --states @campaign/prescreen/suggested_states.txt --execute
 
 Every start is relaxed with the ML potential, with the atoms the DFT relaxation would move,
 and checked with the topology rules of `collect`: kept its intermediate, relaxed into another
-one, gave its adsorbate off, or changed. Per intermediate, the starts that kept it are ranked
-by energy, starts that relaxed into the same structure (or a symmetry image of it) are merged,
-and those within 0.2 eV of the lowest (at most 3) are suggested. An intermediate none of whose
-starts held keeps all of them, so the potential never rules an intermediate out. The ML
-energies only compare starts of one intermediate; they are never used as reaction energies.
+one, gave its adsorbate off, or changed. Only redundancy is removed: among the starts that kept
+their intermediate, those that relaxed into the same structure (or a symmetry image of it) as
+a lower one, those more than 0.2 eV above the lowest, and those beyond the 3 lowest. Every
+start the potential changed stays in the list, because DFT may confirm the change as a new
+intermediate; when the new arrangement of the sites reads as one, the summary names it. The
+ML energies only compare starts of one intermediate; they are never used as reaction
+energies. The approach follows AdsorbML (Lan et al., npj Comput. Mater. 2023), except that
+changed structures are kept rather than discarded.
 `mace-mp`, any `module:callable` returning an ASE calculator, and calculators added by plugins
 (UMA through fairchem, say) work the same way; see
 [docs/prescreening.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/prescreening.md).

@@ -4,7 +4,9 @@
 different tilts and turns, or bound in different ways. DFT relaxes every one of them.
 `mechanet prescreen` relaxes them first with a fast calculator, usually a machine-learned
 interatomic potential such as MACE or UMA, checks each relaxed structure the way `collect`
-checks a DFT result, and suggests which starts are worth DFT.
+checks a DFT result, and suggests which starts are worth DFT. It removes only redundancy:
+copies of a start and higher-energy starts of an intermediate that other starts kept. Every
+start the potential changes stays in the list, because a change may be a new intermediate.
 
 Nothing in the campaign changes: the starts, the network and the DFT inputs stay as
 `generate` wrote them. The prescreen writes its own folder and a list of states that
@@ -39,29 +41,40 @@ is no longer bonded to O o2_m0010".
 
 ## What it suggests
 
-For each intermediate, the starts that kept it are ranked by the calculator's energy. Starts
-that relaxed into the same structure are merged: the same positions within 0.10 Å and the same
-energy within 5 meV, directly or after a symmetry operation of the slab (a rotation or mirror
-that keeps the fixed atoms, the frequency region and any per-atom MAGMOM in place; this needs
-spglib, a dependency of mechanet). Of the rest, those within `--window` (0.20 eV) of the lowest
-are suggested, at most `--max-per-node` (3).
+Only redundant starts are left out, among the starts that kept their intermediate. They are
+ranked by the calculator's energy, and a start is left out when:
 
-A start is left out only for a reason the prescreen found, and the summary gives it:
+* it relaxed into the same structure as a lower start: the same positions within 0.10 Å and
+  the same energy within 5 meV, directly or after a symmetry operation of the slab (a rotation
+  or mirror that keeps the fixed atoms, the frequency region and any per-atom MAGMOM in place;
+  this needs spglib, a dependency of mechanet);
+* it lies more than `--window` (0.20 eV) above the lowest start;
+* it is beyond the `--max-per-node` (3) lowest starts.
 
-* it relaxed into the same structure as a lower start, or a symmetry image of one;
-* it is more than the window above the lowest start, or beyond the cap;
-* it relaxed into another intermediate, gave its adsorbate off or changed bonds, while another
-  start kept the intermediate.
+The summary gives the reason for each. The window is wider than that of `select` (0.10 eV)
+because ML energies are less certain than DFT ones.
 
-Two rules keep the potential from deciding what only DFT can:
+Every other start is suggested, whatever the potential made of it:
 
-* An intermediate none of whose starts kept it keeps **all** of them. A potential that pulls
-  an adsorbate apart may be wrong, and dropping the intermediate would remove every mechanism
-  through it.
-* A start the calculator failed on, or whose structure could not be checked, is suggested.
+* **A start the potential changed** (it relaxed into another intermediate, gave its adsorbate
+  off, or rearranged its sites) stays in the list, even when another start kept the
+  intermediate. The potential can be wrong either way, and a change confirmed by DFT is how
+  mechanet finds intermediates the network did not list ([`review --discover`](checking-results.md#a-new-intermediate)).
+  When the new arrangement of the sites reads as such an intermediate, the summary names it as a
+  possible new intermediate, for example "the sites read as \*OO₆₅ · \*(H₂O)₆₈", so you know in
+  advance where a discovery may come from.
+* **An intermediate none of whose starts kept it** keeps all of them: dropping it would remove
+  every mechanism through it.
+* **A start the calculator failed on**, or whose structure could not be checked, is suggested.
 
-The window is wider than that of `select` (0.10 eV) because ML energies are less certain than
-DFT ones.
+The savings therefore come from copies and from higher-energy orientations of intermediates
+that held, not from anything the potential changed.
+
+Relaxing many placements with an ML potential and computing the best with DFT follows AdsorbML
+(Lan et al., *npj Comput. Mater.* 2023, [doi:10.1038/s41524-023-01121-5](https://doi.org/10.1038/s41524-023-01121-5)).
+AdsorbML discards relaxations in which the adsorbate desorbs, dissociates or changes the
+surface, since it computes one adsorption energy. A reaction network keeps them, because
+they may be new intermediates.
 
 ## What it does not do
 
@@ -119,7 +132,7 @@ In `<campaign>/prescreen/`:
 |---|---|
 | `STATE/CONTCAR` | the relaxed structure, atoms in the order of the state's POSCAR |
 | `STATE/result.json` | energy, largest remaining force, steps, outcome, the changes found, the calculator and its versions |
-| `prescreen.json` | the run: calculator, settings, every start, every intermediate, the suggestion, warnings |
+| `prescreen.json` | the run: calculator, settings, every start, every intermediate, the suggestion, the possible new intermediates, warnings |
 | `prescreen.csv` | one row per start |
 | `suggested_states.txt` | one state ID per line, for `--states @FILE` |
 

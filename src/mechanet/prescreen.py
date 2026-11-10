@@ -6,11 +6,20 @@ moving the atoms the DFT relaxation would move. Each relaxed structure then goes
 topology check of ``collect``: did the start keep its intermediate, relax into another
 intermediate of the network, give its adsorbate off, or change in a way that would need review?
 
-For each intermediate, the starts that kept it are ranked by the calculator's energy, starts
-that relaxed into the same structure are merged, and those within a window of the lowest (at
-most N) are suggested for DFT. A start is left out only for a reason the prescreen found; an
-intermediate none of whose starts held keeps all of them, and a start the calculator failed on
-is kept: the calculator is not trusted to rule an intermediate out.
+The prescreen only removes redundancy. For each intermediate, the starts that kept it are
+ranked by the calculator's energy, starts that relaxed into the same structure (or a symmetry
+image of it) are merged, and those within a window of the lowest (at most N) are suggested for
+DFT. Every start the calculator changed stays in the list: one that relaxed into another
+intermediate, gave its adsorbate off or rearranged its sites is where DFT, through
+``mechanet review --discover``, finds new intermediates, and the potential can be wrong either
+way. When the new arrangement of the sites reads as an intermediate the network does not list
+(what ``review --discover`` accepts), the summary names it as a possible new intermediate.
+Starts the calculator failed on are kept too.
+
+The idea of relaxing many placements with an ML potential and computing the best with DFT
+follows AdsorbML (Lan et al., npj Comput. Mater. 2023, doi:10.1038/s41524-023-01121-5), which
+discards relaxations where the adsorbate desorbs, dissociates or changes the surface; in a
+reaction network those are kept, because they may be new intermediates.
 
 The energies only compare starts of one intermediate, which have the same atoms. They are not
 used for reaction energies: adsorption energies from universal ML potentials carry errors of
@@ -62,6 +71,7 @@ CSV_FIELDS = (
     "outcome",
     "topology_status",
     "assigned_node_id",
+    "new_intermediate",
     "energy_eV",
     "relative_eV",
     "max_force_eVA",
@@ -102,6 +112,21 @@ def _topology_summary(topology):
     }
 
 
+def new_intermediate(topology, occupancy_label=None):
+    """The label of the arrangement a relaxed structure reached when it is an intermediate the
+    network does not list (what ``mechanet review --discover`` accepts), else None."""
+    micro = topology.get("microstate") or {}
+    changes = micro.get("occupancy_changes")
+    if micro.get("status") != "unlisted_microstate" or not changes:
+        return None
+    if occupancy_label is not None:
+        try:
+            return occupancy_label(changes, micro.get("coupling"))
+        except Exception:  # noqa: BLE001 - the sites themselves still name it
+            pass
+    return ", ".join(f"{site}: {status}" for site, status in changes.items())
+
+
 def _start(state_dir, meta):
     """The state's POSCAR with the selective dynamics of its DFT relaxation."""
     structure = read_poscar(Path(state_dir) / "POSCAR")
@@ -111,7 +136,9 @@ def _start(state_dir, meta):
     return structure
 
 
-def _relax_state(campaign, state_dir, meta, calculator, description, key, settings, config, registry, redo):
+def _relax_state(
+    campaign, state_dir, meta, calculator, description, key, settings, config, registry, redo, occupancy_label=None
+):
     from .analysis import topology_check
     from .review import describe_changes
 
@@ -159,10 +186,11 @@ def _relax_state(campaign, state_dir, meta, calculator, description, key, settin
     try:
         topology = topology_check(state_dir, meta, config, geometry=contcar, registry=registry, use_review=False)
         outcome = _outcome(topology)
-        changes = [] if outcome == "kept" else describe_changes(topology, meta)
+        changes = [] if outcome == "kept" else describe_changes(topology, meta, occupancy_label)
+        found = new_intermediate(topology, occupancy_label)
     except Exception as exc:  # noqa: BLE001 - a structure that cannot be checked gets no verdict, the run goes on
         topology = {"status": "classification_failed", "reason": f"{type(exc).__name__}: {exc}"}
-        outcome, changes = "unchecked", []
+        outcome, changes, found = "unchecked", [], None
     record.update(
         outcome=outcome,
         energy_eV=round(energy, 6),
@@ -171,6 +199,7 @@ def _relax_state(campaign, state_dir, meta, calculator, description, key, settin
         steps=int(relaxation.steps),
         topology=_topology_summary(topology),
         changes=changes,
+        new_intermediate=found,
     )
     write_json(record_path, record)
     return dict(record, reused=False)
@@ -226,7 +255,13 @@ def _same_structure(campaign, first, second, images):
 
 
 def _suggest(campaign, rows, window_eV, max_per_node, images):
-    """Per intermediate: which starts to compute with DFT, and why each other start is left out."""
+    """Per intermediate: which starts to compute with DFT, and why each other start is left out.
+
+    Only redundancy is removed: copies, and starts above the window or beyond the cap among the
+    starts that kept their intermediate. A start the calculator changed (into another
+    intermediate, without its adsorbate, into an unlisted arrangement) or gave no verdict on is
+    always suggested: DFT decides, and a change may be a new intermediate.
+    """
     by_node = defaultdict(list)
     for row in rows:
         by_node[row["node_id"]].append(row)
@@ -238,16 +273,14 @@ def _suggest(campaign, rows, window_eV, max_per_node, images):
             "starts": len(group),
             "outcomes": dict(Counter(r["outcome"] for r in group)),
         }
-        unknown = [r for r in group if r["outcome"] in ("failed", "unchecked")]
-        for row in unknown:
-            row["suggested"] = True  # no verdict from the calculator: DFT decides
-        if not kept:
-            for row in group:
+        for row in group:
+            if row["outcome"] != "kept":
                 row["suggested"] = True
-            if len(unknown) == len(group):
-                record["note"] = "the calculator gave no verdict on any start: every start is suggested"
+        if not kept:
+            if all(r["outcome"] in ("failed", "unchecked") for r in group):
+                record["note"] = "the calculator gave no verdict on any start"
             else:
-                record["note"] = "no start kept this intermediate with the calculator: every start is suggested"
+                record["note"] = "no start kept this intermediate with the calculator"
         else:
             lowest = kept[0]
             unique = []
@@ -270,9 +303,6 @@ def _suggest(campaign, rows, window_eV, max_per_node, images):
                     row.update(suggested=False, why_not=f"beyond the {max_per_node} lowest starts")
                 else:
                     row["suggested"] = True
-            for row in group:
-                if row["outcome"] in ("became_other", "released", "changed"):
-                    row.update(suggested=False, why_not=OUTCOMES[row["outcome"]])
             record["lowest_state_id"] = lowest["state_id"]
             unconverged = [r["state_id"] for r in kept if not r.get("converged")]
             if unconverged:
@@ -283,12 +313,13 @@ def _suggest(campaign, rows, window_eV, max_per_node, images):
 
 
 def _labels(campaign, registry):
+    """(label of a node, label of a site occupancy) in the campaign's notation; IDs when it fails."""
     try:
         from .notation import Notation
 
         notation = Notation.from_campaign(campaign, registry=registry)
     except Exception:  # noqa: BLE001 - IDs stand in for labels
-        return lambda node_id: node_id
+        return (lambda node_id: node_id), None
 
     def label(node_id):
         try:
@@ -296,7 +327,7 @@ def _labels(campaign, registry):
         except Exception:  # noqa: BLE001 - an unknown node keeps its ID
             return node_id
 
-    return label
+    return label, notation.occupancy_label
 
 
 def prescreen(
@@ -330,11 +361,22 @@ def prescreen(
     description = calculator.describe()
     settings = {"fmax_eVA": float(fmax_eVA), "steps": int(steps)}
     key = fingerprint(description, settings)
+    label, occupancy_label = _labels(campaign, registry)
     rows = []
     for k, sid in enumerate(chosen, 1):
         meta = read_json(available[sid] / "state.json")
         row = _relax_state(
-            campaign, available[sid], meta, calculator, description, key, settings, config, registry, redo
+            campaign,
+            available[sid],
+            meta,
+            calculator,
+            description,
+            key,
+            settings,
+            config,
+            registry,
+            redo,
+            occupancy_label,
         )
         rows.append(row)
         if progress is not None:
@@ -345,7 +387,6 @@ def prescreen(
     folder = campaign / PRESCREEN_DIR
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "suggested_states.txt").write_text("".join(f"{sid}\n" for sid in suggested))
-    label = _labels(campaign, registry)
     states_out = [
         {
             "state_id": r["state_id"],
@@ -354,6 +395,7 @@ def prescreen(
             "topology_status": (r.get("topology") or {}).get("status"),
             "assigned_node_id": (r.get("topology") or {}).get("assigned_node_id"),
             "assigned_label": label((r.get("topology") or {}).get("assigned_node_id")),
+            "new_intermediate": r.get("new_intermediate"),
             "energy_eV": r.get("energy_eV"),
             "relative_eV": r.get("relative_eV"),
             "max_force_eVA": r.get("max_force_eVA"),
@@ -401,12 +443,18 @@ def prescreen(
         "nodes": [dict(n, label=label(n["node_id"])) for n in nodes],
         "states": states_out,
         "warnings": warnings,
+        "possible_new_intermediates": [
+            {"state_id": s["state_id"], "node_id": s["node_id"], "label": s["new_intermediate"]}
+            for s in states_out
+            if s["new_intermediate"]
+        ],
         "notes": [
             "Energies compare starts of one intermediate only (same atoms); they are not reaction energies.",
-            f"Suggested: per intermediate, the starts that kept it within {window_eV:g} eV of its lowest "
-            f"(at most {max_per_node}), starts that relaxed into the same structure (or a symmetry image of it) "
-            "merged; every start of an intermediate no start kept, and every start the calculator gave no "
-            "verdict on.",
+            "Only redundant starts are left out: among the starts that kept their intermediate, those that "
+            "relaxed into the same structure as a lower one (or a symmetry image of it), those more than "
+            f"{window_eV:g} eV above the lowest, and those beyond the {max_per_node} lowest. Every start the "
+            "calculator changed or gave no verdict on is suggested: DFT decides, and a change may be a new "
+            'intermediate (after DFT, `mechanet review --discover STATE "why"` adds one).',
         ],
         "files": {
             "summary": str(folder / "prescreen.json"),
@@ -436,27 +484,46 @@ def prescreen_text(result):
         lines.append(
             f"  ({result['reused']} reused from an earlier run with the same calculator; --redo relaxes again)"
         )
+    states = result["states"]
     suggested = result["suggested_state_ids"]
-    lines.append(
-        f"suggested for DFT: {len(suggested)} of {result['starts']} starts "
-        f"(window {settings['window_eV']:g} eV, at most {settings['max_per_node']} per intermediate)"
-    )
+    changed = [s for s in states if s["outcome"] in ("became_other", "released", "changed")]
+    unknown = [s for s in states if s["outcome"] in ("failed", "unchecked")]
+    parts = [f"{sum(1 for s in states if s['suggested'] and s['outcome'] == 'kept')} kept their intermediate"]
+    parts += [f"{len(changed)} changed by the calculator (DFT decides)"] if changed else []
+    parts += [f"{len(unknown)} without a verdict"] if unknown else []
+    lines.append(f"suggested for DFT: {len(suggested)} of {result['starts']} starts: {', '.join(parts)}")
     if suggested:
         lines.append(f"  to compute only these: mechanet submit --states @{result['files']['suggested']}")
-    left_out = [s for s in result["states"] if not s["suggested"]]
-    if left_out:
-        lines.append("left out:")
-        for state in left_out[:LIST_LIMIT]:
-            why = state["why_not"] or OUTCOMES[state["outcome"]]
-            if state["outcome"] == "became_other" and state["assigned_node_id"]:
-                why = f"relaxed into {state.get('assigned_label') or state['assigned_node_id']}"
-            detail = f": {'; '.join(state['changes'])}" if state["changes"] and state["outcome"] != "kept" else ""
-            lines.append(f"  {state['state_id']} ({labels.get(state['node_id'], state['node_id'])}): {why}{detail}")
-        if len(left_out) > LIST_LIMIT:
-            lines.append(f"  ... {len(left_out) - LIST_LIMIT} more ({result['files']['table']} lists every start)")
+
+    def where(state):
+        return f"{state['state_id']} ({labels.get(state['node_id'], state['node_id'])})"
+
+    def listed(title, items, line):
+        if items:
+            lines.append(title)
+            lines.extend(f"  {line(state)}" for state in items[:LIST_LIMIT])
+            if len(items) > LIST_LIMIT:
+                lines.append(f"  ... {len(items) - LIST_LIMIT} more ({result['files']['table']} lists every start)")
+
+    new = [s for s in changed if s.get("new_intermediate")]
+    listed(
+        'possible new intermediates (after DFT, mechanet review --discover STATE "why" adds one):',
+        new,
+        lambda s: f"{where(s)}: the sites read as {s['new_intermediate']}",
+    )
+
+    def change(state):
+        if state["outcome"] == "became_other" and state["assigned_node_id"]:
+            what = f"relaxed into {state.get('assigned_label') or state['assigned_node_id']}"
+        else:
+            what = OUTCOMES[state["outcome"]]
+        return f"{where(state)}: {what}" + (f": {'; '.join(state['changes'])}" if state["changes"] else "")
+
+    listed("changed by the calculator, kept for DFT:", [s for s in changed if not s.get("new_intermediate")], change)
+    listed("left out as redundant:", [s for s in states if not s["suggested"]], lambda s: f"{where(s)}: {s['why_not']}")
     held = [n for n in result["nodes"] if n.get("note")]
     if held:
-        lines.append("intermediates whose starts are all suggested, so that DFT decides:")
+        lines.append("intermediates no start kept with the calculator (all their starts are suggested):")
         for node in held[:LIST_LIMIT]:
             counts = ", ".join(f"{n} {OUTCOMES[name]}" for name, n in node["outcomes"].items())
             lines.append(f"  {node.get('label') or node['node_id']}: {counts}")
