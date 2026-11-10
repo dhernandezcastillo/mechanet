@@ -27,8 +27,8 @@ from mechanet.plugins import default_registry
 from mechanet.reactions import SPECIES
 from mechanet.review import describe_changes
 from mechanet.runner import run_state
-from mechanet.structure import Structure, read_poscar, write_poscar
-from mechanet.topology import _pair_type, topology_check
+from mechanet.structure import Structure, minimum_image, read_poscar, write_poscar
+from mechanet.topology import DEFAULT_HYSTERESIS, _limits, _own_release, _pair_type, topology_check
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "examples" / "plugins" / "her.py"
@@ -195,6 +195,112 @@ class HERPluginTests(unittest.TestCase):
         bridged = check(bridge)
         self.assertEqual(bridged["microstate"]["status"], "metal_attachment_changed")
         self.assertEqual(bridged["lost_active_metal_contacts"], [])
+
+
+@unittest.skipIf(os.environ.get("MECHANET_SKIP_SLOW"), "slow plugin workflow disabled by environment")
+class HydrogenPairTests(unittest.TestCase):
+    """Two *H on neighbouring Pt atoms, and what they may become: the H-H bond is watched."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        cls.env = patch.dict(os.environ, {"MECHANET_CONFIG_DIR": str(cls.tmp / "config")})
+        cls.env.start()
+        project = cls.tmp / "pt"
+        shutil.copytree(ROOT / "examples" / "pt_111", project)
+        data = yaml.safe_load((project / "project.yaml").read_text())
+        data.update(reaction="her", plugins=[str(PLUGIN)])
+        data["scope"]["families"] = ["enumerated"]
+        data["scope"]["enumerate"] = {"sites": ["m0010", "m0011"], "states": {"open_metal": ["empty", "H"]}}
+        data.pop("thermodynamics", None)
+        (project / "project.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+        cli("generate", project / "project.yaml")
+        cls.campaign = project / "campaign"
+        cls.registry = default_registry([PLUGIN])
+        cls.config = read_json(cls.campaign / "config.json")
+        pair = {"m0010": "H", "m0011": "H"}
+        node = next(n for n in read_json(cls.campaign / "network.json")["nodes"] if n.get("occupancy") == pair)
+        cls.state = cls.campaign / "states" / node["state_ids"][0]
+        cls.meta = read_json(cls.state / "state.json")
+        cls.start = read_poscar(cls.state / "POSCAR")
+        ids = cls.meta["atom_ids"]
+        cls.h = [ids.index("m0010"), ids.index("m0011")]
+        metals = [cls.start.positions[ids.index(m)] for m in ("a0010", "a0011")]
+        vector = minimum_image(metals[1] - metals[0], cls.start.cell)
+        cls.middle, cls.axis = metals[0] + 0.5 * vector, vector / np.linalg.norm(vector)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.env.stop()
+        shutil.rmtree(cls.tmp)
+
+    def check(self, separation, height):
+        """The two H ``separation`` apart along the Pt-Pt line, ``height`` above the metals."""
+        moved = self.start.positions.copy()
+        for h, side in zip(self.h, (-0.5, 0.5)):
+            moved[h] = self.middle + side * separation * self.axis + np.array([0.0, 0.0, height])
+        path = self.tmp / "pair.vasp"
+        start = self.start
+        write_poscar(path, Structure(start.symbols, moved, start.cell, start.mobile, start.ids))
+        return topology_check(
+            self.state, self.meta, self.config, geometry=path, registry=self.registry, use_review=False
+        )
+
+    def test_the_bond_is_a_kind_only_with_hydrogen_sites(self):
+        self.assertIsNone(_pair_type("H", "H", {"Pt"}))  # OER, CER: as before
+        self.assertEqual(_pair_type("H", "H", {"Pt"}, metal_h=True), "H-H")
+        self.assertEqual(_limits("H-H", DEFAULT_HYSTERESIS), (1.00, 1.15, 1.30))
+        self.assertEqual(_limits("H-H", {**DEFAULT_HYSTERESIS, "H-H": (0.8, 1.2)}), (0.8, 1.0, 1.2))
+
+    def test_molecular_hydrogen_on_the_surface_is_not_two_adsorbed_h(self):
+        pair = ["m0010", "m0011"]
+        kept = self.check(2.77, 1.6)
+        self.assertEqual((kept["status"], kept["valid_for_assigned_node"]), ("connectivity_retained", True))
+        # H2 lying over the bridge, each H still within reach of its own metal (2.14 A): it used
+        # to pass as two *H with a remark about the distances
+        molecule = self.check(0.80, 1.9)
+        self.assertFalse(molecule["valid_for_assigned_node"])
+        self.assertEqual(molecule["microstate"]["status"], "outside_site_model")
+        self.assertIn("molecular hydrogen", molecule["microstate"]["reason"])
+        self.assertEqual([sorted(p) for p in molecule["new_bonds"]], [pair])
+        self.assertEqual((molecule["released"], molecule["lost_active_metal_contacts"]), ([], []))
+        lines = describe_changes(molecule, self.meta)
+        self.assertEqual([line for line in lines if "now bonded" in line], ["H m0010 is now bonded to H m0011"])
+        # in between (1.0 to 1.3 A) no bond is claimed either way: reported, as for any other bond
+        stretched = self.check(1.20, 1.6)
+        self.assertTrue(stretched["valid_for_assigned_node"])
+        self.assertIn(("H-H", pair), [(a["type"], sorted(a["pair"])) for a in stretched["threshold_ambiguities"]])
+        # and H2 that left is the intermediate's own adsorbate, released
+        gone = self.check(0.75, 4.5)
+        self.assertEqual(gone["microstate"]["status"], "adsorbate_released")
+        self.assertEqual([(item["formula"], item["atoms"]) for item in gone["released"]], [("H₂", pair)])
+
+
+class OwnReleaseTests(unittest.TestCase):
+    """Which released molecules are the intermediate's own adsorbate leaving (no bound minimum)."""
+
+    SYMBOLS = {"m0010": "H", "m0012": "H", "m0011": "O", "h_m0011": "H", "a0010": "Pt", "a0099": "O", "h_w": "H"}
+    SYMBOLS["o_x"] = "O"
+    NATIVE = {"m0010": "empty", "m0011": "empty", "m0012": "empty"}
+
+    def own(self, atoms, occupancy, ligand="m0010"):
+        released = [{"formula": "", "atoms": atoms, "from": ["a0010"]}]
+        return _own_release(released, [("a0010", ligand)], [], occupancy, None, self.NATIVE, self.SYMBOLS)
+
+    def test_hydrogen_alone_must_be_the_sites_own(self):
+        self.assertTrue(self.own(["m0010"], {"m0010": "H"}))
+        self.assertTrue(self.own(["m0010", "m0012"], {"m0010": "H", "m0012": "H"}))
+        self.assertFalse(self.own(["m0010"], {"m0011": "OH"}))  # the H of a site the intermediate leaves alone
+        # H2 made of the site's H and the H of a neighbouring OH: that ligand changed too
+        self.assertFalse(self.own(["h_m0011", "m0010"], {"m0010": "H", "m0011": "OH"}))
+
+    def test_a_molecule_with_heavy_atoms_needs_one_of_its_own(self):
+        # the site's H left with a spectator water of the slab: not its own
+        self.assertFalse(self.own(["a0099", "h_w", "m0010"], {"m0010": "H"}))
+        # as before: the O of a changed site, or an atom the intermediate added
+        self.assertTrue(self.own(["m0011", "h_m0011"], {"m0011": "OH"}, ligand="m0011"))
+        self.assertTrue(self.own(["o_x", "h_w"], {"m0010": "H"}, ligand="o_x"))
+        self.assertFalse(self.own(["a0099", "h_w"], {"m0010": "H"}, ligand="a0099"))
 
 
 if __name__ == "__main__":

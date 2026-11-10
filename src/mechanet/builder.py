@@ -1256,12 +1256,15 @@ class Builder:
             if aid not in self.sites:
                 raise ValueError(f"Unknown reactive site {aid}")
             self.adsorbate(status)
+        # A family may couple any two occupied sites, as in 0.1.4 (two OH, say): Adsorbate.couples
+        # only says which pairs the step rules, the enumeration and the checks take up by themselves.
         for aid in coupling or ():
-            status = occupancy.get(aid, self.native.get(aid))
-            if aid not in self.sites or not self.adsorbate(status).couples:
+            if aid not in self.sites:
+                raise ValueError(f"Unknown reactive site {aid} in the coupling {' + '.join(coupling)}")
+            status = occupancy.get(aid, self.native[aid])
+            if not self.adsorbate(status).proximal:
                 raise ValueError(
-                    f"Sites {' and '.join(coupling)} cannot be coupled: the adsorbate {status!r} on {aid} does "
-                    "not bond to a neighbouring site (Adsorbate.couples)"
+                    f"Sites {' and '.join(coupling)} cannot be coupled: {aid} is {status}, with no atom to bond"
                 )
         changes = {k: v for k, v in occupancy.items() if v != self.native[k]}
         key = self._node_key(changes, coupling)
@@ -1545,13 +1548,13 @@ class Builder:
         if coupling:
             pair = [st.symbols[st.ids.index(aid)] for aid in coupling]
             oxygen_pair = pair == ["O", "O"]
+            bond = self.coupled_bond(occupancy, *coupling)
             if oxygen_pair:
                 meta["notes"].append(
                     "Coupled O/O is a putative O2-like adsorbate minimum, not an O4 transition state; O-O "
-                    "starts at 1.45 A and the outward lift avoids M-O distances below 1.65 A."
+                    f"starts at {bond:.2f} A and the outward lift avoids M-O distances below 1.65 A."
                 )
             else:
-                bond = self.coupled_bond(occupancy, *coupling)
                 meta["notes"].append(
                     f"Coupled {'/'.join(pair)} is a putative minimum with a {'-'.join(pair)} bond between two "
                     f"sites, not a transition state; the bond starts at {bond:.2f} A and the outward lift "

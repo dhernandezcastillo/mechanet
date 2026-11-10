@@ -1071,7 +1071,8 @@ def enumerated(ctx):
     for a, b in combinations(site_ids, 2):
         if not pair_ok(a, b):
             continue
-        for first, second in product(options[a], options[b]):
+        # each pair of states once, however often the project file lists a state
+        for first, second in product(dict.fromkeys(options[a]), dict.fromkeys(options[b])):
             if ctx.registry.adsorbates[first].couples and ctx.registry.adsorbates[second].couples:
                 occupancy = {aid: ctx.native[aid] for aid in site_ids}
                 occupancy.update({a: first, b: second})

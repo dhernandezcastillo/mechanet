@@ -62,16 +62,22 @@ test now checks it.
   the distal route, with seven nitrogen adsorbates (fixed shapes and templates) and a turnover
   whose marker (N2) is taken up while the product leaves twice. Run end to end in the tests,
   with no change to the core beyond naming a released NH₃.
-- **Metal–H bonds are watched** when an adsorbate is bound through H (the \*H of the HER
-  example). An H that left the surface, alone or as H2, is reported as released; one that moved
-  to another metal waits for review. Before, a hydrogen 6 Å above the surface still counted as
-  "connectivity retained". Without such an adsorbate (OER, CER) nothing changes.
+- **Metal–H and H–H bonds are watched** when an adsorbate is bound through H (the \*H of the
+  HER example). An H that left the surface, alone or as H2, is reported as released; one that
+  moved to another metal waits for review; H2 lying on the surface (two H closer than 1.00 Å)
+  is not taken for two \*H; and an H2 that took the H of another ligand along is not counted as
+  the intermediate's own adsorbate leaving. Before, a hydrogen 6 Å above the surface still
+  counted as "connectivity retained". Without such an adsorbate (OER, CER) nothing changes.
 - **Bonds between the adsorbates of two sites, beyond O–O.** An adsorbate declares
   `couples=True` (and optionally `coupled_bond_A`); the builder places the pair at its bond
   length, relaxed structures are read as a coupled pair or as two adsorbates, the pathway
   search proposes "C-C coupling" (the text "O-O coupling" is unchanged), and the `enumerated`
-  family couples every pair that allows it. Coupling adsorbates that do not allow it is refused.
-  Tested with two \*CO on Pt(111) that bond through C.
+  family couples every pair that allows it, each once. A family can still couple any two
+  occupied sites, as in 0.1.4 (two OH on RuO2(110) give the starts 0.1.4 wrote); the flag
+  decides what the checks, the step rules and the enumeration take up by themselves. Pairs
+  other than two O now start at their own bond length instead of 1.45 Å. Tested with two \*CO
+  on Pt(111) that bond through C; the CO example itself leaves the flag off, since its
+  reaction has no coupling step.
 - **Two-point binding is flagged, not guessed.** A relaxed adsorbate in which a second atom
   binds a metal waits for review with the new contacts named (a test pins this down); the
   end-on/side-on rule now applies to O and Cl atoms only, as it was written for.
@@ -79,7 +85,9 @@ test now checks it.
   `collection.py` (`collect`), `selection.py` (`select_for_thermo`), `energies.py` (node
   energies, `energy_inputs`) and the thermodynamic analysis that stays. Every name is still
   importable from `mechanet.analysis`. No science module imports the command line any more
-  (`default_references` moved to `campaign.py`; `cli.default_references` still works).
+  (`default_references` moved to `campaign.py`; `cli.default_references` still works). Code
+  that replaces a function on `mechanet.analysis` at run time (a monkey-patch) no longer
+  reaches the calls made inside the new modules: patch the module that defines the function.
 - **Stages can be driven one at a time** from another workflow tool: `run_state(state,
   through=STAGE, execute=True)` runs what is not finished up to that stage and nothing twice
   (docs/execution.md §11; now covered by a test).

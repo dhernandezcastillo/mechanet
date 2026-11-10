@@ -157,6 +157,21 @@ class ScopeBlockTests(TempCase):
         report = generate(project / "project.yaml", self.root / "c3")
         self.assertGreater(report["complete_stoichiometric_cycles"], 0)
 
+    def test_enumeration_couples_each_pair_once(self):
+        """Two neighbouring sites that can both hold O get one coupled O-O intermediate, written
+        once however often the project file lists a state (as in 0.1.4); O and OH are not coupled."""
+        project = self.project_copy()
+        sites = ["m0038", "m0046"]
+        scope = {"families": ["enumerated"], "enumerate": {"sites": sites, "max_length": 4}}
+        scope["enumerate"]["states"] = {"open_metal": ["empty", "O", "OH", "O"]}
+        self.edit(project, scope=scope)
+        generate(project / "project.yaml", self.root / "c")
+        coupled = [n for n in read_json(self.root / "c" / "network.json")["nodes"] if n.get("coupling")]
+        self.assertEqual(
+            [(sorted(n["coupling"]), n["occupancy"]) for n in coupled], [(sites, dict.fromkeys(sites, "O"))]
+        )
+        self.assertEqual(coupled[0]["aliases"], [])
+
     def test_typos_in_family_blocks_are_refused_with_a_suggestion(self):
         project = self.project_copy()
         cases = (

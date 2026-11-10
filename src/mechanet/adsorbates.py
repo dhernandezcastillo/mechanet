@@ -70,10 +70,12 @@ class Adsorbate:
     atoms: tuple = ()
     template_tilts_deg: tuple = (0.0, 25.0)
     template_roll_step_deg: float = 30.0
-    # Two neighbouring sites whose adsorbates both allow it can bond through their proximal
-    # atoms: a coupled pair, written by a family with ``coupling=(site_a, site_b)`` (O-O in the
-    # OER coupling families, C-C between two *CO). ``coupled_bond_A`` is that bond in the start
-    # (default: the covalent radii of the two atoms; 1.45 A for O-O).
+    # Two neighbouring sites can bond through their proximal atoms: a coupled pair, written by a
+    # family with ``coupling=(site_a, site_b)`` (O-O in the OER coupling families, C-C between two
+    # *CO). With ``couples`` on both adsorbates the checks read a relaxed pair as coupled, the step
+    # rules propose the coupling and the enumeration writes the pair; a family may write any pair.
+    # ``coupled_bond_A`` is the bond in the start (default: the covalent radii of the two atoms;
+    # 1.45 A for O-O).
     couples: bool = False
     coupled_bond_A: float | None = None
 

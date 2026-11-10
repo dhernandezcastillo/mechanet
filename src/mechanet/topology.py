@@ -40,6 +40,10 @@ BOND_CUTOFF = {"O-H": 1.25, "O-O": 1.85, "M-O": 2.35, "O-Cl": 2.05, "M-Cl": 2.75
 GENERIC_BOND_EDGES = (1.15, 1.25, 1.35)
 
 TYPICAL_METAL_RADIUS_A = 1.40
+# Two H atoms, watched when an adsorbate binds through H: molecular hydrogen below the lower edge
+# (0.74 A when free, up to about 1.0 A on a metal), two separate H beyond the upper one; the
+# "elongated" pairs in between are reported as ambiguous. Lower edge, initial bond, upper edge.
+HYDROGEN_PAIR_EDGES = (1.00, 1.15, 1.30)
 _NATIVE_ID = re.compile(r"a\d{4}$")
 
 _CONTEXT_CACHE = {}
@@ -53,7 +57,8 @@ def _metals(config, symbols):
 def _pair_type(a, b, metals, extra=frozenset(), metal_h=False):
     """Bond kind of two elements: O-H, O-O, O-Cl, M-O, M-Cl, or, for the ``extra`` elements that
     registered adsorbates bring (C, N, ...), M-X and X-Y (sorted, e.g. C-O, C-H). ``metal_h``:
-    an adsorbate binds through H (*H of hydrogen evolution), so M-H is a kind too. None: not watched."""
+    an adsorbate binds through H (*H of hydrogen evolution), so M-H and H-H are kinds too.
+    None: not watched."""
     pair = {a, b}
     if pair == {"O", "H"}:
         return "O-H"
@@ -67,6 +72,8 @@ def _pair_type(a, b, metals, extra=frozenset(), metal_h=False):
         return "M-Cl"
     if metal_h and "H" in pair and pair & metals:
         return "M-H"
+    if metal_h and pair == {"H"}:
+        return "H-H"
     if not pair & extra:
         return None
     if pair & metals:
@@ -82,6 +89,8 @@ def _limits(kind, hysteresis):
     if kind in hysteresis:
         lower, upper = hysteresis[kind]
         return lower, BOND_CUTOFF.get(kind, 0.5 * (lower + upper)), upper
+    if kind == "H-H":
+        return HYDROGEN_PAIR_EDGES
     total = sum(TYPICAL_METAL_RADIUS_A if e == "M" else elements.covalent_radius(e) for e in kind.split("-"))
     return tuple(scale * total for scale in GENERIC_BOND_EDGES)
 
@@ -284,6 +293,16 @@ def classify_microstate(
         if len(bonded) > 1:
             return None, None, f"{ids[h]} is bonded to two {'oxygens' if not extra else 'atoms'}"
         owner.setdefault(bonded[0][1], []).append(h)
+    # The H of a site with another H at bonding distance is molecular hydrogen, not *H.
+    lo_hh, _, hi_hh = _limits("H-H", hysteresis)
+    for h in sorted(site_h):
+        for other in hydrogen:
+            d = float(distances[h, other])
+            if other == h or d > hi_hh:
+                continue
+            if d < lo_hh:
+                return None, None, f"{ids[h]}, the H of a site, is bonded to {ids[other]}: molecular hydrogen"
+            return None, None, f"H-H distance {ids[h]}-{ids[other]} = {d:.2f} A is inside the hysteresis band"
     partners = {o: [] for o in heavy}
     for a_pos, a in enumerate(heavy):
         for b in heavy[a_pos + 1 :]:
@@ -446,20 +465,22 @@ def _own_release(released, lost_metal, new_metal, occupancy, coupling, native, s
 
     Every released molecule must hold a heavy atom (O or Cl, or an element another adsorbate
     brings) of a site the intermediate changes (or one it added: an H it added does not make a
-    spectator water its own), or the H that is such a site's own atom (*H of hydrogen evolution);
-    every lost metal contact must belong to such a molecule, and no new contact formed: a
-    spectator ligand that left, or one that moved to another metal, still needs review.
+    spectator water its own); a molecule of H alone (H or H2, from the *H of hydrogen evolution)
+    must consist of such sites' own atoms only, so an H2 that took the H of another ligand along
+    is not the intermediate's own. Every lost metal contact must belong to such a molecule, and
+    no new contact formed: a spectator ligand that left, or one that moved to another metal,
+    still needs review.
     """
     if not released or new_metal:
         return False
     own = {s for s, v in (occupancy or {}).items() if (native or {}).get(s) != v} | set(coupling or ())
 
-    def owned(atom_id):
-        if symbol_of.get(atom_id) == "H":
-            return atom_id in own
-        return symbol_of.get(atom_id) in heavy and (atom_id in own or not _NATIVE_ID.match(atom_id))
+    def owned(atoms):
+        if atoms and all(symbol_of.get(a) == "H" for a in atoms):
+            return all(a in own for a in atoms)
+        return any(symbol_of.get(a) in heavy and (a in own or not _NATIVE_ID.match(a)) for a in atoms)
 
-    if not all(any(owned(a) for a in item["atoms"]) for item in released):
+    if not all(owned(item["atoms"]) for item in released):
         return False
     gone = {a for item in released for a in item["atoms"]}
     return all(gone.intersection(pair) for pair in lost_metal)
@@ -484,8 +505,8 @@ def released_fragments(ids, symbols, distances, metals, lost_metal, hysteresis, 
     to it in the relaxed structure (below the lower hysteresis edges); it is released when none
     of its heavy atoms lies within the upper M-O, M-Cl (M-X) edge of any metal atom. With
     ``metal_h`` (an adsorbate binds through H) a molecule of H alone, H or H2, is judged by its
-    H atoms and the M-H edge. Returns [{"formula", "atoms", "from"}], ``from`` being the metals
-    it lost contact with.
+    H atoms and the M-H edge, and two H count as H2 below the H-H edge of the checks. Returns
+    [{"formula", "atoms", "from"}], ``from`` being the metals it lost contact with.
     """
     if not lost_metal:
         return []
@@ -501,6 +522,8 @@ def released_fragments(ids, symbols, distances, metals, lost_metal, hysteresis, 
         kind = _pair_type(symbols[i], symbols[j], set(), extra) or "-".join(sorted((symbols[i], symbols[j])))
         if kind in hysteresis:
             limit = hysteresis[kind][0]
+        elif metal_h and kind == "H-H":
+            limit = HYDROGEN_PAIR_EDGES[0]
         elif kind in _FRAGMENT_BONDS:
             limit = _FRAGMENT_BONDS[kind]
         else:

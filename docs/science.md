@@ -386,8 +386,14 @@ Relaxed connectivity is compared with the starting structure with hysteresis (an
 is lost beyond 1.35 Å and forms below 1.20 Å; O–O 1.75/1.95 Å; M–O 2.20/2.50 Å; O–Cl and
 M–Cl analogous; for elements that plugin adsorbates bring, such as C or N, 1.15 and 1.35
 times the sum of the covalent radii, with 1.40 Å for a metal; metal–H the same way, 1.97 and
-2.31 Å, when an adsorbate is bound through H). Two site atoms bonded to each other are a
-coupled pair when both adsorbates allow it: two O, or two \*CO through C. When it changed, the relaxed
+2.31 Å, when an adsorbate is bound through H, and then H–H as well: two H closer than 1.00 Å
+are molecular hydrogen, not two adsorbed H, and beyond 1.30 Å they are apart). The H–H limits
+are a choice made here. Free H2 is 0.74 Å long; in metal dihydrogen complexes the H2 ligand is
+described as intact up to about 1.0 Å and as two hydrides from about 1.3 Å, and the
+"elongated" pairs in between are named differently by different authors (the field is reviewed
+by G. J. Kubas, Chem. Rev. 107, 4152, 2007), so that range is reported as ambiguous rather
+than decided. Two site atoms bonded to each other are a coupled pair when both adsorbates allow
+it: two O, or two \*CO through C. When it changed, the relaxed
 structure is classified site by site with the
 adsorbate signatures of the registry and assigned to the node with that occupancy, where it
 competes with that node's own variants. Ambiguous structures (a proton in transit, a

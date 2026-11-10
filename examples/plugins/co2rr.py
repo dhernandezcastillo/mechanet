@@ -64,7 +64,6 @@ CARBONYL = Adsorbate(
     atoms=(("o", "O", "", (0.0, 0.0, 1.15)),),
     template_tilts_deg=(0.0, 15.0),
     template_roll_step_deg=360.0,  # a linear molecule: rolling it changes nothing
-    couples=True,  # two neighbouring *CO can bond through C (the first step towards C2 products)
     description="CO on top, bound through C",
 )
 

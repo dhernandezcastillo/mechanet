@@ -100,15 +100,21 @@ def describe_changes(topology, meta, occupancy_label=None):
     }
     tautomer_note = ": a shared H between two sites this intermediate leaves native, another tautomer"
     moves, loose_ends = {}, []
+    told = set()  # H-H pairs already named from their other atom
     for h in sorted({a for pair in lost + new for a in pair if symbols.get(a) == "H"}):
         before = [x for pair in lost if h in pair for x in pair if x != h]
         after = [x for pair in new if h in pair for x in pair if x != h]
         if before and after:
             moves[h] = (before, after)
         elif before:
-            loose_ends.append(f"H {h} is no longer bonded to {' and '.join(map(atom, before))}")
+            rest = [x for x in before if frozenset((h, x)) not in told]
+            if rest:
+                loose_ends.append(f"H {h} is no longer bonded to {' and '.join(map(atom, rest))}")
         else:
-            loose_ends.append(f"H {h} is now bonded to {' and '.join(map(atom, after))}")
+            rest = [x for x in after if frozenset((h, x)) not in told]
+            if rest:
+                loose_ends.append(f"H {h} is now bonded to {' and '.join(map(atom, rest))}")
+        told |= {frozenset((h, x)) for x in before + after if symbols.get(x) == "H"}
         explained.add(h)
     # A relay reads in order: the H that starts it first, then the one that takes over.
     while moves:

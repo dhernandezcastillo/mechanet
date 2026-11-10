@@ -248,18 +248,25 @@ HER example), metal–H contacts are watched like metal–O ones (bonded below 2
 metal; override with `topology.hysteresis_A: {"M-H": [lower, upper]}`). An H that left the
 surface, alone or as H2, is reported as released (no bound minimum from that start); one that
 moved to another metal atom, or sits between two, waits for review, as an O that changes its
-metal does. Without such an adsorbate (OER, CER) metal–H distances are not looked at, as before.
+metal does. The H–H bond is watched too: two H closer than 1.00 Å are molecular hydrogen, so H2
+lying on the surface is not taken for two \*H and waits for review (between 1.00 and 1.30 Å the
+pair is listed as ambiguous; `"H-H": [lower, upper]` overrides the limits), and an H2 that took
+the H of another ligand along is not the intermediate's own adsorbate leaving. Without such an
+adsorbate (OER, CER) neither metal–H nor H–H distances are looked at, as before.
 
 **Bonds between two sites.** Two neighbouring sites can bond through their proximal atoms: the
-O–O pairs of the OER coupling families, two \*CO through C. An adsorbate allows it with
-`couples=True` (and may give the bond length of the start with `coupled_bond_A`; the default is
-the sum of the covalent radii, 1.45 Å for O–O). A family writes such an intermediate with
-`ctx.node({a: "CO", b: "CO"}, family, label, coupling=(a, b))`; the builder places the two
-proximal atoms at that bond length, relaxed structures are read as a coupled pair or as two
-separate adsorbates (and assigned to the intermediate they became), and the pathway search
-proposes the step as "C-C coupling" when the reaction's `elementary` vectors include `{}`, a
-step that exchanges nothing with the reservoirs. Give the adsorbate tilts wide enough for the
-pair: two \*CO need about 30° to keep their oxygens apart (`tests/test_coupling.py`).
+O–O pairs of the OER coupling families, two \*CO through C. A family writes such an
+intermediate with `ctx.node({a: "CO", b: "CO"}, family, label, coupling=(a, b))`, and the
+builder places the two proximal atoms at their bond length (the adsorbate's `coupled_bond_A`;
+by default 1.45 Å for two O and the sum of the covalent radii otherwise). It does so for any
+two occupied sites, as it always did. An adsorbate that sets `couples=True` gets the rest:
+relaxed structures are read as a coupled pair or as two separate adsorbates (and assigned to
+the intermediate they became), the `enumerated` family writes the pair by itself, and the
+pathway search proposes the step as "C-C coupling" when the reaction's `elementary` vectors
+include `{}`, a step that exchanges nothing with the reservoirs (without it no step leads to
+the pair). Without the flag, a pair that stays bonded waits for review. The CO example leaves
+the flag off, since its reaction has no such step; `tests/test_coupling.py` adds the flag, the
+step and tilts wide enough for the pair (two \*CO need about 30° to keep their oxygens apart).
 
 **One binding atom per adsorbate.** An adsorbate is bound through its proximal atom. A relaxed
 structure in which a second atom of it also binds a metal (a carboxyl or a formate lying down

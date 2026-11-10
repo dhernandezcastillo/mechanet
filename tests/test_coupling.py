@@ -4,11 +4,13 @@ The OER families couple two neighbouring O (``coupling=(a, b)``). Any adsorbate 
 that it bonds to a neighbour through its proximal atom (``Adsorbate.couples``): the builder
 places the pair at its bond length, relaxed structures are read as a coupled pair, and the
 pathway search proposes the coupling step. The test case is the dimerisation of two *CO on
-Pt(111) through carbon, the first step towards C2 products, from the CO2 example plug-in plus a
-small family written here.
+Pt(111) through carbon, the first step towards C2 products, from the CO2 example plug-in plus
+what the coupling needs, written here: the flag on CO, wider tilts, a step that exchanges nothing
+and a small family.
 """
 
 import contextlib
+import dataclasses
 import io
 import json
 import os
@@ -37,9 +39,10 @@ DIMER = """
 import dataclasses
 
 CO2RRtoCO.elementary = CO2RRtoCO.elementary + ({},)  # a step that exchanges nothing: the coupling
-# In OC-CO the oxygens point apart (C-C-O near 120 degrees): the pair needs tilts beyond the 15
-# degrees of CO on its own, or the two O would start 2.1 A apart, below the 2.2 A floor.
-CARBONYL = dataclasses.replace(CARBONYL, template_tilts_deg=(0.0, 15.0, 30.0, 45.0))
+# Two neighbouring *CO may bond through C. In OC-CO the oxygens point apart (C-C-O near 120
+# degrees): the pair needs tilts beyond the 15 degrees of CO on its own, or the two O would start
+# 2.1 A apart, below the 2.2 A floor.
+CARBONYL = dataclasses.replace(CARBONYL, couples=True, template_tilts_deg=(0.0, 15.0, 30.0, 45.0))
 
 
 def co_dimer(ctx):
@@ -90,6 +93,9 @@ class StepRuleTests(unittest.TestCase):
     def test_any_adsorbate_that_declares_it(self):
         registry = default_registry([PLUGIN])
         reaction = registry.reactions["co2rr_co"]
+        # the example as shipped does not couple its CO: its reaction has no step for it
+        self.assertFalse(registry.adsorbate("CO").couples)
+        registry.adsorbates["CO"] = dataclasses.replace(registry.adsorbates["CO"], couples=True)
         with patch.object(reaction, "elementary", reaction.elementary + ({},)):
             rules = self.rules(registry, "co2rr_co", {"m1": "empty", "m2": "empty"})
             apart = {"occupancy": {"m1": "CO", "m2": "CO"}, "coupling": None}
@@ -99,7 +105,6 @@ class StepRuleTests(unittest.TestCase):
             # a carboxyl does not declare it
             carboxyl = {"occupancy": {"m1": "COOH", "m2": "COOH"}, "coupling": ["m1", "m2"]}
             self.assertIsNone(rules.step({"occupancy": {"m1": "COOH", "m2": "COOH"}, "coupling": None}, carboxyl))
-        self.assertTrue(registry.adsorbate("CO").couples)
         self.assertTrue(default_registry().adsorbate("O").couples)
         self.assertFalse(default_registry().adsorbate("OH").couples)
 
@@ -208,13 +213,27 @@ class CarbonCouplingTests(unittest.TestCase):
         self.assertEqual(rules.step(self.apart, self.coupled), ({}, "C-C coupling"))
         self.assertEqual(rules.step(self.coupled, self.apart), ({}, "C-C decoupling"))
 
-    def test_adsorbates_that_do_not_couple_are_refused(self):
-        builder = Builder(
-            read_json(self.campaign / "config.json"), self.tmp / "again", base_dir=self.campaign, registry=self.registry
-        )
+    def test_a_family_may_couple_any_two_occupied_sites(self):
+        """As in 0.1.4, the builder writes the pair a family asks for, whatever the adsorbates (two
+        OH here, which do not declare ``couples``): the flag only says which pairs the step rules,
+        the enumeration and the checks take up by themselves. A site with no atom cannot be coupled."""
+        out = self.tmp / "again"
+        builder = Builder(read_json(self.campaign / "config.json"), out, base_dir=self.campaign, registry=self.registry)
         a, b = self.sites
-        with self.assertRaisesRegex(ValueError, "cannot be coupled"):
-            builder.node({a: "COOH", b: "COOH"}, "co_dimer", f"{a}+{b}", coupling=(a, b))
+        node = builder.nodes[builder.node({a: "OH", b: "OH"}, "co_dimer", f"{a}+{b}", coupling=(a, b))]
+        self.assertEqual(sorted(node["coupling"]), self.sites)
+        self.assertTrue(node["state_ids"])
+        state = out / "states" / node["state_ids"][0]
+        meta, structure = read_json(state / "state.json"), read_poscar(state / "POSCAR")
+        i, j = (meta["atom_ids"].index(s) for s in self.sites)
+        self.assertEqual([structure.symbols[i], structure.symbols[j]], ["O", "O"])
+        self.assertAlmostEqual(float(distance_matrix(structure)[i, j]), 1.45, places=3)
+        self.assertIn("coupled_O_metal_contacts", meta)
+        self.assertTrue(any("O-O starts at 1.45 A" in note for note in meta["notes"]))
+        with self.assertRaisesRegex(ValueError, "no atom to bond"):
+            builder.node({a: "CO", b: "empty"}, "co_dimer", f"{a}+{b}", coupling=(a, b))
+        with self.assertRaisesRegex(ValueError, "Unknown reactive site"):
+            builder.node({a: "CO"}, "co_dimer", a, coupling=(a, "m9999"))
 
 
 if __name__ == "__main__":
