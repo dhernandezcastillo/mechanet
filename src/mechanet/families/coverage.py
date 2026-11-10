@@ -26,6 +26,11 @@ from itertools import combinations, product
 from ..plugins import Family
 from ..reactions import BUILTIN_REACTIONS, OXYGEN_COVERAGE_STATES
 
+# The tables of 0.1.4, kept for code that reads them. The states now come from the reaction
+# (Reaction.coverage_states); changing these tables changes nothing.
+DEFAULT_STATES = {kind: list(states) for kind, states in OXYGEN_COVERAGE_STATES.items()}
+CER_EXTRA = {"open_metal": ["Cl", "OCl"], "terminal": ["OCl"], "bridge": []}
+
 
 def default_states(kind, reaction):
     """Coverage states of a site kind for ``reaction`` (a Reaction, or the name of a built-in one)."""

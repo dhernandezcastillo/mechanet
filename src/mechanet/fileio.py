@@ -6,6 +6,7 @@ shared cluster file system never sees a partial file.
 
 from __future__ import annotations
 
+import csv
 import datetime as dt
 import hashlib
 import json
@@ -103,3 +104,30 @@ def object_hash(value) -> str:
 def short_hash(value, size=12) -> str:
     """Compact deterministic identifier of a JSON-serializable value (node and edge IDs)."""
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:size]
+
+
+# Small readers and writers of the analysis tables (collect, select, thermo).
+def _load(path, default=None):
+    path = Path(path)
+    if not path.exists():
+        return {} if default is None else default
+    return json.loads(path.read_text())
+
+
+def _write(path, data):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(json.dumps(data, indent=2, allow_nan=False, default=str) + "\n")
+
+
+def _csv(path, rows, fields):
+    with Path(path).open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    key: json.dumps(value) if isinstance(value, (list, dict)) else value
+                    for key, value in row.items()
+                    if key in fields
+                }
+            )
