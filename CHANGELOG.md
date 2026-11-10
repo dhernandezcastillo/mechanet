@@ -3,9 +3,24 @@
 ## Unreleased
 
 Chemistry beyond oxygen and chlorine without changes to the core, pre-screening with ML
-potentials, Windows support, and three corrections from an independent review of the
-thermodynamics.
+potentials, no repeated starts on symmetric sites, Windows support, and three corrections from
+an independent review of the thermodynamics.
 
+- **No two starts of an intermediate are symmetry images of each other.** `generate` used to
+  merge only lattice translations, so on a symmetric site it could write the same start twice
+  (on a top site of Pt(111), \*COOH and the same \*COOH turned by 120°), and DFT computed it
+  twice. The orientation search now measures how different two starts are also after every
+  rotation and mirror of the slab (spglib) that keeps its normal, fixed and frequency regions and
+  any explicit MAGMOM and maps the intermediate's sites onto sites in the same state; the second
+  start is then a genuinely different orientation, and a start still found to be an image is set
+  aside and replaced. `build_report.json` records the operations and the starts set aside
+  (`start_symmetry`). Without spglib nothing changes and `generate` warns. On slabs with
+  rotations or mirrors this changes which starts are written: two starts must now differ by
+  `diversity_min_displacement_A` (0.75 Å) after any such operation, not only as written. The
+  examples lose starts that were turned or mirrored near-copies (within 0.20–0.67 Å) of a kept
+  one: RuO2(110) 69 → 62, IrO2(110) 69 → 59, Pt(111) OER 10 → 8, the SrCoO3(001) tutorial
+  10 → 8; for \*COOH on Pt(111) the copy was exact, and another orientation replaces it. The
+  NiFe LDH reference build is unchanged.
 - **`mechanet prescreen`: ML potentials before DFT.** Every start is relaxed inside Python with
   a calculator (`mace-mp`, any `module:callable` returning an ASE calculator, or one a plugin
   adds) with the selective dynamics of its DFT relaxation, and judged by the topology check of

@@ -47,7 +47,9 @@ ranked by the calculator's energy, and a start is left out when:
 * it relaxed into the same structure as a lower start: the same positions within 0.10 Å and
   the same energy within 5 meV, directly or after a symmetry operation of the slab (a rotation
   or mirror that keeps the fixed atoms, the frequency region and any per-atom MAGMOM in place;
-  this needs spglib, a dependency of mechanet);
+  this needs spglib, a dependency of mechanet). `generate` already writes no two starts that
+  are images of each other ([science §3](science.md#3-starting-structures)), so this catches
+  different starts that relax into the same minimum;
 * it lies more than `--window` (0.20 eV) above the lowest start;
 * it is beyond the `--max-per-node` (3) lowest starts.
 

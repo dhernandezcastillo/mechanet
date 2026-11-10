@@ -39,7 +39,8 @@ The slab you supply is the common reference ("native" surface) of every intermed
   `geometry.symmetry_tolerance_A`, 0.005 Å). A node and its translation image are the same
   calculation: one representative is computed and the image inherits its energy
   (`computed_by`). This assumes both converge to the same electronic solution; an explicit
-  `vasp.magmom_by_id` that breaks the translation disables the reduction.
+  `vasp.magmom_by_id` that breaks the translation disables the reduction. Rotations and
+  mirrors of the slab are used only to avoid repeating a start of one intermediate (§3).
 * **Partial-Hessian region.** The reactive ligand atoms and their H, plus every added atom,
   with the same background in every node so vibrational corrections are comparable.
 
@@ -122,6 +123,17 @@ structures that differ by at least `diversity_min_displacement_A` (0.75 Å) are 
 atoms matched by element and labels ignored (a water rotated by 180° is the same start).
 Intermediates without any feasible placement are reported in `nodes_without_viable_start`
 (with reasons in `rejected_placements.json`), never started from an unphysical geometry.
+
+**Symmetry images of a start.** The difference is also measured after every rotation and
+mirror of the slab that keeps its normal, its fixed and frequency regions and any explicit
+MAGMOM, and maps the intermediate's sites onto sites in the same state (found with spglib,
+within `symmetry_tolerance_A`). On a top site of Pt(111), with a three-fold axis and three
+mirrors, a \*COOH turned by 120° is the same start as the original and gives the same DFT
+result, so it is not kept twice: the second start is the next distinct orientation. A start
+still found to be an image after the search is set aside and replaced
+(`build_report.json`: `start_symmetry`). Without spglib this is skipped and `generate` says
+so. Lattice translations, which relate whole intermediates rather than starts, are handled
+separately (§1).
 
 **Shared protons.** An H of the seed within `topology.shared_proton_max_OH_A` (1.6 Å) of two
 O, one of them within 1.25 Å, is a proton shared in a short hydrogen bond (the inspector

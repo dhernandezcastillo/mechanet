@@ -98,7 +98,7 @@ mechanet generate
   WARNING: No cluster profile in project.yaml: set `cluster:` and run ...
 ```
 
-Of the 63 intermediates, 28 are lattice-translation images of others and inherit their energies, so 35 are computed. Some intermediates get more than one starting placement, which gives 69 starting structures. The warning is expected until [tutorial 3](cluster.md).
+Of the 63 intermediates, 28 are lattice-translation images of others and inherit their energies, so 35 are computed. Some intermediates get more than one starting placement, which gives 62 starting structures; a second placement that a rotation or mirror of the slab would turn into the first is not written, because DFT would repeat the same calculation. The warning is expected until [tutorial 3](cluster.md).
 
 Everything lands in `ruo2/campaign/`: `network.json` holds the intermediates, steps and cycles, and `states/` holds one folder per starting structure with its `POSCAR`.
 
@@ -111,15 +111,15 @@ mechanet plan
 ```text
 campaign (oer): 63 intermediates (35 computed, 28 symmetry images), 146 steps, 100 cycles (50 symmetry-unique)
   cycles by family: aem 4, bifunctional 20, hydrated 24, pair_coupling 24, surface_bridge 4, terminal_bridge_coupling 24
-  starting structures: 69
+  starting structures: 62
   stages: 01_loose -> 02_final -> 04_static -> 05_freq (frequency.central = final)
-  relaxation_jobs (01_loose + 02_final): 69
-  states_continuing_to_04_static_05_freq (estimate): 59
-  frequency_displacements (estimate): 1632
+  relaxation_jobs (01_loose + 02_final): 62
+  states_continuing_to_04_static_05_freq (estimate): 52
+  frequency_displacements (estimate): 1464
   node-hours: unknown. No finished runs yet: submit the pilot ...
 ```
 
-Every starting structure is relaxed with loose, then final settings. The best variants of each intermediate then get a single point and a partial Hessian by finite displacements, 1,632 single points here. Node-hours appear after the pilot of [tutorial 3](cluster.md#5-run-the-pilot). A smaller scope costs less: with `--scope aem` the same slab gives 9 intermediates (5 computed) and 10 starting structures.
+Every starting structure is relaxed with loose, then final settings. The best variants of each intermediate then get a single point and a partial Hessian by finite displacements, 1,464 single points here. Node-hours appear after the pilot of [tutorial 3](cluster.md#5-run-the-pilot). A smaller scope costs less: with `--scope aem` the same slab gives 9 intermediates (5 computed) and 9 starting structures.
 
 ## 7. Explore the cycles
 

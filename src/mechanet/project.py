@@ -549,6 +549,12 @@ def generate(project_path=None, out=None, families=None):
     stray = _stray_potentials(project, registry.reaction(project["reaction"]))
     if stray:
         report["warnings"].append(stray)
+    symmetry = report.get("start_symmetry") or {}
+    if symmetry.get("source") is None and config.get("geometry", {}).get("symmetry_reduction", True):
+        report["warnings"].append(
+            "spglib is not installed: starts that are rotations or mirror images of each other were not merged, "
+            'so DFT may compute some twice (pip install "spglib>=2.5", then generate again).'
+        )
     listed = set(config["scope"].get("families") if families is None else families)
     for key, family in sorted(registry.scope_blocks().items()):
         if key in project["scope"] and family.name not in listed:

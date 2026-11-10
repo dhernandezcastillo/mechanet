@@ -5,6 +5,9 @@ any DFT.
 The campaign is the CO2-to-CO network on Pt(111) (examples/plugins/co2rr.py), generated only:
 two starts of *COOH (the same COOH turned by 120 degrees about the site), one of *CO and the
 bare surface. Scripted calculators give designed outcomes; EMT runs the command end to end.
+The campaign is generated as without spglib, so that its two *COOH starts are symmetry images
+of each other (generate merges them when spglib is there, see test_start_symmetry.py): the
+prescreen must recognise relaxed structures that are images of each other in any case.
 """
 
 import contextlib
@@ -154,7 +157,8 @@ class PrescreenTests(unittest.TestCase):
         data.update(reaction="co2rr_co", plugins=[str(PLUGIN)])
         data["scope"]["families"] = ["co2rr_carboxyl"]
         (project / "project.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
-        cli("generate", project / "project.yaml")
+        with patch("mechanet.builder.spglib_available", return_value=False):  # keep the 120-degree pair
+            cli("generate", project / "project.yaml")
         cls.campaign = project / "campaign"
         cls.registry = default_registry([PLUGIN])
         states = sorted((cls.campaign / "states").iterdir())

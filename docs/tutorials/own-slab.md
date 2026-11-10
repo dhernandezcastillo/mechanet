@@ -78,7 +78,7 @@ cd srco
 mechanet generate
 ```
 
-For Co, `init` adds one question: `Use the Materials Project Hubbard U values for Co (U = 3.32 eV)? [Y/n]`. `generate` then reports 17 intermediates (5 computed), 10 starting structures and 8 cycles (2 symmetry-unique).
+For Co, `init` adds one question: `Use the Materials Project Hubbard U values for Co (U = 3.32 eV)? [Y/n]`. `generate` then reports 17 intermediates (5 computed), 8 starting structures and 8 cycles (2 symmetry-unique).
 
 Start a new material with `aem`, then widen the scope once the first results are in:
 

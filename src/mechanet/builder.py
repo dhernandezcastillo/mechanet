@@ -56,7 +56,13 @@ from .structure import (
     write_poscar,
     write_xyz,
 )
-from .symmetry import DEFAULT_SYMMETRY_TOLERANCE_A, lattice_translations
+from .symmetry import (
+    DEFAULT_SYMMETRY_TOLERANCE_A,
+    describe_operation,
+    lattice_translations,
+    spglib_available,
+    surface_images,
+)
 
 DEFAULT_FLOORS = {
     "H-H": 1.5,
@@ -86,6 +92,8 @@ DEFAULT_SEARCH = {
     "diversity_min_displacement_A": 0.75,
 }
 COUPLED_LIFT_SCALES = (1.0, 1.5, 2.0)
+# A site maps onto another under a symmetry operation when its image lies this close (A).
+SITE_MATCH_A = 0.1
 SIDE_ON_METAL_O_A = 1.95
 OPEN_SITE_REFERENCE_A = 1.75
 TERMINAL_KINDS = ("terminal", "open_metal")
@@ -285,6 +293,21 @@ class Builder:
                             "rms_residual_A": t["rms_residual_A"],
                         }
                     )
+        # Rotations and mirrors of the slab (from spglib) that keep its normal, its fixed and
+        # frequency regions and any explicit MAGMOM: two starts of one intermediate related by one
+        # are the same calculation, so the orientation search keeps one and takes the next
+        # distinct orientation instead (lattice translations are handled above, between nodes).
+        self.images, self.images_merged, self._node_images_cache = [], [], {}
+        self.image_source = None
+        if self.geo.get("symmetry_reduction", True) and spglib_available():
+            magmom = config.get("vasp", {}).get("magmom_by_id") or {}
+            frequency = np.asarray(self.freq_mobile, dtype=bool)
+            labels = [
+                (bool(self.seed.mobile[i].any()), bool(frequency[i].any()), magmom.get(aid))
+                for i, aid in enumerate(self.seed.ids)
+            ]
+            self.images = surface_images(self.seed, self.normal, labels, symprec=self.symmetry_tolerance_A)[1:]
+            self.image_source = "spglib"
         self.nodes, self.edges, self.cycles = {}, {}, []
         self.recipes, self.node_keys, self.rejected = {}, {}, []
         self.states, self.signature_to_state = {}, {}
@@ -860,17 +883,32 @@ class Builder:
             worst = max(worst, float(d.min(axis=1).max()), float(d.min(axis=0).max()))
         return worst
 
-    def _diverse(self, ranked, atoms_of, limit):
-        """Greedy pick of up to ``limit`` items whose placed atoms differ substantially."""
+    def _diverse(self, ranked, atoms_of, limit, images=()):
+        """Greedy pick of up to ``limit`` items whose placed atoms differ substantially.
+
+        With ``images`` (rotations and mirrors of the slab that map the node onto itself), an item
+        whose atoms one of them takes close to a picked item's counts as the same item: two
+        orientations that are symmetry images of each other are one choice, not two.
+        """
         threshold = float(self.search_cfg["diversity_min_displacement_A"])
         picked = []
         for item in ranked:
             atoms = atoms_of(item)
-            if all(self._label_free_distance(atoms, atoms_of(other)) >= threshold for other in picked):
+            if all(self._distance_modulo(atoms, atoms_of(other), images, threshold) >= threshold for other in picked):
                 picked.append(item)
             if len(picked) >= limit:
                 break
         return picked
+
+    def _distance_modulo(self, first, second, images, threshold):
+        """Label-free distance of two atom sets, the smallest over the identity and ``images``
+        (stops at the first one below ``threshold``)."""
+        d = self._label_free_distance(first, second)
+        for rotation, shift in images:
+            if d < threshold:
+                break
+            d = min(d, self._label_free_distance([(s, rotation @ p + shift) for s, p in first], second))
+        return d
 
     def _changed_atoms(self, st):
         """[(symbol, position)] of atoms that are new or moved relative to the seed."""
@@ -892,9 +930,15 @@ class Builder:
         if not oriented:
             return [{"placement": {}, "score": None, "min_clearance_A": None, "hbonds": 0}], None
         per_site = int(self.search_cfg["variants_per_site"])
+        changes = {k: v for k, v in occupancy.items() if v != self.native[k]}
+        images = self._node_images(changes, coupling) if self.images else []
+        # Within the beam a site is compared on its own, which is exact only when it is the one
+        # oriented site (an operation could also turn another site's adsorbate); with several, the
+        # final selection below compares all placed atoms together.
+        site_images = images if len(oriented) == 1 else ()
         cache, pooled, failures = {}, [], []
         for order in permutations(oriented):
-            finals, failure = self._beam(order, occupancy, binding_modes, records, cache)
+            finals, failure = self._beam(order, occupancy, binding_modes, records, cache, site_images)
             pooled.extend(finals)
             if failure:
                 failures.append(failure)
@@ -910,10 +954,58 @@ class Builder:
         def atoms_of(item):
             return [(v[0], v[1]) for v in item[1].values()]
 
-        chosen = self._diverse(ranked, atoms_of, per_site)
+        # Every diverse candidate, best first (the first per_site are the variants): node() takes
+        # the later ones only to replace a start found to be a symmetry image of a kept one.
+        chosen = self._diverse(ranked, atoms_of, max(per_site, len(ranked)), images)
         return [{"placement": p[0], "score": p[2], "min_clearance_A": p[3], "hbonds": p[4]} for p in chosen], None
 
-    def _beam(self, order, occupancy, binding_modes, records, cache):
+    def _node_images(self, changes, coupling):
+        """The slab's rotations and mirrors under which a start of this node is a start of the same
+        node: each changed (or coupled) site goes to a changed site in the same state."""
+        key = self._node_key(changes, coupling)
+        if key not in self._node_images_cache:
+            sites = sorted(set(changes) | set(coupling or ()))
+
+            def state(site):
+                return changes.get(site, self.native[site])
+
+            found = []
+            for rotation, shift in self.images:
+                mapping = {}
+                for site in sites:
+                    image = rotation @ self.site_position(site) + shift
+                    target = next(
+                        (
+                            other
+                            for other in sites
+                            if np.linalg.norm(minimum_image(image - self.site_position(other), self.seed.cell))
+                            < SITE_MATCH_A
+                        ),
+                        None,
+                    )
+                    if target is None or state(target) != state(site):
+                        break
+                    mapping[site] = target
+                else:
+                    if not coupling or {mapping[s] for s in coupling} == set(coupling):
+                        found.append((rotation, shift))
+            self._node_images_cache[key] = found
+        return self._node_images_cache[key]
+
+    def _symmetry_image(self, moved, built, images, threshold):
+        """(kept state, distance, operation) when a rotation or mirror of the slab takes the new or
+        moved atoms of a start to within ``threshold`` of those of a kept start of the node."""
+        best = None
+        for state_id, other in built:
+            others = self._changed_atoms(other)
+            for rotation, shift in images:
+                turned = [(symbol, rotation @ position + shift) for symbol, position in moved]
+                d = self._label_free_distance(turned, others)
+                if d < threshold and (best is None or d < best[1]):
+                    best = (state_id, d, describe_operation(rotation, self.normal))
+        return best
+
+    def _beam(self, order, occupancy, binding_modes, records, cache, images=()):
         beam = int(self.search_cfg["beam_width"])
         per_site = int(self.search_cfg["variants_per_site"])
         partials = [({}, {}, 0.0, np.inf, 0)]  # placement, added atoms, score sum, min clearance, hbonds
@@ -945,7 +1037,8 @@ class Builder:
                 def atoms_of(k, cand=cand):
                     return [(a[1], a[2]) for a in cand[k][1]]
 
-                for k in self._diverse(feasible, atoms_of, max(per_site, 3)):
+                # Symmetry images of one orientation count once, so they cannot fill the beam.
+                for k in self._diverse(feasible, atoms_of, max(per_site, 3), images):
                     new_added = dict(added)
                     new_added.update({a[0]: (a[1], a[2]) for a in cand[k][1]})
                     extended.append(
@@ -1243,8 +1336,14 @@ class Builder:
                         }
                     )
                     continue
-                for choice in choices:
-                    if coupling and kept >= int(self.search_cfg["variants_per_site"]):
+                per_site = int(self.search_cfg["variants_per_site"])
+                queue, reserve = list(choices[:per_site]), list(choices[per_site:])
+                images = self._node_images(changes, coupling) if self.images else []
+                position = 0
+                while position < len(queue):
+                    choice = queue[position]
+                    position += 1
+                    if coupling and kept >= per_site:
                         break
                     self.attempted += 1
                     st, freq, bonds, info = self.structure(occupancy, coupling, choice["placement"], binding, lift)
@@ -1286,6 +1385,25 @@ class Builder:
                                 "label_free_distance_A": round(duplicate[1], 4),
                                 "reason": f"new/moved atoms within {threshold:g} A of a kept variant, "
                                 "ignoring labels of identical atoms",
+                            }
+                        )
+                        continue
+                    image = self._symmetry_image(moved, built, images, threshold) if images and built else None
+                    if image:
+                        # The same start seen after a rotation or mirror of the slab: one DFT run would
+                        # repeat another. The next distinct orientation takes its place.
+                        replacement = reserve.pop(0) if reserve else None
+                        if replacement is not None:
+                            queue.append(replacement)
+                        self.images_merged.append(
+                            {
+                                "node_id": node_id,
+                                "image_of": image[0],
+                                "operation": image[2],
+                                "distance_after_operation_A": round(image[1], 4),
+                                "placement": choice["placement"],
+                                "coupled_lift_scale": lift if coupling else None,
+                                "replaced_by_next_orientation": replacement is not None,
                             }
                         )
                         continue
@@ -1794,6 +1912,26 @@ class Builder:
             "initial_placements_built": self.attempted,
             "initial_placements_rejected": len(self.rejected),
             "label_permutation_duplicates_merged": len(self.duplicates_merged),
+            "symmetry_images_merged": len(self.images_merged),
+            "start_symmetry": {
+                "source": self.image_source,
+                "operations": len(self.images) + 1 if self.image_source else None,
+                "merged": self.images_merged,
+                "condition": (
+                    "Rotations and mirrors of the slab (spglib, within symmetry_tolerance_A) that keep its "
+                    "normal, its fixed and frequency regions and any explicit MAGMOM, and map an intermediate's "
+                    "changed sites onto sites in the same state. A start whose new or moved atoms such an "
+                    "operation takes to within diversity_min_displacement_A of a kept start of the same "
+                    "intermediate repeats it, and the next distinct orientation is built instead."
+                )
+                if self.image_source
+                else (
+                    "Not applied: symmetry_reduction is off."
+                    if not self.geo.get("symmetry_reduction", True)
+                    else "Not applied: spglib is not installed, so starts that are rotations or mirror images "
+                    "of each other may both be written."
+                ),
+            },
             "nodes_without_viable_start": [
                 n["id"] for n in self.nodes.values() if not n["state_ids"] and not n.get("computed_by")
             ],

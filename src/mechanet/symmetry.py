@@ -76,6 +76,30 @@ def lattice_translations(structure, masks=(), atom_values=None, tol=DEFAULT_SYMM
     return found
 
 
+def spglib_available():
+    """True when spglib can be imported (rotations and mirrors are found with it)."""
+    try:
+        import spglib  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def describe_operation(rotation, normal):
+    """'turned by 120°', 'mirrored' or 'shifted' for a Cartesian operation that keeps the surface normal."""
+    if np.linalg.det(rotation) < 0:
+        return "mirrored"
+    if np.allclose(rotation, np.eye(3)):
+        return "shifted"
+    normal = np.asarray(normal, dtype=float) / np.linalg.norm(normal)
+    trial = np.eye(3)[int(np.argmin(np.abs(normal)))]
+    u = trial - (trial @ normal) * normal
+    u /= np.linalg.norm(u)
+    v = rotation @ u
+    angle = np.degrees(np.arctan2(normal @ np.cross(u, v), u @ v)) % 360
+    return f"turned by {angle:.0f}°"
+
+
 def _dataset(structure, types, symprec):
     """spglib's symmetry dataset, atoms told apart by the integer ``types``; None when spglib fails."""
     try:

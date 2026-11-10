@@ -35,7 +35,7 @@ mechanet show-cycle aem_m0038_AEM       # one mechanism, as equations
 ![The site map of RuO2(110): two bridging O and two open Ru sites](images/site-map-ruo2.png)
 
 `generate` then builds 63 intermediates, 146 steps and 100 catalytic cycles from the literature
-mechanisms, with 69 starting structures ready for VASP, and `show-cycle` prints one of them:
+mechanisms, with 62 starting structures ready for VASP, and `show-cycle` prints one of them:
 
 ```text
 aem_m0038_AEM: Adsorbate evolution (AEM)  [aem; oer]
@@ -59,7 +59,7 @@ Each command is `mechanet COMMAND`; those that submit jobs show a preview until 
 | Step | Command | What happens |
 |---|---|---|
 | 1 | `init SLAB` | Finds the vacuum axis, active side, fixed region, reactive sites, symmetry and site pairs; proposes the partial-Hessian region, PAW datasets, starting moments and (for oxides) Hubbard U values; writes the project, the DFT inputs and the site map. [Tutorial 2](tutorials/own-slab.md) |
-| 2 | `generate` | Builds the network from the mechanism families of the scope, places every adsorbate without clashes, merges lattice-translation images, and writes the starting structures. No DFT. [Tutorial 1](tutorials/first-network.md#5-build-the-network) |
+| 2 | `generate` | Builds the network from the mechanism families of the scope, places every adsorbate without clashes, merges lattice-translation images of intermediates, skips starts that are rotations or mirror images of each other, and writes the starting structures. No DFT. [Tutorial 1](tutorials/first-network.md#5-build-the-network) |
 | 3 | `plan`, `cycles`, `show-cycle` | Counts intermediates, cycles, structures and calculations, with node-hours once the pilot has run. [Tutorial 1](tutorials/first-network.md#6-see-what-it-will-cost) |
 | 4 | `prescreen --calculator mace-mp` (optional) | Relaxes every start with an ML potential, checks it as a DFT result would be checked, and lists the starts worth DFT, for `submit --states @campaign/prescreen/suggested_states.txt`. Nothing in the campaign changes. [Pre-screening](prescreening.md) |
 | 5 | `submit --pilot` | The reference surface, one start per adsorbate and the most crowded start: checks your protocol and measures timings. [Tutorial 3](tutorials/cluster.md#5-run-the-pilot) |
