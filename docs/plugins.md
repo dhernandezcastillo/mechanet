@@ -108,6 +108,23 @@ synthetic VASP runs, the checks of relaxed structures, thermodynamics, pathway r
 Pourbaix analysis. The references file needs CO2 and CO (E0 + G_corr, with whatever gas-phase
 correction you apply to them).
 
+## A third example: nitrogen reduction to ammonia
+
+`examples/plugins/nrr.py` adds N2 + 6 (H⁺ + e⁻) → 2 NH3 by the distal associative route on
+metal top sites: \*N2, \*NNH, \*NNH2, \*N, \*NH, \*NH2 and \*NH3. Three of the adsorbates use
+the fixed shapes with N as the proximal atom (`atom`, `XH`, `water`), four are templates. Two
+things differ from the other examples, and neither needs anything from the core:
+
+* **The product leaves twice.** A turnover gives two NH3, so the turnover marker
+  (`Reaction.release`) is N2, which is taken up once.
+* **Steps without electron transfer.** N2 adsorption and NH3 release exchange no electron, so
+  no potential drives them. If one of them is uphill, the cycle has no limiting potential and
+  `thermo` and `pathways --rank` say so instead of reporting a number.
+
+`tests/test_nrr_plugin.py` runs it on Pt(111) end to end, and checks that the seven
+intermediates are read back from their structures and that an N2 or NH3 that left, an N–H bond
+that broke and an H on the wrong N are recognised.
+
 ## Reactions
 
 A `Reaction` declares data only:
@@ -224,9 +241,30 @@ adsorbates bring beyond O, H and Cl (C and N, say) join them automatically: they
 their bonds to each other, to O and to the metals are watched, with bond lengths from covalent
 radii (lower hysteresis edge, initial bond and upper edge at 1.15, 1.25 and 1.35 times the sum
 of the radii), and released molecules that contain them are recognised. For oxygen and
-chlorine chemistry nothing changes. An adsorbate bound to a metal through H (such as \*H) is
-still followed by its connectivity only: while it keeps its bonds the state keeps its node;
-otherwise the structure is listed for review.
+chlorine chemistry nothing changes.
+
+**Hydrogen on a metal.** When an adsorbate is bound through H (`proximal="H"`, the \*H of the
+HER example), metal–H contacts are watched like metal–O ones (bonded below 2.14 Å for a typical
+metal; override with `topology.hysteresis_A: {"M-H": [lower, upper]}`). An H that left the
+surface, alone or as H2, is reported as released (no bound minimum from that start); one that
+moved to another metal atom, or sits between two, waits for review, as an O that changes its
+metal does. Without such an adsorbate (OER, CER) metal–H distances are not looked at, as before.
+
+**Bonds between two sites.** Two neighbouring sites can bond through their proximal atoms: the
+O–O pairs of the OER coupling families, two \*CO through C. An adsorbate allows it with
+`couples=True` (and may give the bond length of the start with `coupled_bond_A`; the default is
+the sum of the covalent radii, 1.45 Å for O–O). A family writes such an intermediate with
+`ctx.node({a: "CO", b: "CO"}, family, label, coupling=(a, b))`; the builder places the two
+proximal atoms at that bond length, relaxed structures are read as a coupled pair or as two
+separate adsorbates (and assigned to the intermediate they became), and the pathway search
+proposes the step as "C-C coupling" when the reaction's `elementary` vectors include `{}`, a
+step that exchanges nothing with the reservoirs. Give the adsorbate tilts wide enough for the
+pair: two \*CO need about 30° to keep their oxygens apart (`tests/test_coupling.py`).
+
+**One binding atom per adsorbate.** An adsorbate is bound through its proximal atom. A relaxed
+structure in which a second atom of it also binds a metal (a carboxyl or a formate lying down
+on two metals) is neither accepted in silence nor called released: it waits for review, with
+the new contacts named. Rings cannot be written as templates.
 
 ## Mechanism families
 

@@ -89,7 +89,7 @@ def describe_changes(topology, meta, occupancy_label=None):
     released = topology.get("released") or []
     gone = {a for item in released for a in item.get("atoms", [])}
     for item in released:
-        heavy = [a for a in item.get("atoms", []) if symbols.get(a) != "H"]
+        heavy = [a for a in item.get("atoms", []) if symbols.get(a) != "H"] or list(item.get("atoms", []))
         lines.append(
             f"{item['formula']} ({', '.join(map(atom, heavy))}) released from {' and '.join(map(atom, item['from']))}"
         )

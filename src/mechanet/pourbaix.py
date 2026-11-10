@@ -488,8 +488,7 @@ def _window(text, name):
 
 
 def _cli(args, registry):
-    from .campaign import find_campaign_dir
-    from .cli import default_references
+    from .campaign import default_references, find_campaign_dir
 
     args.campaign = find_campaign_dir(args.campaign)
     references = args.references or default_references(args.campaign)

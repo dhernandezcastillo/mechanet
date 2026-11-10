@@ -615,13 +615,15 @@ class Builder:
             pa, pb = records[a]["position"], records[b]["position"]
             vec = minimum_image(pb - pa, self.seed.cell)
             center = pa + 0.5 * vec
-            # A bidentate peroxo-like starting guess. This may relax away.
+            # A bidentate peroxo-like starting guess (O-O 1.45 A; other pairs at their own bond
+            # length). This may relax away.
             axis = unit(vec)
+            half = 0.5 * self.coupled_bond(occupancy, a, b)
             lift = float(self.geo.get("coupled_pair_lift_A", 0.50)) * float(lift_scale)
             metals = [p for p, sy in zip(self.seed.positions, self.seed.symbols) if sy in self.metal_elements]
             for _ in range(21):
-                trial_a = center - 0.725 * axis + lift * self.normal
-                trial_b = center + 0.725 * axis + lift * self.normal
+                trial_a = center - half * axis + lift * self.normal
+                trial_b = center + half * axis + lift * self.normal
                 closest = min(
                     np.linalg.norm(minimum_image(p - q, self.seed.cell)) for q in (trial_a, trial_b) for p in metals
                 )
@@ -635,6 +637,17 @@ class Builder:
                 repositioned.add(aid)
             bonds.append([a, b])
         return records, bonds, oriented, repositioned, localized
+
+    def coupled_bond(self, occupancy, a, b):
+        """Bond between the proximal atoms of a coupled pair of sites in a start (A): 1.45 for
+        O-O, else the adsorbates' ``coupled_bond_A`` or the covalent radii of the two atoms."""
+        first, second = (self.adsorbate(occupancy.get(site, self.native[site])) for site in (a, b))
+        given = [x.coupled_bond_A for x in (first, second) if x.coupled_bond_A]
+        if given:
+            return float(sum(given) / len(given))
+        if first.proximal == second.proximal == "O":
+            return 1.45
+        return elements.covalent_radius(first.proximal) + elements.covalent_radius(second.proximal)
 
     def _site_grid(self, aid, status, binding_modes):
         """Every orientation parameter set searched for one reacting site."""
@@ -1243,6 +1256,13 @@ class Builder:
             if aid not in self.sites:
                 raise ValueError(f"Unknown reactive site {aid}")
             self.adsorbate(status)
+        for aid in coupling or ():
+            status = occupancy.get(aid, self.native.get(aid))
+            if aid not in self.sites or not self.adsorbate(status).couples:
+                raise ValueError(
+                    f"Sites {' and '.join(coupling)} cannot be coupled: the adsorbate {status!r} on {aid} does "
+                    "not bond to a neighbouring site (Adsorbate.couples)"
+                )
         changes = {k: v for k, v in occupancy.items() if v != self.native[k]}
         key = self._node_key(changes, coupling)
         sources = self._family_sources(family)
@@ -1523,10 +1543,20 @@ class Builder:
                 "Side-on starts move both O atoms; no coordination constraint is imposed during optimization."
             )
         if coupling:
-            meta["notes"].append(
-                "Coupled O/O is a putative O2-like adsorbate minimum, not an O4 transition state; O-O "
-                "starts at 1.45 A and the outward lift avoids M-O distances below 1.65 A."
-            )
+            pair = [st.symbols[st.ids.index(aid)] for aid in coupling]
+            oxygen_pair = pair == ["O", "O"]
+            if oxygen_pair:
+                meta["notes"].append(
+                    "Coupled O/O is a putative O2-like adsorbate minimum, not an O4 transition state; O-O "
+                    "starts at 1.45 A and the outward lift avoids M-O distances below 1.65 A."
+                )
+            else:
+                bond = self.coupled_bond(occupancy, *coupling)
+                meta["notes"].append(
+                    f"Coupled {'/'.join(pair)} is a putative minimum with a {'-'.join(pair)} bond between two "
+                    f"sites, not a transition state; the bond starts at {bond:.2f} A and the outward lift "
+                    "avoids metal distances below 1.65 A."
+                )
             metal_contacts = {}
             for aid in coupling:
                 io = st.ids.index(aid)
@@ -1535,11 +1565,11 @@ class Builder:
                     for j, sy in enumerate(st.symbols)
                     if sy in self.metal_elements and distances[io, j] <= 2.6
                 ]
-            meta["coupled_O_metal_contacts"] = metal_contacts
+            meta["coupled_O_metal_contacts" if oxygen_pair else "coupled_metal_contacts"] = metal_contacts
             if any(not value for value in metal_contacts.values()):
                 meta["notes"].append(
-                    "One coupled O has no metal within 2.6 A in this start; binding assignment must be "
-                    "reviewed after optimization."
+                    f"One coupled {'O' if oxygen_pair else 'atom'} has no metal within 2.6 A in this start; "
+                    "binding assignment must be reviewed after optimization."
                 )
         meta["closest_nonbonded_contacts_A"] = self._closest_contacts(st, distances, bonds)
         state_dir = self.out / "states" / state_id

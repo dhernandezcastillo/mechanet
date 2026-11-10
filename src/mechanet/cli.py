@@ -159,22 +159,10 @@ def _command_registry(args, registry):
 
 
 def default_references(campaign):
-    """thermodynamics.references of a campaign (set from project.yaml)."""
-    from .campaign import find_campaign_dir
-    from .fileio import read_json
+    """thermodynamics.references of a campaign (:func:`mechanet.campaign.default_references`)."""
+    from .campaign import default_references as resolve
 
-    root = find_campaign_dir(campaign)
-    path = read_json(root / "config.json").get("thermodynamics", {}).get("references")
-    if not path:
-        raise ValueError(
-            "No references file: pass --references FILE or set thermodynamics.references in "
-            "project.yaml (`mechanet references` writes a template)"
-        )
-    if not Path(path).is_file():
-        raise FileNotFoundError(
-            f"References file {path} not found (`mechanet references --out {path}` writes a template)"
-        )
-    return path
+    return resolve(campaign)
 
 
 def _selection_options(parser, pilot=True, selected=True):

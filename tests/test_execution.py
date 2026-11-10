@@ -254,6 +254,27 @@ class StageChainTests(_Base):
         self.assertEqual(len(calls(self.state)), 16)
         self.assertEqual(read_json(self.state / "run.json")["status"], "complete")
 
+    def test_stages_can_be_driven_one_at_a_time(self):
+        """What a workflow engine needs (docs/execution.md, "From another workflow tool"): each
+        call runs the stages up to ``through`` that are not finished yet, and nothing twice."""
+        prepare(self.campaign)
+        expected = []
+        for through, stages in (
+            ("loose", ["01_loose"]),
+            ("final", ["02_final"]),
+            ("refine", ["03_refine"]),
+            ("static", ["04_static"]),
+        ):
+            result = run_state(self.state, through=through, execute=True)
+            self.assertEqual(result["status"], "complete", through)
+            expected += stages
+            self.assertEqual(calls(self.state), expected, through)
+            self.assertEqual(run_state(self.state, through=through, execute=True)["status"], "complete")
+            self.assertEqual(calls(self.state), expected, f"{through} again: nothing runs twice")
+        self.assertEqual(run_state(self.state, through="freq", execute=True)["status"], "complete")
+        self.assertEqual(len(calls(self.state)), 16)  # the four stages and twelve displacements, as in one call
+        self.assertTrue((self.state / STAGE_FREQ / "frequencies.json").is_file())
+
     def test_failed_final_blocks_downstream_and_explicit_retry_archives(self):
         marker(self.state, "fail_02_final")
         with self.assertRaisesRegex(RuntimeError, "Final geometry"):

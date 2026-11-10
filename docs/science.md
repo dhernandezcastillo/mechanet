@@ -135,6 +135,14 @@ still found to be an image after the search is set aside and replaced
 so. Lattice translations, which relate whole intermediates rather than starts, are handled
 separately (§1).
 
+**Equal scores.** Orientations that a symmetry of the site alone maps onto each other, without
+being symmetry images on the whole slab, score the same up to rounding in the last digits (a
+difference of 10⁻¹⁵). Which of them is kept then follows that rounding. The choice is the same
+on every x86-64 machine (Linux and Windows, Python 3.10 to 3.14), so a build is reproducible
+there; another processor family (Apple Silicon) can keep another of the tied orientations for
+a few starts (4 of 128 in the NiFe LDH example). The network, the intermediates and the scores
+do not depend on it.
+
 **Shared protons.** An H of the seed within `topology.shared_proton_max_OH_A` (1.6 Å) of two
 O, one of them within 1.25 Å, is a proton shared in a short hydrogen bond (the inspector
 lists them). When the intermediate changes the site of its acceptor O, the proton is moved
@@ -377,7 +385,9 @@ in the frozen region.
 Relaxed connectivity is compared with the starting structure with hysteresis (an O–H bond
 is lost beyond 1.35 Å and forms below 1.20 Å; O–O 1.75/1.95 Å; M–O 2.20/2.50 Å; O–Cl and
 M–Cl analogous; for elements that plugin adsorbates bring, such as C or N, 1.15 and 1.35
-times the sum of the covalent radii, with 1.40 Å for a metal). When it changed, the relaxed
+times the sum of the covalent radii, with 1.40 Å for a metal; metal–H the same way, 1.97 and
+2.31 Å, when an adsorbate is bound through H). Two site atoms bonded to each other are a
+coupled pair when both adsorbates allow it: two O, or two \*CO through C. When it changed, the relaxed
 structure is classified site by site with the
 adsorbate signatures of the registry and assigned to the node with that occupancy, where it
 competes with that node's own variants. Ambiguous structures (a proton in transit, a

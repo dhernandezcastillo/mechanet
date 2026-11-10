@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-Chemistry beyond oxygen and chlorine without changes to the core, pre-screening with ML
-potentials, no repeated starts on symmetric sites, Windows support, and three corrections from
-an independent review of the thermodynamics.
+Chemistry beyond oxygen and chlorine without changes to the core (carbon, nitrogen, hydrogen on
+metals, bonds between two sites), pre-screening with ML potentials, no repeated starts on
+symmetric sites, Windows and macOS support, a smaller `analysis.py`, and three corrections from
+an independent review of the thermodynamics. Everything 0.1.4 offered is still there, and a
+test now checks it.
 
 - **No two starts of an intermediate are symmetry images of each other.** `generate` used to
   merge only lattice translations, so on a symmetric site it could write the same start twice
@@ -56,6 +58,40 @@ an independent review of the thermodynamics.
   ID is unchanged (the frozen NiFe LDH build still matches to 10⁻⁶ Å).
 - **CO2 reduction to CO** (`examples/plugins/co2rr.py`): a plugin with CO2 and CO, \*COOH and
   \*CO templates and the carboxyl route, run end to end in the tests.
+- **Nitrogen reduction to ammonia** (`examples/plugins/nrr.py`): N2 + 6 (H⁺ + e⁻) → 2 NH3 by
+  the distal route, with seven nitrogen adsorbates (fixed shapes and templates) and a turnover
+  whose marker (N2) is taken up while the product leaves twice. Run end to end in the tests,
+  with no change to the core beyond naming a released NH₃.
+- **Metal–H bonds are watched** when an adsorbate is bound through H (the \*H of the HER
+  example). An H that left the surface, alone or as H2, is reported as released; one that moved
+  to another metal waits for review. Before, a hydrogen 6 Å above the surface still counted as
+  "connectivity retained". Without such an adsorbate (OER, CER) nothing changes.
+- **Bonds between the adsorbates of two sites, beyond O–O.** An adsorbate declares
+  `couples=True` (and optionally `coupled_bond_A`); the builder places the pair at its bond
+  length, relaxed structures are read as a coupled pair or as two adsorbates, the pathway
+  search proposes "C-C coupling" (the text "O-O coupling" is unchanged), and the `enumerated`
+  family couples every pair that allows it. Coupling adsorbates that do not allow it is refused.
+  Tested with two \*CO on Pt(111) that bond through C.
+- **Two-point binding is flagged, not guessed.** A relaxed adsorbate in which a second atom
+  binds a metal waits for review with the new contacts named (a test pins this down); the
+  end-on/side-on rule now applies to O and Cl atoms only, as it was written for.
+- **`analysis.py` is split** into `topology.py` (bond kinds, classification, `topology_check`),
+  `collection.py` (`collect`), `selection.py` (`select_for_thermo`), `energies.py` (node
+  energies, `energy_inputs`) and the thermodynamic analysis that stays. Every name is still
+  importable from `mechanet.analysis`. No science module imports the command line any more
+  (`default_references` moved to `campaign.py`; `cli.default_references` still works).
+- **Stages can be driven one at a time** from another workflow tool: `run_state(state,
+  through=STAGE, execute=True)` runs what is not finished up to that stage and nothing twice
+  (docs/execution.md §11; now covered by a test).
+- **Nothing of 0.1.4 is lost**: every command, option and public name of 0.1.4 is still there
+  (27 commands, 233 options, 1,150 names checked); the tables `analysis.RESERVOIR_MOLECULES`,
+  `families.coverage.DEFAULT_STATES` and `CER_EXTRA`, replaced by declarations, are importable
+  again.
+- **Starts on other processors.** Orientations with exactly equal scores are told apart by
+  rounding in the last digits; x86-64 machines agree with each other, Apple Silicon keeps
+  another of the tied orientations for a few starts (4 of 128 in the NiFe LDH example). The
+  frozen-build test is exact on x86-64 and checks states, atoms and masks elsewhere
+  (docs/science.md §3).
 - **Reactions declare their coverage states** (`Reaction.coverage_states`), and the reference
   molecules an analysis needs come from `Species.references`; nothing in the core names OER or
   CER for either any more.

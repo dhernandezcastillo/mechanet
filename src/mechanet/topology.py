@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 
 from . import elements
-from .adsorbates import CORE_ELEMENTS, extra_elements, tree_key
+from .adsorbates import CORE_ELEMENTS, binds_through_hydrogen, extra_elements, tree_key
 from .fileio import _load, read_json
 from .plugins import default_registry
 from .structure import distance_matrix, minimum_image, read_poscar
@@ -50,9 +50,10 @@ def _metals(config, symbols):
     return {e for e, r in roles.items() if r == "metal"}
 
 
-def _pair_type(a, b, metals, extra=frozenset()):
+def _pair_type(a, b, metals, extra=frozenset(), metal_h=False):
     """Bond kind of two elements: O-H, O-O, O-Cl, M-O, M-Cl, or, for the ``extra`` elements that
-    registered adsorbates bring (C, N, ...), M-X and X-Y (sorted, e.g. C-O, C-H). None: not watched."""
+    registered adsorbates bring (C, N, ...), M-X and X-Y (sorted, e.g. C-O, C-H). ``metal_h``:
+    an adsorbate binds through H (*H of hydrogen evolution), so M-H is a kind too. None: not watched."""
     pair = {a, b}
     if pair == {"O", "H"}:
         return "O-H"
@@ -64,6 +65,8 @@ def _pair_type(a, b, metals, extra=frozenset()):
         return "M-O"
     if "Cl" in pair and pair & metals:
         return "M-Cl"
+    if metal_h and "H" in pair and pair & metals:
+        return "M-H"
     if not pair & extra:
         return None
     if pair & metals:
@@ -210,7 +213,8 @@ def classify_microstate(
     Every H must sit on exactly one O (closest O below the lower O-H hysteresis edge and no
     second O that close); every O-O and O-Cl contact must be clearly bonded or clearly not.
     A site atom with one bonded non-site heavy atom is an OO/OOH/OCl-type group; otherwise
-    its element and H count give O/OH/H2O/Cl. Two bonded site oxygens form a coupled pair.
+    its element and H count give O/OH/H2O/Cl. Two bonded site atoms form a coupled pair when
+    both adsorbates allow it (``Adsorbate.couples``: two O for the OER, two *CO through C).
     Protons on framework oxygens must be unchanged relative to the initial structure.
     ``tautomers`` ({h: (seed_o, partner_o)}, see :mod:`mechanet.tautomers`) are background
     shared protons: when the H around their two oxygens are in the transferred or centred
@@ -252,6 +256,9 @@ def classify_microstate(
                 if moved is not None:
                     moved.append(h)
     hosts_text = "oxygen" if not extra else "atom of " + ", ".join(sorted({"O", *extra}))
+    # The H of a site that binds through H (*H on a metal) sits on no O: topology_check judges its
+    # metal contacts. On an O (or another host) it has left the site model.
+    site_h = {index[s] for s in context["native"] if s in index and symbols[index[s]] == "H"}
     owner = {}
     for h in hydrogen:
         if h in handled:
@@ -269,7 +276,11 @@ def classify_microstate(
                         f"{h_kind(near[0][1])} hysteresis band"
                     ),
                 )
+            if h in site_h:
+                continue
             return None, None, f"{ids[h]} is not bonded to any {hosts_text}"
+        if h in site_h:
+            return None, None, f"{ids[h]}, the H of a site, is bonded to {ids[bonded[0][1]]}"
         if len(bonded) > 1:
             return None, None, f"{ids[h]} is bonded to two {'oxygens' if not extra else 'atoms'}"
         owner.setdefault(bonded[0][1], []).append(h)
@@ -290,15 +301,16 @@ def classify_microstate(
     site_index = {index[s]: s for s in sites if s in index}
     occupancy, coupling, claimed = {}, [], set()
 
-    def fragment(root):
+    def fragment(root, skip=()):
         """(canonical tree, heavy atoms) of the new atoms bonded to a site atom, or (None, set()) when
-        they reach another site or the framework, or close a ring."""
+        they reach another site or the framework, or close a ring. ``skip``: the atom of the site
+        this one is coupled to, which is not part of its adsorbate."""
         atoms = set()
 
         def walk(atom, parent):
             children = []
             for p in partners.get(atom, []):
-                if p == parent:
+                if p == parent or (atom == root and p in skip):
                     continue
                 if p in atoms or p == root or p in site_index or _NATIVE_ID.match(ids[p]):
                     raise LookupError
@@ -328,12 +340,6 @@ def classify_microstate(
         h_count = len(owner.get(o, []))
         site_partners = [p for p in partners.get(o, []) if p in site_index]
         other = [p for p in partners.get(o, []) if p not in site_index]
-        if site_partners:
-            if len(site_partners) > 1 or other or h_count or symbols[o] != "O":
-                return None, None, f"{s} is part of an O-O arrangement outside the site model"
-            coupling.append(s)
-            occupancy[s] = "O"
-            continue
         # A distal atom bonded to the site atom alone: the fixed shapes (OO, OOH, OCl, ...).
         distal, distal_h, simple = None, 0, True
         if other:
@@ -346,10 +352,17 @@ def classify_microstate(
         if status is not None and distal:
             claimed.add(other[0])
         if status is None and graph_shapes:  # a larger tree: the template adsorbates
-            key, atoms = fragment(o)
+            key, atoms = fragment(o, site_partners)
             status = signatures.get(("graph", key)) if key else None
             if status is not None:
                 claimed |= atoms
+        if site_partners:
+            # Bonded to the atom of another site: a coupled pair when it is one bond between two
+            # adsorbates that allow it (Adsorbate.couples): two O for the OER, two *CO through C.
+            if len(site_partners) > 1 or status is None or not registry.adsorbates[status].couples:
+                pair = "O-O" if not extra else "-".join(sorted((symbols[o], symbols[site_partners[0]])))
+                return None, None, f"{s} is part of an {pair} arrangement outside the site model"
+            coupling.append(s)
         if status is None:
             if not simple:
                 return None, None, f"{s} is bonded to a heavy-atom pattern outside the site model"
@@ -364,7 +377,7 @@ def classify_microstate(
             )
         occupancy[s] = status
     if len(coupling) not in (0, 2):
-        return None, None, "inconsistent site-site O-O coupling"
+        return None, None, "inconsistent site-site O-O coupling" if not extra else "inconsistent coupling between sites"
     for o in heavy:
         if o in site_index or o in claimed:
             continue
@@ -401,6 +414,7 @@ FRAGMENT_NAMES = {
     (("Cl", 1), ("O", 1)): "ClO",
     (("Cl", 1), ("H", 1), ("O", 1)): "HOCl",
     (("Cl", 1), ("H", 1)): "HCl",
+    (("H", 3), ("N", 1)): "NH₃",
 }
 # Bonds within a released molecule: the lower hysteresis edges where they exist.
 _FRAGMENT_BONDS = {"H-H": 0.90, "Cl-H": 1.45, "Cl-Cl": 2.30}
@@ -432,15 +446,17 @@ def _own_release(released, lost_metal, new_metal, occupancy, coupling, native, s
 
     Every released molecule must hold a heavy atom (O or Cl, or an element another adsorbate
     brings) of a site the intermediate changes (or one it added: an H it added does not make a
-    spectator water its own), every lost metal contact must belong to such a molecule, and no
-    new contact formed: a spectator ligand that left, or one that moved to another metal, still
-    needs review.
+    spectator water its own), or the H that is such a site's own atom (*H of hydrogen evolution);
+    every lost metal contact must belong to such a molecule, and no new contact formed: a
+    spectator ligand that left, or one that moved to another metal, still needs review.
     """
     if not released or new_metal:
         return False
     own = {s for s, v in (occupancy or {}).items() if (native or {}).get(s) != v} | set(coupling or ())
 
     def owned(atom_id):
+        if symbol_of.get(atom_id) == "H":
+            return atom_id in own
         return symbol_of.get(atom_id) in heavy and (atom_id in own or not _NATIVE_ID.match(atom_id))
 
     if not all(any(owned(a) for a in item["atoms"]) for item in released):
@@ -453,20 +469,23 @@ def released_text(released, ids, symbols):
     """'O₂ (O a0065, O d_a0065) left Fe a0003' for every released molecule (its heavy atoms named)."""
     parts = []
     for item in released:
-        heavy = [_named(a, ids, symbols) for a in item["atoms"] if a in ids and symbols[ids.index(a)] != "H"]
+        atoms = [a for a in item["atoms"] if a in ids]
+        heavy = [a for a in atoms if symbols[ids.index(a)] != "H"] or atoms  # H or H2: its own atoms
         metals = ", ".join(_named(m, ids, symbols) for m in item["from"])
-        parts.append(f"{item['formula']} ({', '.join(heavy)}) left {metals}")
+        parts.append(f"{item['formula']} ({', '.join(_named(a, ids, symbols) for a in heavy)}) left {metals}")
     return "; ".join(parts)
 
 
-def released_fragments(ids, symbols, distances, metals, lost_metal, hysteresis, extra=frozenset()):
+def released_fragments(ids, symbols, distances, metals, lost_metal, hysteresis, extra=frozenset(), metal_h=False):
     """Molecules that left the metal during the relaxation: no bound minimum from this start.
 
     From every ligand that lost its contact with an active metal, the molecule is the set of
     O, H and Cl atoms (and atoms of the ``extra`` elements other adsorbates bring, C or N) bonded
     to it in the relaxed structure (below the lower hysteresis edges); it is released when none
-    of its heavy atoms lies within the upper M-O, M-Cl (M-X) edge of any metal atom. Returns
-    [{"formula", "atoms", "from"}], ``from`` being the metals it lost contact with.
+    of its heavy atoms lies within the upper M-O, M-Cl (M-X) edge of any metal atom. With
+    ``metal_h`` (an adsorbate binds through H) a molecule of H alone, H or H2, is judged by its
+    H atoms and the M-H edge. Returns [{"formula", "atoms", "from"}], ``from`` being the metals
+    it lost contact with.
     """
     if not lost_metal:
         return []
@@ -475,6 +494,8 @@ def released_fragments(ids, symbols, distances, metals, lost_metal, hysteresis, 
     metal_atoms = [i for i, s in enumerate(symbols) if s in metals]
     reach = {"O": hysteresis["M-O"][1], "Cl": hysteresis.get("M-Cl", DEFAULT_HYSTERESIS["M-Cl"])[1]}
     reach.update({e: _limits(f"M-{e}", hysteresis)[2] for e in extra})
+    if metal_h:
+        reach["H"] = _limits("M-H", hysteresis)[2]
 
     def bonded(i, j):
         kind = _pair_type(symbols[i], symbols[j], set(), extra) or "-".join(sorted((symbols[i], symbols[j])))
@@ -505,11 +526,11 @@ def released_fragments(ids, symbols, distances, metals, lost_metal, hysteresis, 
                     group.add(j)
                     stack.append(j)
         seen |= group
+        probes = [i for i in group if symbols[i] != "H"]
+        if not probes and metal_h:
+            probes = sorted(group)  # H or H2: still bound when an H is within the M-H edge of a metal
         if any(
-            float(distances[i, m]) <= reach.get(symbols[i], hysteresis["M-O"][1])
-            for i in group
-            if symbols[i] != "H"
-            for m in metal_atoms
+            float(distances[i, m]) <= reach.get(symbols[i], hysteresis["M-O"][1]) for i in probes for m in metal_atoms
         ):
             continue
         atoms = sorted(group, key=lambda i: (symbols[i] == "H", ids[i]))
@@ -524,14 +545,14 @@ def released_fragments(ids, symbols, distances, metals, lost_metal, hysteresis, 
 
 
 def _binding_mode_only(metal_changes, ids, symbols, distances, hysteresis):
-    """True if every changed M-X contact belongs to an adsorbate (distal) atom whose bonded
-    site atom is attached to that same metal: an end-on/side-on change."""
+    """True if every changed M-X contact belongs to an adsorbate (distal) O or Cl atom whose
+    bonded site oxygen is attached to that same metal: an end-on/side-on change."""
     index = {aid: k for k, aid in enumerate(ids)}
     lo_oo = hysteresis["O-O"][0]
     upper_mo = hysteresis["M-O"][1]
     for a, b in metal_changes:
         o_id, m_id = (a, b) if symbols[index[a]] in ("O", "Cl") else (b, a)
-        if _NATIVE_ID.match(o_id):
+        if _NATIVE_ID.match(o_id) or symbols[index[o_id]] not in ("O", "Cl"):
             return False
         o, m = index[o_id], index[m_id]
         anchors = [p for p, sym in enumerate(symbols) if sym == "O" and p != o and distances[o, p] < lo_oo]
@@ -600,6 +621,7 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
     config = config or {}
     registry = registry or default_registry()
     extra = extra_elements(registry.adsorbates.values())
+    metal_h = binds_through_hydrogen(registry.adsorbates.values())
     topo = config.get("topology", {})
     hysteresis = {k: tuple(v) for k, v in {**DEFAULT_HYSTERESIS, **topo.get("hysteresis_A", {})}.items()}
     shared_max = float(topo.get("shared_proton_max_OH_A", 1.6))
@@ -633,7 +655,7 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
         ambiguous = []
         for i in range(len(symbols)):
             for j in range(i + 1, len(symbols)):
-                kind = _pair_type(symbols[i], symbols[j], metals, extra)
+                kind = _pair_type(symbols[i], symbols[j], metals, extra, metal_h)
                 if kind is None:
                     continue
                 to_metal = kind.startswith("M-")
@@ -686,7 +708,7 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
                 missing_required.append((a, b))
                 continue
             ia, ib = index[a], index[b]
-            kind = _pair_type(symbols[ia], symbols[ib], metals, extra)
+            kind = _pair_type(symbols[ia], symbols[ib], metals, extra, metal_h)
             upper = _limits(kind, hysteresis)[2] if kind else 1.25
             if d_final[ia, ib] > upper:
                 missing_required.append((a, b))
@@ -700,7 +722,7 @@ def topology_check(state_dir, meta, config=None, geometry="latest", registry=Non
         if own_occupancy is None and context is not None and meta.get("node_id") in context["nodes"]:
             node = context["nodes"][meta["node_id"]]
             own_occupancy, own_coupling = node.get("occupancy"), node.get("coupling")
-        released = released_fragments(ids, symbols, d_final, metals, lost_metal, hysteresis, extra)
+        released = released_fragments(ids, symbols, d_final, metals, lost_metal, hysteresis, extra, metal_h)
         gone = {index_of[a] for item in released for a in item["atoms"] if a in index_of}
         background = background_protons(shared, ids, d_initial, native, own_occupancy, own_coupling, gone)
         tautomer = tautomer_record(shared, ids, symbols, d_initial, d_final, native, background, hysteresis, gone)

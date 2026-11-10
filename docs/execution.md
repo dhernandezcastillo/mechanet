@@ -360,3 +360,31 @@ collect's verdicts: a finished structure that was not accepted for its own node 
 marked (`?`), and a complete cycle with an intermediate that has no accepted structure is
 counted as held up. A structure whose run or `review.json` changed after that collect is not
 judged until the next one. `mechanet review` gives the details and records decisions.
+
+## 11. From another workflow tool
+
+mechanet's own runner submits and continues SLURM jobs, and it is the path the documentation
+follows. A workflow engine (jobflow, AiiDA, a script of your own) can drive the same stages
+instead, because every step is a Python function that is safe to call again:
+
+```python
+from mechanet.runner import prepare, run_state, submission_check
+from mechanet.analysis import collect
+
+prepare("campaign")                                    # stage plans and inputs; no job is submitted
+state = "campaign/states/n_0065OOH_cfb68d__v1"
+run_state(state, through="loose", execute=True)        # 01_loose only
+run_state(state, through="final", execute=True)        # then 02_final
+run_state(state, through="freq", execute=True)         # the rest: refine/static and the displacements
+collect("campaign")                                    # parse and check everything that has run
+```
+
+`run_state` runs, inside the allocation it is called in, the stages up to `through` that are
+not finished yet, in order, and nothing twice: calling it again after it completed starts no
+calculation. A stage interrupted by the time limit continues from its last ionic step at the
+next call, and a failed one is retried only with `retry=True` (§3). It returns the state's
+record (`status`: `complete`, `incomplete_time_limit`, ...), which it also writes to `run.json`.
+`submission_check(state, through)` says, without running anything, whether a run of the state
+would make progress (`action`: `submit`, `skip` or `complete`, with the reason). The locks of
+§8 keep two callers from running the same state at once.
+Checks, hashes and the files in a stage folder are the same as with `mechanet submit`.

@@ -42,6 +42,22 @@ def load_network(campaign):
     return read_json(Path(campaign) / "network.json")
 
 
+def default_references(campaign):
+    """thermodynamics.references of a campaign (set from project.yaml)."""
+    root = find_campaign_dir(campaign)
+    path = read_json(root / "config.json").get("thermodynamics", {}).get("references")
+    if not path:
+        raise ValueError(
+            "No references file: pass --references FILE or set thermodynamics.references in "
+            "project.yaml (`mechanet references` writes a template)"
+        )
+    if not Path(path).is_file():
+        raise FileNotFoundError(
+            f"References file {path} not found (`mechanet references --out {path}` writes a template)"
+        )
+    return path
+
+
 def _ids(value):
     if value is None:
         return None

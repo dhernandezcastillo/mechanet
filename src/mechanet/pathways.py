@@ -100,13 +100,17 @@ class StepRules:
             return None
         if len(involved) == 2 and not self.pair_ok(*sorted(involved)):
             return None
+        bond_step = False
         if couple_a != couple_b:
             sites = sorted(couple_a | couple_b)
             if couple_a and couple_b:
                 return None
-            if not changed and all(a[s] == "O" for s in sites):
-                rule = "O-O coupling" if couple_b else "O-O decoupling"
-            elif couple_a and all(a[s] == "O" and b[s] == "empty" for s in sites):
+            # two neighbouring adsorbates that bond through their proximal atoms: O-O, C-C, N-N, ...
+            couples = all(self.adsorbates[a[s]].couples for s in sites)
+            if not changed and couples:
+                pair = "-".join(sorted(self.adsorbates[a[s]].proximal for s in sites))
+                rule, bond_step = f"{pair} coupling" if couple_b else f"{pair} decoupling", True
+            elif couple_a and couples and all(b[s] == "empty" for s in sites):
                 rule = "release from a coupled pair"
             else:
                 return None
@@ -140,7 +144,7 @@ class StepRules:
                 continue
             if rule.startswith("proton transfer between") and marker:
                 return vector, "pair release" if self.reaction.advances(vector) else "pair uptake"
-            if rule.startswith(("O-O", "proton transfer between")) and vector:
+            if (bond_step or rule.startswith("proton transfer between")) and vector:
                 continue
             return vector, rule
         return None
@@ -1063,11 +1067,15 @@ def enumerated(ctx):
     ids = []
     for combo in product(*(options[aid] for aid in site_ids)):
         ids.append(ctx.node(dict(zip(site_ids, combo)), "enumerated", label))
+    # pairs of neighbouring sites whose adsorbates can bond to each other (O-O for the OER)
     for a, b in combinations(site_ids, 2):
-        if "O" in options[a] and "O" in options[b] and pair_ok(a, b):
-            occupancy = {aid: ctx.native[aid] for aid in site_ids}
-            occupancy.update({a: "O", b: "O"})
-            ids.append(ctx.node(occupancy, "enumerated", label, coupling=(a, b)))
+        if not pair_ok(a, b):
+            continue
+        for first, second in product(options[a], options[b]):
+            if ctx.registry.adsorbates[first].couples and ctx.registry.adsorbates[second].couples:
+                occupancy = {aid: ctx.native[aid] for aid in site_ids}
+                occupancy.update({a: first, b: second})
+                ids.append(ctx.node(occupancy, "enumerated", label, coupling=(a, b)))
     nodes = [ctx.nodes[i] for i in dict.fromkeys(ids)]
     rules = StepRules({aid: ctx.native[aid] for aid in ctx.sites}, ctx.registry.adsorbates, ctx.reaction, pair_ok)
     for start, end, vector, rule in propose_steps(nodes, rules):
@@ -1207,7 +1215,7 @@ def _cli(args, registry):
         raise ValueError("--references is used by --rank; add --rank")
     references = None
     if args.rank:
-        from .cli import default_references
+        from .campaign import default_references
 
         references = args.references or default_references(args.campaign)
     report = discover(

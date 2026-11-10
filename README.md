@@ -294,8 +294,10 @@ file listed under `plugins:` in project.yaml
 (`mechanet init SLAB --plugin FILE --reaction NAME` starts a project for a plugin reaction).
 The built-in OER and CER chemistry is registered the same way. A two-step family fits in a
 dozen lines; larger adsorbates (\*COOH, \*NNH2, ...) are given atom by atom, and the checks of
-relaxed structures follow whatever elements they bring. `examples/plugins/her.py` and
-`examples/plugins/co2rr.py` (CO2 to CO through \*COOH) are complete examples; see
+relaxed structures follow whatever elements they bring: C, N, an H bound to a metal, and bonds
+between the adsorbates of two neighbouring sites (O–O, C–C). `examples/plugins/her.py`,
+`examples/plugins/co2rr.py` (CO2 to CO through \*COOH) and `examples/plugins/nrr.py` (N2 to
+NH3, seven nitrogen intermediates) are complete examples, each run end to end by the tests; see
 [docs/plugins.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/plugins.md).
 
 ## Examples
@@ -326,6 +328,9 @@ exhausted; magnetic states are not sampled: every structure starts from the same
 mechanet only reports when intermediates or variants ended in different magnetic solutions.
 On metal surfaces adsorbates are placed on top sites only (one open site per surface metal);
 bridge and hollow sites are not generated yet, so a metal's preference for them is missed.
+An adsorbate binds through one atom: a relaxed structure in which a second atom also binds a
+metal (a formate on two metals), or one that moved to a bridge or hollow position, waits for
+review instead of being assigned automatically.
 Partial Hessians neglect vibrations of the frozen region. The
 DFT execution layer drives VASP. Calculators (any ASE calculator, such as an ML potential) only
 pre-screen starting structures; running another DFT code through the staged runner is not

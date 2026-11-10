@@ -67,8 +67,10 @@ class ReactionTests(unittest.TestCase):
         self.assertEqual(oer_trio({"H2O": -1, "H+": 1}), (1, 1, 0))
         self.assertIsNone(oer_trio({"Cl-": -1}))
         self.assertEqual(clean({"H+": 1.0, "O2": 0.0}), {"H+": 1})
+        # A species no plug-in of the examples adds: the species table is shared by the whole
+        # process, so NH3 is known once the nitrogen example has been loaded.
         with self.assertRaisesRegex(ValueError, "Unknown reservoir species"):
-            clean({"NH3": 1})
+            clean({"SF6": 1})
 
     def test_registry_lists_builtins(self):
         registry = default_registry()

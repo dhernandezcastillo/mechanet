@@ -28,7 +28,8 @@ from mechanet.cli import main
 from mechanet.fileio import read_json
 from mechanet.plugins import default_registry
 from mechanet.runner import run_state
-from mechanet.structure import distance_matrix, read_poscar
+from mechanet.structure import Structure, distance_matrix, minimum_image, read_poscar, write_poscar
+from mechanet.topology import topology_check
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "examples" / "plugins" / "co2rr.py"
@@ -188,6 +189,47 @@ class CO2RRPluginTests(unittest.TestCase):
         self.assertIsNone(changes)
         self.assertIn(f"adsorbate atom o2_{site} is not bonded to a reactive site", reason)
         self.assertEqual(self.classify(self.state("CO")), ({site: "CO"}, None, None))
+
+    def test_two_point_binding_waits_for_review(self):
+        """A carboxyl whose carbonyl O bends down onto the metals binds through two atoms. The
+        site model has one binding atom per adsorbate, so the structure is neither accepted in
+        silence nor called released: it waits for review, with the new contacts named."""
+        state = self.state("COOH")
+        meta = read_json(state / "state.json")
+        site = next(iter(meta["occupancy"]))
+        start = read_poscar(state / "POSCAR")
+        ids = meta["atom_ids"]
+        carbon, own, o1 = ids.index(site), ids.index("a" + site[1:]), ids.index(f"o1_{site}")
+        # the surface Pt on the side where the carbonyl O points (away from the OH)
+        across = minimum_image(start.positions[o1] - start.positions[carbon], start.cell)
+        across[2] = 0.0
+        across = across / np.linalg.norm(across)
+        top = [
+            i
+            for i, symbol in enumerate(start.symbols)
+            if symbol == "Pt" and i != own and abs(start.positions[i, 2] - start.positions[own, 2]) < 0.3
+        ]
+
+        def offset(i):
+            return minimum_image(start.positions[i] - start.positions[own], start.cell)
+
+        near = [i for i in top if np.linalg.norm(offset(i)) < 3.0]
+        neighbour = max(near, key=lambda i: float(offset(i) @ across))
+        along = offset(neighbour) / np.linalg.norm(offset(neighbour))
+        moved = start.positions.copy()
+        moved[o1] = start.positions[carbon] + 1.25 * along + np.array([0.0, 0.0, -0.45])
+        path = self.tmp / "bidentate.vasp"
+        write_poscar(path, Structure(start.symbols, moved, start.cell, start.mobile, start.ids))
+        config = read_json(self.campaign / "config.json")
+        result = topology_check(state, meta, config, geometry=path, registry=self.registry, use_review=False)
+        self.assertFalse(result["valid_for_assigned_node"])
+        self.assertEqual(result["status"], "changed_connectivity_needs_review")
+        self.assertEqual(result["microstate"]["status"], "metal_attachment_changed")
+        self.assertEqual(result["microstate"]["occupancy_changes"], {site: "COOH"})  # still a carboxyl
+        self.assertEqual(result["released"], [])
+        new = {tuple(pair) for pair in result["new_active_metal_contacts"]}
+        self.assertIn(tuple(sorted((ids[neighbour], f"o1_{site}"))), new)
+        self.assertEqual(result["lost_active_metal_contacts"], [])
 
     def test_carbon_intermediates_give_the_designed_thermodynamics(self):
         cli("thermo", self.campaign, "--electronic-only")

@@ -20,12 +20,15 @@ import numpy as np
 import yaml
 from support import FAKE_VASP, write_potcars
 
+from mechanet.adsorbates import binds_through_hydrogen
 from mechanet.cli import main
 from mechanet.fileio import read_json
 from mechanet.plugins import default_registry
 from mechanet.reactions import SPECIES
+from mechanet.review import describe_changes
 from mechanet.runner import run_state
-from mechanet.structure import read_poscar
+from mechanet.structure import Structure, read_poscar, write_poscar
+from mechanet.topology import _pair_type, topology_check
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "examples" / "plugins" / "her.py"
@@ -144,6 +147,54 @@ class HERPluginTests(unittest.TestCase):
         )
         steps = [(t["label"], round(t["from_V"], 6)) for t in result["transitions"]]
         self.assertEqual(steps, [("m0010:H", -0.5), ("native", -DG_H)])
+
+    def test_metal_hydrogen_bonds_are_watched(self):
+        """An adsorbate that binds through H makes M-H a watched bond: an H that left its metal
+        or went to another one is no longer accepted in silence."""
+        registry = default_registry([PLUGIN])
+        self.assertTrue(binds_through_hydrogen(registry.adsorbates.values()))
+        self.assertFalse(binds_through_hydrogen(default_registry().adsorbates.values()))  # OER, CER: as before
+        self.assertIsNone(_pair_type("Pt", "H", {"Pt"}))
+        self.assertEqual(_pair_type("Pt", "H", {"Pt"}, metal_h=True), "M-H")
+        state = next(s for s in sorted((self.campaign / "states").iterdir()) if s.name != "ref")
+        meta = read_json(state / "state.json")
+        config = read_json(self.campaign / "config.json")
+        start = read_poscar(state / "POSCAR")
+        ids = meta["atom_ids"]
+        h, own = ids.index("m0010"), ids.index("a0010")
+        top = [
+            i
+            for i, symbol in enumerate(start.symbols)
+            if symbol == "Pt" and i != own and abs(start.positions[i, 2] - start.positions[own, 2]) < 0.3
+        ]
+        neighbour = min(top, key=lambda i: np.linalg.norm(start.positions[i] - start.positions[own]))
+
+        def check(position):
+            moved = start.positions.copy()
+            moved[h] = position
+            path = self.tmp / "moved_h.vasp"
+            write_poscar(path, Structure(start.symbols, moved, start.cell, start.mobile, start.ids))
+            return topology_check(state, meta, config, geometry=path, registry=registry, use_review=False)
+
+        kept = check(start.positions[h])
+        self.assertEqual((kept["status"], kept["valid_for_assigned_node"]), ("connectivity_retained", True))
+        gone = check(start.positions[h] + np.array([0.0, 0.0, 3.0]))
+        self.assertFalse(gone["valid_for_assigned_node"])
+        self.assertEqual(gone["microstate"]["status"], "adsorbate_released")
+        self.assertEqual([item["formula"] for item in gone["released"]], ["H"])
+        self.assertEqual(describe_changes(gone, meta)[0], "H (H m0010) released from Pt a0010")
+        hopped = check(start.positions[neighbour] + np.array([0.0, 0.0, 1.6]))
+        self.assertFalse(hopped["valid_for_assigned_node"])
+        self.assertEqual(hopped["microstate"]["status"], "metal_attachment_changed")
+        self.assertEqual(hopped["released"], [])
+        self.assertEqual(len(hopped["lost_active_metal_contacts"]), 1)
+        self.assertEqual(len(hopped["new_active_metal_contacts"]), 1)
+        # between two metals: it keeps its own metal and gains one, which the top-site model cannot
+        # write, so it waits for review (as an O that moves to a bridge does)
+        bridge = 0.5 * (start.positions[own] + start.positions[neighbour]) + np.array([0.0, 0.0, 1.15])
+        bridged = check(bridge)
+        self.assertEqual(bridged["microstate"]["status"], "metal_attachment_changed")
+        self.assertEqual(bridged["lost_active_metal_contacts"], [])
 
 
 if __name__ == "__main__":

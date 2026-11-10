@@ -43,6 +43,12 @@ def extra_elements(adsorbates):
     return frozenset(e for a in adsorbates for e, n in a.composition.items() if n and e not in CORE_ELEMENTS)
 
 
+def binds_through_hydrogen(adsorbates):
+    """True when an adsorbate is bound to its site through H (*H of hydrogen evolution): the
+    checks of relaxed structures then watch metal-H contacts like the other metal-ligand ones."""
+    return any(a.proximal == "H" for a in adsorbates)
+
+
 @dataclass(frozen=True)
 class Adsorbate:
     name: str
@@ -64,6 +70,12 @@ class Adsorbate:
     atoms: tuple = ()
     template_tilts_deg: tuple = (0.0, 25.0)
     template_roll_step_deg: float = 30.0
+    # Two neighbouring sites whose adsorbates both allow it can bond through their proximal
+    # atoms: a coupled pair, written by a family with ``coupling=(site_a, site_b)`` (O-O in the
+    # OER coupling families, C-C between two *CO). ``coupled_bond_A`` is that bond in the start
+    # (default: the covalent radii of the two atoms; 1.45 A for O-O).
+    couples: bool = False
+    coupled_bond_A: float | None = None
 
     def __post_init__(self):
         if self.geometry not in GEOMETRIES:
@@ -163,7 +175,7 @@ class Adsorbate:
 
 BUILTIN = (
     Adsorbate("empty", {}, None, "none", description="Vacant site (no adsorbate)"),
-    Adsorbate("O", {"O": 1}, "O", "atom", metal_distance_A=1.75, description="Oxo"),
+    Adsorbate("O", {"O": 1}, "O", "atom", metal_distance_A=1.75, couples=True, description="Oxo"),
     Adsorbate("OH", {"O": 1, "H": 1}, "O", "XH", tilts="OH_tilts_deg", metal_distance_A=1.95, description="Hydroxo"),
     Adsorbate(
         "H2O", {"O": 1, "H": 2}, "O", "water", tilts="H2O_tilts_deg", metal_distance_A=2.15, description="Bound water"
