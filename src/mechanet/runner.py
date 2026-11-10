@@ -333,6 +333,9 @@ def _pid_alive(pid):
         pid = int(pid)
     except (ValueError, TypeError, OverflowError):
         return True
+    if pid <= 0:
+        # Not a process ID (kill() would address a process group): unreadable, on every system.
+        return True
     if os.name == "nt":
         # On Windows os.kill(pid, 0) is not a probe: signal 0 is CTRL_C_EVENT, which interrupts
         # every process of the console, mechanet included. Ask the process table instead.
@@ -356,7 +359,7 @@ def _windows_pid_alive(pid):
     kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
     kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
     process_query_limited_information, still_active, access_denied = 0x1000, 259, 5
-    if pid <= 0 or pid > 0xFFFFFFFF:
+    if pid > 0xFFFFFFFF:
         return True
     handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
     if not handle:

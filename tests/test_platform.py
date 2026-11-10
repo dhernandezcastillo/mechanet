@@ -24,8 +24,10 @@ class ProcessCheckTests(unittest.TestCase):
         self.assertFalse(_pid_alive(child.pid))
 
     def test_an_unreadable_owner_keeps_the_lock(self):
-        for value in ("not a pid", None, -5):
-            self.assertTrue(_pid_alive(value))
+        # Zero and negative numbers are no process IDs (POSIX kill() would address a process
+        # group): like text or nothing, they are unreadable on every system.
+        for value in ("not a pid", None, 0, -1, -5):
+            self.assertTrue(_pid_alive(value), value)
 
 
 if __name__ == "__main__":

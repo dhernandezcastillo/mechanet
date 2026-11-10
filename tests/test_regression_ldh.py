@@ -88,11 +88,14 @@ class LDHRegressionTests(unittest.TestCase):
             shift = max(float(np.linalg.norm(minimum_image(x - y, a.cell))) for x, y in zip(a.positions, b.positions))
             old_meta = json.loads((self.reference / "states" / sid / "state.json").read_text())
             new_meta = json.loads((self.campaign / "states" / sid / "state.json").read_text())
-            if shift >= 1e-6:  # which start moved, and which placement each build chose
+            if shift >= 1e-6:  # which start moved, and which placement (and score) each build chose
+                old_variant, new_variant = old_meta.get("variant", {}), new_meta.get("variant", {})
                 moved[sid] = {
                     "largest_shift_A": round(shift, 4),
-                    "reference": old_meta.get("variant", {}).get("placement"),
-                    "now": new_meta.get("variant", {}).get("placement"),
+                    "reference": old_variant.get("placement"),
+                    "now": new_variant.get("placement"),
+                    "reference_score": repr(old_variant.get("search_score")),
+                    "now_score": repr(new_variant.get("search_score")),
                 }
             for field in ("atom_ids", "relax_mobile", "frequency_mobile", "node_id"):
                 self.assertEqual(old_meta[field], new_meta[field], f"{sid} {field}")
@@ -101,7 +104,7 @@ class LDHRegressionTests(unittest.TestCase):
                 {k: v for k, v in new_meta["delta_atoms"].items() if v},
                 sid,
             )
-        self.assertEqual(moved, {}, "starting structures that moved")
+        self.assertFalse(moved, "starting structures that moved:\n" + json.dumps(moved, indent=1))
 
 
 if __name__ == "__main__":
