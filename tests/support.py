@@ -30,6 +30,20 @@ EXAMPLE = ROOT / "examples" / "nife_ldh"
 # skipped on Windows; the rest of the suite, the runner's preparation included, runs there.
 POSIX_ONLY = unittest.skipIf(os.name == "nt", "needs POSIX signals and shell-script SLURM fakes")
 
+
+def _bash_runs():
+    """True when `bash` runs shell code: Linux, macOS, Git Bash on Windows. On a Windows machine
+    whose `bash` is the launcher of an empty Windows Subsystem for Linux it only prints a notice."""
+    try:
+        out = subprocess.run(["bash", "-c", "echo ok"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        return False
+    return out.returncode == 0 and out.stdout.strip() == "ok"
+
+
+# Tests that run a generated job script's shell code.
+NEEDS_BASH = unittest.skipUnless(_bash_runs(), "needs a bash that runs shell code")
+
 from mechanet.fileio import read_json, write_json  # noqa: E402
 from mechanet.structure import Structure, write_poscar  # noqa: E402
 

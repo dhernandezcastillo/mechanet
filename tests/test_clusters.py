@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from support import NEEDS_BASH
+
 from mechanet import clusters
 from mechanet.slurm import job_script_text, sbatch_options, setup_lines
 
@@ -134,6 +136,7 @@ class ClusterProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(FileNotFoundError, "cluster import"):
             clusters.load_profile("nope")
 
+    @NEEDS_BASH
     def test_exports_stay_verbatim_and_in_order_and_the_job_environment_is_right(self):
         script = (
             "#!/bin/bash\n#SBATCH -t 12:00:00\n#SBATCH -n 8\n"
@@ -349,6 +352,7 @@ class ClusterProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(FileNotFoundError, "Cluster profile file .* not found"):
             clusters.load_profile(str(self.root / "profiles" / "missing.yaml"))
 
+    @NEEDS_BASH
     def test_setup_lines_run_without_errexit(self):
         _, profile, _ = clusters.import_job_script(
             self.script("#!/bin/bash\n#SBATCH -t 1:00:00\nmodule load no_such_module_here\nsrun vasp_std\n"),

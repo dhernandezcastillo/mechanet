@@ -328,13 +328,46 @@ def prepare(campaign, selection=None, with_potcars=False, limit=None):
 
 
 def _pid_alive(pid):
+    """Whether a process with this ID exists (an unreadable ID counts as alive: the lock is kept)."""
     try:
-        os.kill(int(pid), 0)
+        pid = int(pid)
+    except (ValueError, TypeError, OverflowError):
+        return True
+    if os.name == "nt":
+        # On Windows os.kill(pid, 0) is not a probe: signal 0 is CTRL_C_EVENT, which interrupts
+        # every process of the console, mechanet included. Ask the process table instead.
+        return _windows_pid_alive(pid)
+    try:
+        os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except (PermissionError, ValueError, TypeError, OverflowError):
+    except (PermissionError, OverflowError):
         return True
     return True
+
+
+def _windows_pid_alive(pid):
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    process_query_limited_information, still_active, access_denied = 0x1000, 259, 5
+    if pid <= 0 or pid > 0xFFFFFFFF:
+        return True
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        return ctypes.get_last_error() == access_denied  # it exists, but belongs to someone else
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True
+        return code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def _read_owner(lock_dir):

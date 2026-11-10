@@ -20,7 +20,9 @@ JOB = "#!/bin/bash\n#SBATCH -N 1\n#SBATCH -n 64\n#SBATCH -t 12:00:00\nmodule loa
 class ProjectTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        # Resolved, as the code records paths: macOS links /var to /private/var, and Windows CI
+        # runners use 8.3 short names (RUNNER~1) in the temporary folder.
+        self.root = Path(self.tmp.name).resolve()
         self.env = patch.dict(os.environ, {"MECHANET_CONFIG_DIR": str(self.root / "config")})
         self.env.start()
 

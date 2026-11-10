@@ -52,7 +52,9 @@ class _Base(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        # Resolved, as the code records paths: macOS links /var to /private/var, and Windows CI
+        # runners use 8.3 short names (RUNNER~1) in the temporary folder.
+        self.root = Path(self.tmp.name).resolve()
         self.env = patch.dict(
             os.environ, {k: v for k, v in os.environ.items() if not k.startswith("SLURM_")}, clear=True
         )

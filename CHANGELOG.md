@@ -61,8 +61,11 @@ an independent review of the thermodynamics.
   CER for either any more.
 - **Windows.** `runner.py` no longer imports `fcntl` unconditionally (the directory lock takes
   over), only the stop signals the platform has are registered, and a POTCAR that cannot be
-  symlinked is copied. Tests that need POSIX signals or shell-script SLURM fakes skip on
-  Windows; CI runs the tests on Windows and macOS as well.
+  symlinked is copied. Checking whether a lock's owner is still running no longer uses
+  `os.kill(pid, 0)`, which on Windows sends Ctrl-C to the whole console (mechanet included):
+  the process table is asked instead. Tests that need POSIX signals or shell-script SLURM fakes
+  skip on Windows, as do those that run job scripts when `bash` cannot run them; CI runs the
+  tests on Windows and macOS as well.
 
 Three corrections from an independent review of the thermodynamics:
 

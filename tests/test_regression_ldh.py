@@ -80,17 +80,20 @@ class LDHRegressionTests(unittest.TestCase):
     def test_starting_structures_are_identical(self):
         old_states = sorted(p.name for p in (self.reference / "states").iterdir())
         self.assertEqual(old_states, sorted(p.name for p in (self.campaign / "states").iterdir()))
-        worst = 0.0
+        moved = {}
         for sid in old_states:
             a = read_poscar(self.reference / "states" / sid / "POSCAR")
             b = read_poscar(self.campaign / "states" / sid / "POSCAR")
             self.assertEqual(a.symbols, b.symbols, sid)
-            worst = max(
-                worst,
-                max(float(np.linalg.norm(minimum_image(x - y, a.cell))) for x, y in zip(a.positions, b.positions)),
-            )
+            shift = max(float(np.linalg.norm(minimum_image(x - y, a.cell))) for x, y in zip(a.positions, b.positions))
             old_meta = json.loads((self.reference / "states" / sid / "state.json").read_text())
             new_meta = json.loads((self.campaign / "states" / sid / "state.json").read_text())
+            if shift >= 1e-6:  # which start moved, and which placement each build chose
+                moved[sid] = {
+                    "largest_shift_A": round(shift, 4),
+                    "reference": old_meta.get("variant", {}).get("placement"),
+                    "now": new_meta.get("variant", {}).get("placement"),
+                }
             for field in ("atom_ids", "relax_mobile", "frequency_mobile", "node_id"):
                 self.assertEqual(old_meta[field], new_meta[field], f"{sid} {field}")
             self.assertEqual(
@@ -98,7 +101,7 @@ class LDHRegressionTests(unittest.TestCase):
                 {k: v for k, v in new_meta["delta_atoms"].items() if v},
                 sid,
             )
-        self.assertLess(worst, 1e-6)
+        self.assertEqual(moved, {}, "starting structures that moved")
 
 
 if __name__ == "__main__":
