@@ -467,9 +467,13 @@ did not change (O₂ made of an adsorbed O and a lattice O, the step of a lattic
 route), the structure still gives its intermediate no energy, but it is not filed as an
 anomaly: the surface left behind is read from the structure without the molecule and named,
 as an intermediate of the campaign (the vacancy of a bridging O, say) or as a possible one the
-campaign does not list. It has no structure of its own yet (docs/pending.md). An atom of the
-slab that is not a declared site cannot be followed this way; the report says which atom to
-declare. An intermediate whose finished
+campaign does not list. `mechanet review --discover` adds such a surface to the campaign with
+a start of its own: the positions of the relaxed structure without the molecule, and the atom
+order, relaxation and frequency masks and intended bonds that the builder gives an
+intermediate with that occupancy, so its vibrational correction covers the same active region
+as any other start. It is relaxed again; the structure it came from never counts for it. An
+atom of the slab that is not a declared site cannot be followed this way; the report says
+which atom to declare. An intermediate whose finished
 starts all end that way has no bound minimum from those starts; its cycles are listed apart
 from the held-up ones (`mechanet review`, the ∅ mark of `mechanet status`). Every start began
 from the same magnetic moments (below), so a start from other moments could still find a

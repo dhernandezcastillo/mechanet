@@ -20,11 +20,23 @@ built for another intermediate, with no orientation search and no spin variants 
 like every other structure it still needs ``select``, the static check and frequencies.
 ``--undiscover NODE`` removes it again, with its twins and any adopted step or cycle that
 uses them.
+
+The surface a release leaves behind is registered the same way. When an adsorbate left with an
+atom of the surface (O2 made of an adsorbed O and a lattice O) and the campaign does not list
+what remains, ``--discover`` adds that surface as a node and writes a start for it: the
+relaxed structure without the released molecule, with the atom order, masks and bookkeeping
+the builder gives that intermediate. The structure it was found in still holds the molecule and
+gives it no energy; the start is prepared and run like any other.
 """
 
 from __future__ import annotations
 
+import shutil
+import tempfile
+from collections import Counter
 from pathlib import Path
+
+import numpy as np
 
 from .fileio import dump_json, read_json, short_hash, utc_now
 
@@ -34,6 +46,12 @@ CAVEATS = (
     "one structure, from a start built for another intermediate: no orientation search and no spin variants "
     "of its own; like every structure it still needs select, the static check and frequencies"
 )
+CAVEATS_LEFT_BEHIND = (
+    "its start is the relaxed structure it was found in without the released molecule: one start, with no "
+    "orientation search and no spin variants of its own, not computed yet; prepare and run it like any other"
+)
+# Where --undiscover puts a start it wrote, once that start has calculations of its own.
+SET_ASIDE = "undiscovered"
 
 
 def occupancy_key(changes, coupling):
@@ -121,7 +139,9 @@ def discover(campaign, state_id, comment):
     """Register the relaxed site occupancy of ``state_id`` as a node of the campaign.
 
     Only a finished structure that collect leaves unassigned because its occupancy matches
-    no node qualifies. Returns the node, its twins and the new verdict of the structure.
+    no node qualifies, or one whose adsorbate left with an atom of the surface: the node is then
+    the surface left behind, with a start of its own (``start_state_id`` in the result; see
+    :func:`_left_behind_start`). Returns the node, its twins and the new verdict of the structure.
     """
     from .analysis import _CONTEXT_CACHE
     from .review import REVIEW_FILE, _Campaign, state_verdict
@@ -145,36 +165,33 @@ def discover(campaign, state_id, comment):
         raise ValueError(f"{state_id} relaxed into {camp.label(target)} ({target}), an intermediate of this campaign")
     if status == "adsorbate_released":
         raise ValueError(f"{state_id}: {micro.get('reason')}; a released molecule is not an intermediate")
-    if status == "surface_atom_released":
+    # The adsorbate left with an atom of the surface: the node is the surface left behind.
+    left_behind = status == "surface_atom_released"
+    record, label = micro, None
+    if left_behind:
         from .review import surface_left_label
 
-        left = micro.get("surface_left") or {}
+        record = micro.get("surface_left") or {}
         label = surface_left_label(micro, camp.occupancy_label)
         if label is None:
-            raise ValueError(f"{state_id}: {micro.get('reason')}; the surface left behind: {left.get('reason')}")
-        if left.get("node_id"):
+            raise ValueError(f"{state_id}: {micro.get('reason')}; the surface left behind: {record.get('reason')}")
+        if record.get("node_id"):
+            known_id = record.get("matched_node_id") or record["node_id"]
             raise ValueError(
-                f"{state_id}: {micro.get('reason')}; the surface left behind, {label} ({left['node_id']}), "
+                f"{state_id}: {micro.get('reason')}; the surface left behind, {label} ({known_id}), "
                 "is already an intermediate of this campaign"
             )
-        # PENDING(surface-left-structure): it could be registered with a start made from this
-        # structure without the released molecule (docs/pending.md).
-        raise ValueError(
-            f"{state_id}: {micro.get('reason')}; the surface left behind, {label}, is a possible intermediate, but "
-            "this structure still holds the released molecule and cannot stand for it: add that intermediate "
-            "through the families of the project and generate again"
-        )
-    if status == "metal_attachment_changed":
+    elif status == "metal_attachment_changed":
         raise ValueError(
             f"{state_id}: a bond to the metal changed, which the site occupancy does not describe; "
             "accept it (--accept) or assign it (--assign) if it is still an intermediate of the campaign"
         )
-    if status != "unlisted_microstate":
+    elif status != "unlisted_microstate":
         reason = micro.get("reason") or topology.get("reason") or topology.get("status")
         raise ValueError(f"{state_id}: its relaxed structure cannot be written as an occupancy of the sites ({reason})")
     if others:
         raise ValueError(f"{state_id} is not accepted for other reasons too: {'; '.join(others)}")
-    changes, coupling = micro["occupancy_changes"], micro.get("coupling")
+    changes, coupling = record["occupancy_changes"], record.get("coupling")
     network = read_json(campaign / "network.json")
     nodes = {n["id"]: n for n in network["nodes"]}
     original = nodes.get(meta["node_id"]) or {}
@@ -199,7 +216,18 @@ def discover(campaign, state_id, comment):
     }
     if micro.get("tautomer_moved"):
         origin["background_tautomer_moved"] = micro["tautomer_moved"]
-    delta = micro.get("delta_atoms") or meta.get("delta_atoms")
+    delta = record.get("delta_atoms") if left_behind else micro.get("delta_atoms") or meta.get("delta_atoms")
+    if left_behind:
+        symbol_of = dict(zip(meta["atom_ids"], meta["symbols"]))
+        origin["released"] = [
+            {
+                "formula": molecule["formula"],
+                "atoms": list(molecule["atoms"]),
+                "composition": dict(sorted(Counter(symbol_of[a] for a in molecule["atoms"]).items())),
+            }
+            for molecule in topology.get("released") or []
+        ]
+        origin["taken_surface_atoms"] = list(micro.get("taken_surface_atoms") or [])
     node = {
         "id": new_id,
         "state_ids": [],
@@ -247,26 +275,149 @@ def discover(campaign, state_id, comment):
     if twins:
         node["symmetry_twins"] = [t["id"] for t in twins]
     node["symmetry_multiplicity"] = 1 + len(twins)
-    backup = campaign / BACKUP
-    if not backup.exists():
-        dump_json(backup, network)
-    network["nodes"] += [node, *twins]
-    network.setdefault("discovered_nodes", []).append(
-        {"node_id": new_id, "symmetry_twins": [t["id"] for t in twins], **origin}
-    )
-    dump_json(campaign / "network.json", network)
+    start_id = None
+    if left_behind:
+        # its own start: the relaxed structure without the molecule (nothing is registered if this fails)
+        start_id = _left_behind_start(campaign, state_id, meta, topology, changes, coupling, new_id, label)
+        node["state_ids"] = [start_id]
+        origin["start_state_id"] = start_id
+    try:
+        backup = campaign / BACKUP
+        if not backup.exists():
+            dump_json(backup, network)
+        network["nodes"] += [node, *twins]
+        network.setdefault("discovered_nodes", []).append(
+            {"node_id": new_id, "symmetry_twins": [t["id"] for t in twins], **origin}
+        )
+        dump_json(campaign / "network.json", network)
+    except BaseException:
+        if start_id:
+            shutil.rmtree(campaign / "states" / start_id, ignore_errors=True)
+        raise
     _CONTEXT_CACHE.clear()
     problem = _collect(campaign)
     camp = _Campaign(campaign)
-    return {
+    result = {
         "collect_error": problem,
         "node": node,
         "label": camp.label(new_id),
         "twins": [t["id"] for t in twins],
         "built_for": {"node_id": meta["node_id"], "label": camp.label(meta["node_id"])},
         "verdict": state_verdict(campaign, state_id),
-        "caveats": CAVEATS,
+        "caveats": CAVEATS_LEFT_BEHIND if left_behind else CAVEATS,
     }
+    if start_id:
+        result["start_state_id"] = start_id
+    return result
+
+
+def _left_behind_start(campaign, state_id, meta, topology, changes, coupling, new_id, label):
+    """Write the start of the surface a release left behind; returns its state ID.
+
+    The positions are those of the relaxed structure of ``state_id`` without the released
+    molecules. Everything else is what the builder gives the intermediate with that occupancy:
+    the atoms and their order, the relaxation and frequency masks, the intended bonds and the
+    bookkeeping of state.json. The start is therefore prepared, run and judged like a generated
+    one, with the same active region as any other start of such an intermediate.
+
+    Refused (ValueError, nothing written) when the atoms that remain are not the atoms of that
+    intermediate, or are not bonded the way it is written: the surface is then added through
+    the families of the project instead.
+    """
+    from .adsorbates import binds_through_hydrogen, extra_elements
+    from .builder import Builder
+    from .plugins import campaign_registry
+    from .structure import distance_matrix, minimum_image, read_poscar
+    from .topology import DEFAULT_HYSTERESIS, _limits, _metals, _pair_type
+
+    state_dir = campaign / "states" / state_id
+    config = read_json(campaign / "config.json")
+    registry = campaign_registry(campaign, config=config)
+    relaxed = read_poscar(state_dir / topology["geometry"])
+    released = topology.get("released") or []
+    gone = {a for molecule in released for a in molecule["atoms"]}
+    position = {aid: relaxed.positions[k] for k, aid in enumerate(meta["atom_ids"]) if aid not in gone}
+    start_id = f"{new_id}__v1"
+    target = campaign / "states" / start_id
+    if target.exists():
+        raise ValueError(f"{state_id}: {target} exists already; remove it before adding {label} again")
+    instead = "add it through the families of the project instead"
+    pair = tuple(coupling) if coupling else None
+    with tempfile.TemporaryDirectory() as tmp:
+        try:  # the builder writes its reference structure when it is set up
+            builder = Builder(config, Path(tmp) / "build", base_dir=campaign, registry=registry)
+            st, freq, bonds, info = builder.structure(dict(changes), pair)
+        except (KeyError, ValueError) as exc:
+            raise ValueError(f"{state_id}: the builder cannot write {label} ({exc}); {instead}") from exc
+        if not np.allclose(relaxed.cell, st.cell, atol=1e-7):
+            raise ValueError(f"{state_id}: the cell of the relaxed structure differs from the slab's")
+        missing, unexpected = sorted(set(st.ids) - set(position)), sorted(set(position) - set(st.ids))
+        if missing or unexpected:
+            raise ValueError(
+                f"{state_id}: the atoms left behind are not those of {label} (missing: "
+                f"{', '.join(missing) or 'none'}; not part of it: {', '.join(unexpected) or 'none'}); {instead}"
+            )
+        st.positions = np.array([position[aid] for aid in st.ids], dtype=float)
+        hysteresis = {
+            k: tuple(v)
+            for k, v in {**DEFAULT_HYSTERESIS, **(config.get("topology") or {}).get("hysteresis_A", {})}.items()
+        }
+        metals = _metals(config, st.symbols)
+        extra = extra_elements(registry.adsorbates.values())
+        metal_h = binds_through_hydrogen(registry.adsorbates.values())
+        index = {aid: k for k, aid in enumerate(st.ids)}
+        apart = []
+        for a, b in bonds:
+            kind = _pair_type(st.symbols[index[a]], st.symbols[index[b]], metals, extra, metal_h)
+            if kind is None:
+                continue
+            d = float(np.linalg.norm(minimum_image(st.positions[index[a]] - st.positions[index[b]], st.cell)))
+            if d > _limits(kind, hysteresis)[2]:
+                apart.append(f"{a}-{b} ({d:.2f} A)")
+        if apart:
+            raise ValueError(
+                f"{state_id}: the atoms left behind are not bonded as {label} is written "
+                f"({', '.join(apart)} apart); {instead}"
+            )
+        stub = {"id": new_id, "delta_atoms": builder.delta_atoms(changes), "state_ids": [], "source_ids": []}
+        choice = {"placement": {}, "score": None, "min_clearance_A": None, "hbonds": 0}
+        site = "+".join(changes) + ("+coupled" if coupling else "")
+        builder._write_state(
+            start_id,
+            stub,
+            "reference",  # no literature sources of a family: the origin is recorded below
+            site,
+            dict(changes),
+            pair,
+            {},
+            1.0,
+            choice,
+            st,
+            freq,
+            bonds,
+            info,
+            distance_matrix(st),
+            builder._signature(st, freq),
+        )
+        written = Path(tmp) / "build" / "states" / start_id
+        record = read_json(written / "state.json")
+        molecules = " and ".join(molecule["formula"] for molecule in released) or "the molecule"
+        record["family"] = DISCOVERED
+        record["from_relaxed"] = {
+            "state_id": state_id,
+            "built_for_node_id": meta["node_id"],
+            "geometry": Path(topology["geometry"]).as_posix(),
+            "removed_atom_ids": sorted(gone),
+            "released": [molecule["formula"] for molecule in released],
+        }
+        record["notes"].append(
+            f"Positions are those of the relaxed {state_id} (built for {meta['node_id']}) without the released "
+            f"{molecules}: the surface that release left behind. Written by mechanet review --discover; "
+            "the orientation search of the builder was not used."
+        )
+        dump_json(written / "state.json", record)
+        shutil.copytree(written, target)
+    return start_id
 
 
 def _collect(campaign):
@@ -301,6 +452,13 @@ def undiscover(campaign, node_id_):
         raise ValueError(f"{node_id_} was generated with the campaign, not discovered; only discovered ones can go")
     if node.get("computed_by"):
         node_id_, node = node["computed_by"], nodes[node["computed_by"]]
+    start = (node.get("discovered_from") or {}).get("start_state_id")
+    start_dir = campaign / "states" / start if start else None
+    if start_dir is not None and start_dir.is_dir():
+        from .review import run_text
+
+        if run_text(start_dir) == "running":
+            raise ValueError(f"{start}, the start of {node_id_}, is running; stop its job first")
     gone = {node_id_, *node.get("symmetry_twins", [])}
     edge_ids = {e["id"] for e in network["edges"] if e["from"] in gone or e["to"] in gone}
     cycles = [c for c in network["cycles"] if edge_ids.intersection(c["edge_ids"])]
@@ -326,9 +484,25 @@ def undiscover(campaign, node_id_):
             if not gone.intersection(c.get("node_ids", [])) and not stale & set(c["edge_ids"])
         ]
         dump_json(report, data)
+    # The start --discover wrote for a surface left behind: removed if nothing was computed
+    # from it, set aside with its calculations otherwise.
+    start_record = None
+    if start_dir is not None and start_dir.is_dir():
+        if any(start_dir.glob("*/attempt.json")):
+            aside = campaign / SET_ASIDE / start
+            number = 1
+            while aside.exists():
+                number += 1
+                aside = campaign / SET_ASIDE / f"{start}.{number}"
+            aside.parent.mkdir(exist_ok=True)
+            shutil.move(str(start_dir), str(aside))
+            start_record = {"state_id": start, "set_aside": aside.relative_to(campaign).as_posix()}
+        else:
+            shutil.rmtree(start_dir)
+            start_record = {"state_id": start, "set_aside": None}
     _CONTEXT_CACHE.clear()
     problem = _collect(campaign)
-    return {
+    result = {
         "collect_error": problem,
         "node_id": node_id_,
         "removed_nodes": sorted(gone),
@@ -336,6 +510,9 @@ def undiscover(campaign, node_id_):
         "removed_cycles": [c["id"] for c in cycles],
         "state_id": (node.get("discovered_from") or {}).get("state_id"),
     }
+    if start_record is not None:
+        result["start"] = start_record
+    return result
 
 
 def discover_text(result):
@@ -348,17 +525,31 @@ def discover_text(result):
     if result["twins"]:
         lines.append(f"  symmetry images: {', '.join(result['twins'])}")
     verdict = result["verdict"]
-    if verdict["kind"] in ("reassigned", "accepted", "reviewed") and verdict["counts_for"] == node["id"]:
+    start = result.get("start_state_id")
+    if start:
+        molecules = " and ".join(m["formula"] for m in origin.get("released") or []) or "a molecule"
+        lines += [
+            f"  it is the surface left behind when {molecules} left with an atom of the surface",
+            f"  its start is states/{start}: the relaxed structure without the molecule",
+            f"  {origin['state_id']} itself still holds the molecule and gives it no energy",
+        ]
+    elif verdict["kind"] in ("reassigned", "accepted", "reviewed") and verdict["counts_for"] == node["id"]:
         lines.append(f"  {origin['state_id']} now counts for it")
     else:
         lines.append(f"  but {origin['state_id']} does not count for it yet: {verdict['summary']}")
     if result.get("collect_error"):
         lines.append(f"  collect failed ({result['collect_error']}); run mechanet collect")
-    lines += [
-        f"  caveats: {result['caveats']}",
-        "next: mechanet pathways (steps and cycles through it; --adopt ID copies a cycle into network.json), "
-        "then mechanet thermo",
-    ]
+    lines.append(f"  caveats: {result['caveats']}")
+    if start:
+        lines.append(
+            f"next: mechanet prepare, then mechanet submit --states {start} --execute (it runs like any start);"
+        )
+        lines.append("      then mechanet pathways (steps and cycles through it) and mechanet thermo")
+    else:
+        lines.append(
+            "next: mechanet pathways (steps and cycles through it; --adopt ID copies a cycle into network.json), "
+            "then mechanet thermo"
+        )
     return "\n".join(lines)
 
 
@@ -369,7 +560,12 @@ def undiscover_text(result):
             f"  with {len(result['removed_edges'])} adopted steps and {len(result['removed_cycles'])} cycles that "
             f"used it{': ' + ', '.join(result['removed_cycles']) if result['removed_cycles'] else ''}"
         )
-    if result.get("state_id"):
+    start = result.get("start")
+    if start and start.get("set_aside"):
+        lines.append(f"  its start {start['state_id']} has calculations: moved to {start['set_aside']}, not deleted")
+    elif start:
+        lines.append(f"  its start {start['state_id']}, which was never run, was removed")
+    if result.get("state_id") and not start:
         lines.append(f"  {result['state_id']} needs review again")
     if result.get("collect_error"):
         lines.append(f"  collect failed ({result['collect_error']}); run mechanet collect")

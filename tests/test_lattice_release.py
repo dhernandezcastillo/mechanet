@@ -18,6 +18,8 @@ from unittest.mock import patch
 import numpy as np
 import yaml
 
+from mechanet.builder import Builder
+from mechanet.discovered import _left_behind_start, node_id
 from mechanet.fileio import read_json
 from mechanet.prescreen import new_intermediate
 from mechanet.project import generate
@@ -172,7 +174,7 @@ class RutileTests(unittest.TestCase):
         self.assertEqual(
             describe_changes(topology, meta, camp.occupancy_label)[-1],
             "the surface left behind is μ-□₁₉, a possible intermediate that this campaign does not list: "
-            "add it through the families of the project to compute it",
+            "mechanet review --discover can add it, with a start made from this structure without the molecule",
         )
         self.assertEqual(new_intermediate(topology, camp.occupancy_label), "μ-□₁₉ (after O₂ left with a surface atom)")
 
@@ -198,6 +200,46 @@ class RutileTests(unittest.TestCase):
             f"O {ids[nearest]} is not part of a reactive site: declare it as a site to follow this route",
         )
         self.assertIn("that the sites of this campaign cannot describe", describe_changes(topology, meta)[-1])
+
+    def test_the_surface_left_behind_gets_the_builders_start_with_the_relaxed_positions(self):
+        """What review --discover writes for the vacancy: the atoms, order, masks and bonds the
+        builder gives that intermediate, at the positions of the relaxed structure without the O2."""
+        topology, meta, _network = self.release(self.aem, BRIDGE)
+        changes = topology["microstate"]["surface_left"]["occupancy_changes"]
+        new_id = node_id(changes, None)
+        start = _left_behind_start(self.aem, meta["id"], meta, topology, changes, None, new_id, "μ-□₁₉")
+        folder = self.aem / "states" / start
+        self.addCleanup(shutil.rmtree, folder, True)
+        # the ID the campaign with the bridge families gives that intermediate
+        vacancy = next(
+            n for n in read_json(self.full / "network.json")["nodes"] if n.get("occupancy") == {BRIDGE: "empty"}
+        )
+        self.assertEqual(start, f"{vacancy['id']}__v1")
+        written, new = read_poscar(folder / "POSCAR"), read_json(folder / "state.json")
+        self.assertEqual(set(meta["atom_ids"]) - set(new["atom_ids"]), {BRIDGE, SITE})
+        relaxed = dict(zip(meta["atom_ids"], read_poscar(self.tmp / "moved.vasp").positions))
+        for atom, position in zip(new["atom_ids"], written.positions):
+            self.assertLess(float(np.linalg.norm(position - relaxed[atom])), 1e-8, atom)
+        builder = Builder(read_json(self.aem / "config.json"), self.tmp / "again", base_dir=self.aem)
+        st, freq, bonds, _info = builder.structure(dict(changes), None)
+        self.assertEqual(new["atom_ids"], st.ids)
+        self.assertEqual(new["symbols"], st.symbols)
+        self.assertEqual(new["frequency_mobile"], freq.tolist())
+        self.assertEqual(new["relax_mobile"], st.mobile.tolist())
+        self.assertEqual(written.mobile.tolist(), st.mobile.tolist())
+        self.assertEqual(new["expected_bonds"], bonds)
+        self.assertEqual((new["node_id"], new["delta_atoms"]), (new_id, {"O": -1, "H": 0}))
+        self.assertEqual(new["from_relaxed"]["removed_atom_ids"], sorted([BRIDGE, SITE]))
+        self.assertEqual(new["from_relaxed"]["released"], ["O₂"])
+        # it is not written twice, nor for an intermediate the atoms left behind do not make up
+        with self.assertRaisesRegex(ValueError, "exists already"):
+            _left_behind_start(self.aem, meta["id"], meta, topology, changes, None, new_id, "μ-□₁₉")
+        other = {BRIDGE: "OH"}  # needs the O that left, and an H that is not there
+        refused = self.aem / "states" / f"{node_id(other, None)}__v1"
+        self.assertFalse(refused.exists())
+        with self.assertRaisesRegex(ValueError, "the atoms left behind are not those of"):
+            _left_behind_start(self.aem, meta["id"], meta, topology, other, None, node_id(other, None), "μ-OH")
+        self.assertFalse(refused.exists())
 
 
 if __name__ == "__main__":

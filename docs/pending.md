@@ -51,19 +51,3 @@ O–O pair.
   Rings cannot be written as templates either.
 - Not needed for oxygen and chlorine evolution on oxides; needed for CO2 reduction to formate
   and for most C2 chemistry.
-
-## `surface-left-structure`
-
-**The surface a lattice route leaves behind is named, but gets no structure of its own.**
-
-When an adsorbate leaves together with an atom of the surface (O2 made of an adsorbed O and a
-lattice O), the checks say so and name the surface left behind, as an intermediate of the
-campaign or as one the campaign does not list (docs/science.md §8).
-
-- The relaxed structure still holds the released molecule, so its energy is not that of the
-  surface left behind, and `review --discover` does not register it.
-- A fix would write a start for that surface from the relaxed structure without the molecule,
-  register it like a discovered intermediate, and teach `validate` and `status` that such an
-  intermediate comes from a structure of another composition.
-- Until then, add the intermediate through the families of the project (`surface_bridge`
-  writes the vacancy of a bridging O) and generate again.

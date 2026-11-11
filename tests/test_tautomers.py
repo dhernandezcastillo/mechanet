@@ -10,6 +10,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -27,7 +28,7 @@ from mechanet.analysis import (  # noqa: E402
 )
 from mechanet.builder import Builder  # noqa: E402
 from mechanet.cli import main  # noqa: E402
-from mechanet.discovered import discover, node_id, undiscover  # noqa: E402
+from mechanet.discovered import discover, discover_text, node_id, undiscover, undiscover_text  # noqa: E402
 from mechanet.fileio import file_hash, read_json, write_json  # noqa: E402
 from mechanet.notation import Notation  # noqa: E402
 from mechanet.project import load_project, resolve_config  # noqa: E402
@@ -640,7 +641,8 @@ class CampaignTests(unittest.TestCase):
                 self.assertFalse(rows[sid]["final_valid"])
                 report = review_report(campaign, rows=list(rows.values()))
                 item = next(i for i in report["not_accepted"] if i["state_id"] == sid)
-                self.assertEqual((item["kind"], item["discoverable"]), ("no_bound_minimum", False))
+                # no decision to take; a surface the sites can describe can be added to the campaign
+                self.assertEqual((item["kind"], item["discoverable"]), ("no_bound_minimum", label is not None))
                 self.assertEqual(item["surface_left"]["taken"], [taken])
                 self.assertEqual(item["surface_left"]["label"], label)
                 self.assertIsNone(item["surface_left"]["node_id"])
@@ -656,23 +658,149 @@ class CampaignTests(unittest.TestCase):
                         "the surface left behind is a possible intermediate that the sites of this campaign cannot "
                         "describe (O a0064 is not part of a reactive site: declare it as a site to follow this route)",
                     )
+                    self.assertNotIn("--discover", text)
                     with self.assertRaisesRegex(ValueError, "declare it as a site"):
                         discover(campaign, sid, "why")
                 else:
                     self.assertEqual(
                         item["changes"][-1],
                         f"the surface left behind is {label}, a possible intermediate that this campaign does not "
-                        "list: add it through the families of the project to compute it",
+                        "list: mechanet review --discover can add it, with a start made from this structure without "
+                        "the molecule",
                     )
                     self.assertEqual(item["surface_left"]["occupancy"], {"a0065": "empty", "a0068": "empty"})
-                    with self.assertRaisesRegex(ValueError, "still holds the released molecule"):
-                        discover(campaign, sid, "why")
+                    self.assertIn('mechanet review --discover STATE "why"       add that surface', text)
                 # the intermediate has no accepted structure, and the status page copes
                 self.assertEqual([n["node_id"] for n in report["no_bound_minimum"]], [self.O65])
                 status = campaign_status(campaign, slurm=False)
                 self.assertEqual(status["summary"]["intermediates_without_bound_minimum"], 1)
                 code, text = run_cli("validate", str(campaign))
                 self.assertEqual(code, 0, text)
+
+    def gone_with_the_next_site(self):
+        """A copy of the campaign in which the O of *O65 left with the OH of site a0068."""
+        campaign = self.copy()
+        sid = f"{self.O65}__v1"
+        atoms, offsets = ["a0065", "a0068", "a0088"], [(0, 0, 0), (1.45, 0, 0), (1.75, 0.92, 0)]
+        _edit(campaign, sid, leave(atoms, offsets, "a0003"))
+        return campaign, sid, atoms
+
+    def test_the_surface_left_behind_gets_a_start_of_its_own(self):
+        """review --discover adds the surface a release left behind, with a start made from the
+        relaxed structure without the molecule; the start is one of the campaign like any other."""
+        campaign, sid, atoms = self.gone_with_the_next_site()
+        result = discover(campaign, sid, "O2 left with the OH of the next site")
+        node, start = result["node"], result["start_state_id"]
+        self.assertEqual(result["label"], "*₆₅ · *₆₈")
+        self.assertEqual(node["occupancy"], {"a0065": "empty", "a0068": "empty"})
+        self.assertEqual((node["state_ids"], start), ([f"{node['id']}__v1"], f"{node['id']}__v1"))
+        self.assertEqual(node["delta_atoms"], {"O": -2, "H": -2})
+        origin = node["discovered_from"]
+        self.assertEqual((origin["state_id"], origin["start_state_id"]), (sid, start))
+        self.assertEqual(origin["released"], [{"formula": "OOH", "atoms": atoms, "composition": {"H": 1, "O": 2}}])
+        self.assertEqual(origin["taken_surface_atoms"], ["a0068"])
+        self.assertEqual(result["twins"], ["n_0066empty_0067empty_bc125e"])
+        text = discover_text(result)
+        self.assertIn(f"its start is states/{start}: the relaxed structure without the molecule", text)
+        self.assertIn(f"mechanet submit --states {start} --execute", text)
+        # the start: the relaxed positions, without the three atoms that left
+        folder = campaign / "states" / start
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ["POSCAR", "initial.extxyz", "state.json"])
+        meta, old = read_json(folder / "state.json"), read_json(campaign / "states" / sid / "state.json")
+        self.assertEqual(set(old["atom_ids"]) - set(meta["atom_ids"]), set(atoms))
+        relaxed = read_poscar(campaign / "states" / sid / "02_final" / "CONTCAR")
+        where = dict(zip(old["atom_ids"], relaxed.positions))
+        written = read_poscar(folder / "POSCAR")
+        for atom, position in zip(meta["atom_ids"], written.positions):
+            self.assertLess(float(np.linalg.norm(position - where[atom])), 1e-8, atom)
+        self.assertEqual(
+            (meta["node_id"], meta["family"], meta["delta_atoms"]), (node["id"], "discovered", node["delta_atoms"])
+        )
+        self.assertEqual(
+            meta["from_relaxed"],
+            {
+                "state_id": sid,
+                "built_for_node_id": self.O65,
+                "geometry": "02_final/CONTCAR",
+                "removed_atom_ids": sorted(atoms),
+                "released": ["OOH"],
+            },
+        )
+        self.assertIn("without the released OOH", meta["notes"][-1])
+        # everything else is what the builder gives that intermediate: atoms, order, masks, bonds
+        builder = Builder(read_json(campaign / "config.json"), campaign.parent / "again", base_dir=campaign)
+        st, freq, bonds, _info = builder.structure(dict(node["occupancy"]), None)
+        self.assertEqual(meta["atom_ids"], st.ids)
+        self.assertEqual(meta["frequency_mobile"], freq.tolist())
+        self.assertEqual(meta["relax_mobile"], st.mobile.tolist())
+        self.assertEqual(meta["expected_bonds"], bonds)
+        code, text = run_cli("validate", str(campaign))
+        self.assertEqual(code, 0, text)
+        self.assertIn("0 error(s), 0 warning(s)", text)
+        # the structure it was found in still gives no energy, and now names the intermediate
+        item = next(i for i in review_report(campaign)["not_accepted"] if i["state_id"] == sid)
+        self.assertEqual((item["kind"], item["discoverable"]), ("no_bound_minimum", False))
+        self.assertEqual(
+            item["changes"][-1],
+            f"the surface left behind is *₆₅ · *₆₈ ({node['id']}), an intermediate of this campaign: "
+            "a lattice route leads there from this one",
+        )
+        with self.assertRaisesRegex(ValueError, "already an intermediate of this campaign"):
+            discover(campaign, sid, "again")
+        # it runs and is judged like any start
+        structure = read_poscar(folder / "POSCAR")
+        (folder / "ctl").mkdir()
+        masses = np.repeat([POMASS[s] for s in structure.symbols], 3)
+        write_json(
+            folder / "harmonic.json",
+            {"x0": structure.positions.reshape(-1).tolist(), "K": np.diag(25.0 * np.sqrt(masses)).tolist()},
+        )
+        write_json(folder / "moments.json", [{"Fe": 4.1, "Ni": 1.6}.get(s, 0.0) for s in meta["symbols"]])
+        self.assertEqual(
+            [p["state_id"] for p in prepare(campaign, selection=[start], with_potcars=True)["prepared"]], [start]
+        )
+        self.assertEqual(run_state(folder, through="final", execute=True)["status"], "complete")
+        row = self.rows(campaign)[start]
+        self.assertTrue(row["final_valid"])
+        self.assertEqual(row["final_assigned_node_id"], node["id"])
+        status = campaign_status(campaign, slurm=False)
+        self.assertEqual(status["summary"]["discovered_intermediates"], 1)
+        # removing the intermediate keeps what was computed for it
+        out = undiscover(campaign, node["id"])
+        self.assertEqual(out["start"], {"state_id": start, "set_aside": f"undiscovered/{start}"})
+        self.assertFalse(folder.exists())
+        self.assertTrue((campaign / "undiscovered" / start / "02_final" / "CONTCAR").is_file())
+        self.assertIn("moved to undiscovered/", undiscover_text(out))
+        self.assertFalse([n for n in read_json(campaign / "network.json")["nodes"] if n.get("discovered_from")])
+        code, text = run_cli("validate", str(campaign))
+        self.assertEqual(code, 0, text)
+
+    def test_a_start_that_never_ran_goes_with_its_intermediate(self):
+        campaign, sid, _atoms = self.gone_with_the_next_site()
+        result = discover(campaign, sid, "why")
+        folder = campaign / "states" / result["start_state_id"]
+        self.assertTrue(folder.is_dir())
+        out = undiscover(campaign, result["node"]["id"])
+        self.assertEqual(out["start"], {"state_id": result["start_state_id"], "set_aside": None})
+        self.assertFalse(folder.exists())
+        self.assertFalse((campaign / "undiscovered").exists())
+        self.assertIn("which was never run, was removed", undiscover_text(out))
+        code, text = run_cli("validate", str(campaign))
+        self.assertEqual(code, 0, text)
+        # and it can be found again
+        self.assertEqual(discover(campaign, sid, "again")["start_state_id"], result["start_state_id"])
+
+    def test_nothing_is_registered_when_the_start_cannot_be_written(self):
+        campaign, sid, _atoms = self.gone_with_the_next_site()
+        before = (campaign / "network.json").read_bytes()
+        with patch("mechanet.builder.Builder.structure", side_effect=ValueError("no placement")):
+            with self.assertRaisesRegex(ValueError, "the builder cannot write .* add it through the families"):
+                discover(campaign, sid, "why")
+        self.assertEqual((campaign / "network.json").read_bytes(), before)
+        self.assertEqual(
+            sorted(p.name for p in (campaign / "states").iterdir()),
+            sorted(p.name for p in (self.base / "states").iterdir()),
+        )
 
 
 if __name__ == "__main__":

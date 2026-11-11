@@ -521,8 +521,8 @@ def _surface_left(symbols, ids, d_final, d_initial, released, context, hysteresi
     "matched_node_id"} (the node of the campaign with that occupancy, or None), or
     {"occupancy_changes": None, "reason"}.
 
-    PENDING(surface-left-structure): the surface is named, but the relaxed structure still holds
-    the released molecule and cannot give its energy; no start is written for it (docs/pending.md).
+    The relaxed structure still holds the released molecule and cannot give that surface's
+    energy; ``mechanet review --discover`` writes a start for it (``discovered._left_behind_start``).
     """
     sites = set(context["native"])
     index = {aid: k for k, aid in enumerate(ids)}

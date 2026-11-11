@@ -87,10 +87,16 @@ def validate_campaign(campaign, registry=None):
         origin = (node.get("discovered_from") or {}).get("state_id")
         if origin is not None:
             # Found by a relaxation (mechanet review --discover): its structure was built for another node.
+            # The surface a release left behind: the structure it was found in still holds the
+            # released molecules, so its composition is the node's plus theirs.
+            expected = Counter({k: int(v) for k, v in node["delta_atoms"].items()})
+            for molecule in (node.get("discovered_from") or {}).get("released") or []:
+                for element, count in (molecule.get("composition") or {}).items():
+                    expected[element] += int(count)
             if origin not in states:
                 errors.append(f"{nid}: discovered from missing state {origin}")
             elif {k: v for k, v in states[origin]["delta_atoms"].items() if v} != {
-                k: v for k, v in node["delta_atoms"].items() if v
+                k: v for k, v in expected.items() if v
             }:
                 errors.append(f"{nid}: discovered from {origin}, which has a different composition")
         elif not node.get("state_ids"):

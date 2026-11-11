@@ -213,10 +213,21 @@ intermediate, so `review` names it:
       the surface left behind is μ-□₁₉ (n_0019empty_e98bc7), an intermediate of this campaign: a lattice route leads there from this one
 ```
 
-When the campaign does not list that surface, the line says so, and you can add it through the
-families of the project. When the atom is not a declared site, the line names the atom to
-declare. The structure itself still holds the molecule, so it gives the surface left behind no
-energy either. When every
+When the campaign does not list that surface, the line says so, and `--discover` adds it:
+
+```bash
+mechanet review --discover n_m0038O_d0b786__v1 "O2 left with the bridging O"
+mechanet prepare
+mechanet submit --states n_0019empty_e98bc7__v1 --execute
+```
+
+The new intermediate gets a start of its own, `states/<intermediate>__v1`: the relaxed
+structure without the molecule. It is prepared, run and judged like any other start, and
+`mechanet pathways` then proposes the steps through it. The structure it was found in still
+holds the molecule, so it gives neither intermediate an energy. `--undiscover` removes the
+intermediate again; a start that was never run goes with it, and one with calculations is
+moved to `undiscovered/` in the campaign, not deleted. When the atom is not a declared site,
+the line names the atom to declare, and there is nothing to add until it is one. When every
 finished start of an intermediate ends this way, its cycles are listed apart from the held-up
 ones ("no bound minimum found from 3 starts: O₂ left the surface"), and on the status page the
 intermediate is marked ∅. All starts of an intermediate begin from the same magnetic moments,

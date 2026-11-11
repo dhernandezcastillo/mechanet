@@ -211,7 +211,7 @@ def surface_left_lines(micro, atom=str, occupancy_label=None):
     else:
         lines.append(
             f"the surface left behind is {label}, a possible intermediate that this campaign does not list: "
-            "add it through the families of the project to compute it"
+            "mechanet review --discover can add it, with a start made from this structure without the molecule"
         )
     return lines
 
@@ -303,6 +303,16 @@ class _Campaign:
         return self.root / "states" / state_id
 
 
+def _discoverable(kind, micro, reasons):
+    """Whether ``review --discover`` can add what the structure became to the campaign."""
+    if reasons:
+        return False
+    if micro.get("status") == "surface_atom_released":  # the surface the release left behind
+        left = micro.get("surface_left") or {}
+        return left.get("occupancy_changes") is not None and not left.get("node_id")
+    return kind == "needs_review" and micro.get("status") == "unlisted_microstate"
+
+
 def _item(camp, row):
     sid = row["state_id"]
     state_dir = camp.state_dir(sid)
@@ -329,7 +339,7 @@ def _item(camp, row):
         "summary": _summary(kind, changes, reasons, counts_label),
         "review": _read(state_dir / REVIEW_FILE),
         "geometry": str(Path("states") / sid / STAGE_FINAL / "CONTCAR"),
-        "discoverable": kind == "needs_review" and micro.get("status") == "unlisted_microstate" and not reasons,
+        "discoverable": _discoverable(kind, micro, reasons),
         "released": [molecule["formula"] for molecule in topology.get("released") or []],
     }
     if micro.get("status") == "surface_atom_released":
@@ -565,6 +575,11 @@ def review_text(report, ascii=False):
             "behind is a possible intermediate of a lattice route. Its structure here still holds the molecule, so "
             "its energy has to come from a structure of its own.",
         ]
+        if any(i.get("surface_left") and i.get("discoverable") for i in items):
+            lines.append(
+                '  mechanet review --discover STATE "why"       add that surface to the campaign, with a start made '
+                "from this structure without the molecule"
+            )
     return text("\n".join(lines))
 
 

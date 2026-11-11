@@ -30,10 +30,10 @@ class PendingTests(unittest.TestCase):
         listed = ENTRY.findall((ROOT / "docs" / "pending.md").read_text(encoding="utf-8"))
         self.assertEqual(len(listed), len(set(listed)), "an ID is listed twice in docs/pending.md")
         self.assertEqual(sorted(marked), sorted(listed), f"comments in the code: {marked}")
-        # the three known today, each marked where a fix would go
+        # the two known today, each marked where a fix would go
+        self.assertEqual(sorted(listed), ["tie-break", "two-site-adsorbates"])
         self.assertIn("builder.py", marked["tie-break"])
         self.assertIn("adsorbates.py", marked["two-site-adsorbates"])
-        self.assertIn("topology.py", marked["surface-left-structure"])
 
     def test_generate_says_when_the_processor_may_order_ties_differently(self):
         self.assertIn("amd64", X86_MACHINES)

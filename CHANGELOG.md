@@ -13,12 +13,16 @@ test now checks it.
   like any desorption. It is the step of a lattice-oxygen route: the checks now say which
   surface atom left, read the surface left behind from the structure without the molecule, and
   name it, as an intermediate of the campaign, as a possible one the campaign does not list, or
-  as outside the declared sites (with the atom to declare). `review`, `review --discover` and
-  `prescreen` report it. The structure still gives no energy, since it holds the molecule. An
+  as outside the declared sites (with the atom to declare). `review` and `prescreen` report
+  it, and `review --discover` adds a surface the campaign lacks, with a start of its own: the
+  relaxed structure without the molecule, with the atom order, masks and bookkeeping the
+  builder gives that intermediate, so it is prepared, run and judged like any other start
+  (`--undiscover` removes it, and sets a start with calculations aside instead of deleting
+  it). The structure it was found in still gives no energy, since it holds the molecule. An
   adsorbate that leaves by itself is reported as before.
 - **Open design questions are marked.** `docs/pending.md` lists what was left open on purpose
   (the order of equally scored orientations on different processors, adsorbates bound through
-  two sites, a structure for the surface a lattice route leaves behind); the code carries
+  two sites); the code carries
   `PENDING(id)` comments where a fix would go, and a test keeps the two in step. `generate`
   warns on processors other than x86-64, where a few starts can differ.
 - **No two starts of an intermediate are symmetry images of each other.** `generate` used to
