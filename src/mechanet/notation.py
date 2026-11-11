@@ -252,6 +252,18 @@ ROUTES = (
         "tautomer via *OO",
         "Local hydration starting from the O + H₂O tautomer, resolved through *OO next to H₂O",
     ),
+    (
+        ("walden",),
+        r"mononuclear",
+        "mononuclear-Walden",
+        "Mononuclear-Walden: O₂ leaves the site as water attaches, without a bare site",
+    ),
+    (
+        ("walden",),
+        r"bifunctional",
+        "bifunctional-Walden",
+        "Bifunctional-Walden: proton to the neighbouring O, then O₂ leaves as water attaches",
+    ),
     (("oo_oo",), r"(?P<order>.+)", "OO/OO (O₄)", "Recombination of two *OO through O₄ (OO/OO)"),
     (
         ("cer_volmer_heyrovsky",),

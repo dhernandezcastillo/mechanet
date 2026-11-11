@@ -11,7 +11,9 @@ bifunctional proton transfer):
    or both sites form/break an O-O coupling or give off the product together), and when its
    reservoir vector is one of the reaction's elementary vectors (one PCET, water attack or
    adsorption, an internal transfer, an O2/Cl2/H2 release, a Cl- adsorption; see
-   ``Reaction.elementary``). Only steps in the reaction's direction (and chemical steps) are
+   ``Reaction.elementary``). A Walden step (``Reaction.walden``: the product leaves as a
+   reactant attaches, M-OO + H2O -> HO-M + O2 + H+ + e-) is proposed on one site that holds
+   the product whole. Only steps in the reaction's direction (and chemical steps) are
    proposed unless ``allow_reverse``.
 2. **Cycles.** Every simple cycle of at most ``max_length`` steps whose vectors sum to one
    turnover (OER: 2 H2O -> O2 + 4 H+ + 4 e-) is enumerated. A turnover moves the reaction's
@@ -37,7 +39,7 @@ import numpy as np
 
 from .fileio import dump_json, read_json, short_hash
 from .plugins import Family, campaign_registry
-from .reactions import add as add_vectors, clean, electrons as vector_electrons, element_change
+from .reactions import SPECIES, add as add_vectors, clean, electrons as vector_electrons, element_change
 from .thermo import DOWNHILL_TOLERANCE_EV, release_last_rotation
 
 EVIDENCE = (
@@ -60,14 +62,19 @@ class StepRules:
         self.reaction = reaction
         self.pair_ok = pair_ok
         vectors = [clean(v) for v in reaction.elementary]
+        # Walden steps: the product leaves one site as a reactant attaches to it
+        walden = [clean(v) for v in getattr(reaction, "walden", ())]
         if allow_reverse:
             vectors += [clean({k: -x for k, x in v.items()}) for v in vectors]
+            walden += [clean({k: -x for k, x in v.items()}) for v in walden]
         unique = []
-        for v in vectors:
+        for v in vectors + walden:
             if v not in unique:
                 unique.append(v)
         self.vectors = unique
+        self.walden = [v for v in walden if v not in vectors]
         self.release = reaction.release
+        self.product = dict(SPECIES[reaction.release].composition) if reaction.release in SPECIES else None
 
     def full(self, node):
         occupancy = dict(self.native)
@@ -140,6 +147,14 @@ class StepRules:
             # a step that gives off (or takes up) the turnover marker is a release step whatever
             # the sites do: two *H -> H2 (HER Tafel) changes no heavy atom at all
             marker = vector.get(self.release, 0)
+            if vector in self.walden:
+                # one site, which holds the product whole before it leaves (after, in reverse)
+                if rule != "single-site step" or len(changed) != 1:
+                    continue
+                held = (a if marker > 0 else b)[changed[0]]
+                if self.product is None or self.adsorbates[held].composition != self.product:
+                    continue
+                return vector, "Walden step"
             if rule in ("pair release", "release from a coupled pair") and not marker:
                 continue
             if rule.startswith("proton transfer between") and marker:

@@ -197,6 +197,7 @@ releases the product last. Terminals that cannot show subscripts get an ASCII fo
 | `pair_coupling`, `terminal_bridge_coupling` | O–O coupling between neighbouring sites, every ordering of the refill steps |
 | `bifunctional` | Proton transfer to a neighbouring acceptor, Exner's BF-I and BF-II |
 | `hydrated` | Bound-water refill and local proton relays |
+| `walden` | Mononuclear-Walden and bifunctional-Walden: O2 leaves as water attaches, no bare site |
 | `oo_oo` | O4 recombination on terminal pairs (separate transition-state seeds) |
 | `cer_volmer_heyrovsky`, `cer_volmer_tafel`, `cer_ocl` | Cl adsorption and release, Tafel recombination, the OCl route on O-covered sites |
 | `coverage` | Terminations only (no cycles), for surface Pourbaix diagrams |

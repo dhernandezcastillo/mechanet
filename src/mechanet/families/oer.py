@@ -221,6 +221,78 @@ def bifunctional(ctx):
             )
 
 
+def walden(ctx):
+    """The two mechanisms with a Walden step of Exner, Adv. Sci. 10, 2305505 (2023).
+
+    In a Walden step O2 leaves the site as water attaches to it, with one proton-electron pair
+    (M-OO + H2O -> HO-M + O2 + H+ + e-), so the bare site M is not an intermediate: the cycles
+    start and end at M-OH. The site model has one position per site, so the paper's HO-M (water
+    entering from the other side than O2 leaves) and M-OH are the same intermediate here. The
+    intermediates are those the ``aem`` and ``bifunctional`` families write, except M-OO next to
+    an acceptor O that is not the acceptor's native state (an O on a neighbouring open metal
+    site). New are the Walden step, the acceptor deprotonation next to M-OO, and the cycles.
+    """
+    for aid in ctx.sites:
+        if ctx.site_class(aid) != "terminal":
+            continue
+        n = {s: ctx.node({aid: s}, "walden", aid) for s in ("OH", "O", "OOH", "OO")}
+        ctx.oer_cycle(
+            f"walden_{aid}_mononuclear",
+            [
+                (n["OH"], n["O"], 0, 0, "M-OH -> M-O + H+ + e- (eq. 7)."),
+                (n["O"], n["OOH"], 1, 0, "Water attack: M-O + H2O -> M-OOH + H+ + e- (eq. 8)."),
+                (n["OOH"], n["OO"], 0, 0, "M-OOH -> M-OO + H+ + e- (eq. 9)."),
+                (
+                    n["OO"],
+                    n["OH"],
+                    1,
+                    1,
+                    "Walden step: M-OO + H2O -> HO-M + O2 + H+ + e- (eq. 10); O2 leaves as water attaches, "
+                    "the bare site is not formed.",
+                ),
+            ],
+            "walden",
+            "Mononuclear-Walden mechanism of Exner (Adv. Sci. 2023), transferred to this site; the concerted "
+            "step is a hypothesis whose barrier is not evaluated",
+        )
+    for a, b in ctx.nearby_pairs():
+        for donor, acceptor in ((a, b), (b, a)):
+            if ctx.site_class(donor) != "terminal":
+                continue
+            site = f"donor_{donor}_acceptor_{acceptor}"
+
+            def n(d, h, donor=donor, acceptor=acceptor, site=site):
+                return ctx.node({donor: d, acceptor: h}, "walden", site)
+
+            oh_o, o_o, oo_oh, oo_o = n("OH", "O"), n("O", "O"), n("OO", "OH"), n("OO", "O")
+            ctx.oer_cycle(
+                f"walden_{donor}_{acceptor}_bifunctional",
+                [
+                    (oh_o, o_o, 0, 0, "M-OH + *O_A -> M-O + *O_A + H+ + e- (eq. 15)."),
+                    (
+                        o_o,
+                        oo_oh,
+                        1,
+                        0,
+                        "Water attack with the proton to the acceptor: M-O + *O_A + H2O -> M-OO + *OH_A + H+ + e- "
+                        "(eq. 16).",
+                    ),
+                    (oo_oh, oo_o, 0, 0, "Acceptor deprotonation: M-OO + *OH_A -> M-OO + *O_A + H+ + e- (eq. 17)."),
+                    (
+                        oo_o,
+                        oh_o,
+                        1,
+                        1,
+                        "Walden step: M-OO + *O_A + H2O -> HO-M + *O_A + O2 + H+ + e- (eq. 18); the bare site is "
+                        "not formed.",
+                    ),
+                ],
+                "walden",
+                "Bifunctional-Walden mechanism of Exner (Adv. Sci. 2023), with the neighbouring O as proton "
+                "acceptor; the concerted step is a hypothesis whose barrier is not evaluated",
+            )
+
+
 def oo_oo(ctx):
     from ..structure import minimum_image, unit
 
@@ -428,6 +500,15 @@ FAMILIES = (
         ["shi2025"],
         core=True,
         order=60,
+    ),
+    Family(
+        "walden",
+        walden,
+        "oer",
+        "Mononuclear-Walden and bifunctional-Walden cycles: O2 leaves as water attaches, no bare site",
+        ["exner2023walden", "usama2025"],
+        core=False,
+        order=65,
     ),
     Family(
         "oo_oo",

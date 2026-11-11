@@ -20,7 +20,10 @@ A reaction declares
   with only some coefficients given (OER: H goes to H+),
 * ``potential_scale``: the scale on which potentials are reported (RHE for OER, SHE for CER),
 * ``elementary``: reservoir vectors that count as one elementary step, used by
-  ``mechanet pathways`` to propose new edges.
+  ``mechanet pathways`` to propose new edges,
+* ``walden``: reservoir vectors of Walden steps, in which the product leaves a site as a
+  reactant attaches to it, so the bare site is never formed (OER: M-OO + H2O -> HO-M + O2 +
+  H+ + e-); proposed only from a site that holds the product whole.
 
 New reactions (ORR, HER, H2O2, ...) are plugins: subclass :class:`Reaction` and register
 it in the ``mechanet.reactions`` entry-point group. :func:`validate_reaction` checks the
@@ -185,6 +188,14 @@ def validate_reaction(reaction):
         )
     for vector in reaction.elementary:
         clean(vector)
+    for vector in reaction.walden:
+        moved = clean(vector)
+        taken_up = [s for s, nu in moved.items() if s != marker and nu < 0]
+        if moved.get(marker, 0) * net[marker] <= 0 or not taken_up:
+            raise ValueError(
+                f"Reaction {name!r}: the Walden step {vector} must give off {marker!r} as in net and take up "
+                "another species in the same step (OER: {'H2O': -1, 'O2': 1, 'H+': 1})"
+            )
     for species in reaction.formation_species:
         if species not in SPECIES:
             raise ValueError(f"Reaction {name!r}: unknown formation species {species!r}")
@@ -213,6 +224,10 @@ class Reaction:
     default_potentials: tuple = ()
     required_references: tuple = ()
     elementary: tuple = ()
+    # Walden steps: the product leaves a site as a reactant attaches to it (concurrent desorption
+    # and adsorption), so the bare site is not an intermediate. Elementary only from a site that
+    # holds the product whole (O2 as *OO); see pathways.StepRules.
+    walden: tuple = ()
     # States the coverage family gives each site kind when project.yaml lists none
     # (scope.coverage.states); empty means OXYGEN_COVERAGE_STATES.
     coverage_states: dict = {}
@@ -322,6 +337,13 @@ class OER(Reaction):
         {},  # internal H transfer, O-O coupling
         {"O2": 1, "H+": 1},  # O2 release with one PCET
         {"O2": 1},  # chemical O2 release
+    )
+    walden = (
+        # M-OO + H2O -> HO-M + O2 + H+ + e-: eqs. 10 and 18 of Exner, Adv. Sci. 10, 2305505 (2023)
+        {"H2O": -1, "O2": 1, "H+": 1},
+        # M-OO + H2O -> M-OH2 + O2, no charge transfer: the water-assisted O2 release of
+        # Usama et al., Nat. Commun. 16, 6137 (2025), after Ping 2017 and Gonzalez 2021
+        {"H2O": -1, "O2": 1},
     )
     coverage_states = OXYGEN_COVERAGE_STATES
 

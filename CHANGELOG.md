@@ -8,6 +8,18 @@ symmetric sites, Windows and macOS support, a smaller `analysis.py`, and three c
 an independent review of the thermodynamics. Everything 0.1.4 offered is still there, and a
 test now checks it.
 
+- **Walden steps for the OER.** O2 can leave a site as water attaches to it, so that the bare
+  site is never formed: M–OO + H2O → HO–M + O2 + H⁺ + e⁻ (Exner, *Adv. Sci.* **10**, 2305505
+  (2023)), and the same exchange without charge transfer, \*OO + H2O → \*OH2 + O2 (Usama et
+  al., *Nat. Commun.* **16**, 6137 (2025), after Ping 2017 and González 2021). Both are
+  declared for the OER (`Reaction.walden`); `mechanet pathways` proposes them on a site that
+  holds \*OO, and the new family `walden` (not a core family; part of `--scope all`) writes
+  the mononuclear-Walden and bifunctional-Walden cycles of Exner. A campaign in which leaving
+  the site bare is costly now shows the cycle that avoids it. Consequences for existing
+  campaigns: `pathways` proposes more steps and cycles, and a bound O2 whose Walden release is
+  downhill is treated as a bound product that leaves (resting states, Pourbaix). The families
+  that were there write the same intermediates, steps and cycles as before. Applying the step
+  to the \*OO of a bridging (lattice) site is an extension made here, not from the cited works.
 - **An adsorbate that leaves with an atom of the surface points to a possible intermediate.**
   O₂ made of an adsorbed O and a lattice O used to be filed as "released, no bound minimum",
   like any desorption. It is the step of a lattice-oxygen route: the checks now say which

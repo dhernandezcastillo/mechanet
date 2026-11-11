@@ -217,6 +217,35 @@ LITERATURE = {
         "Pourbaix diagram; Volmer-Heyrovsky-type CHE analysis referenced to the "
         "Cl2/Cl- couple.",
     },
+    "exner2023walden": {
+        "authors": "Exner",
+        "year": 2023,
+        "title": "Importance of the Walden Inversion for the Activity Volcano Plot of Oxygen Evolution",
+        "journal": "Advanced Science 10, 2305505",
+        "doi": "10.1002/advs.202305505",
+        "url": "https://doi.org/10.1002/advs.202305505",
+        "material": "Generic theoretical OER pathway comparison (scaling relations, no explicit DFT)",
+        "supported_use": "Definitions of the mononuclear-Walden (eqs. 7-10) and bifunctional-Walden "
+        "(eqs. 15-18) mechanisms, whose last step, M-OO + H2O -> HO-M + O2 + H+ + e-, "
+        "releases O2 while water attaches, so that the bare site is not an "
+        "intermediate. The paper credits Hess and Over, ACS Catal. 13, 3433 (2023), "
+        "for the Walden inversion as a motif. Not an atomistic result for any surface.",
+    },
+    "usama2025": {
+        "authors": "Usama, Razzaq, Hättig, Steinmann and Exner",
+        "year": 2025,
+        "title": "Oxygen evolution reaction on IrO2(110) is governed by Walden-type mechanisms",
+        "journal": "Nature Communications 16, 6137",
+        "doi": "10.1038/s41467-025-61367-z",
+        "url": "https://doi.org/10.1038/s41467-025-61367-z",
+        "material": "IrO2(110), cus Ir sites with bridging O as proton acceptor",
+        "supported_use": "DFT comparison in which the mononuclear-Walden and bifunctional-Walden "
+        "pathways have lower Gmax(U) than the traditional ones on IrO2(110); also the "
+        "water-assisted O2 release without charge transfer, *OO + H2O -> *OH2 + O2, "
+        "which it takes from Ping, Nielsen and Goddard, J. Am. Chem. Soc. 139, 149 "
+        "(2017) and González et al., J. Catal. 396, 192 (2021). Lattice oxygen is "
+        "excluded there; Walden steps on a lattice site are not from this work.",
+    },
     "exner2020": {
         "authors": "Exner",
         "year": 2020,

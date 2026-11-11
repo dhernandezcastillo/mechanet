@@ -145,6 +145,10 @@ A `Reaction` declares data only:
   (used for resting states and Pourbaix diagrams);
 * `elementary`: the reservoir vectors that count as one elementary step for
   `mechanet pathways` (it proposes steps between intermediates only with these vectors);
+* `walden` (optional): reservoir vectors of Walden steps, in which the product leaves a site as
+  a reactant attaches to it, so the bare site is never formed (OER: `{"H2O": -1, "O2": 1,
+  "H+": 1}`). Each must give off the turnover marker and take up another species; `pathways`
+  proposes it only on one site that holds the product whole (docs/science.md §2);
 * `potential_scale` (`RHE` or `SHE`), `default_potentials`, `required_references`;
 * `coverage_states`: the states the `coverage` family gives each site kind when project.yaml
   lists none, for example `{"open_metal": ("empty", "H")}` for HER; without it the oxide

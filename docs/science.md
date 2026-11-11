@@ -61,6 +61,7 @@ guesses become stationary structures; nothing here identifies the catalytic flux
 | `terminal_bridge_coupling` | A terminal O coupling to a neighbouring bridge O | [Hao 2021] |
 | `bifunctional` | Proton transfer from the donor's OOH or water attack to a neighbouring acceptor; Exner's BF-I and BF-II and their resolved variants | [Halck 2014; Song 2019; Bai 2021; Exner 2023] |
 | `hydrated` | Bound-water refill, H2O/OH/O tautomers, local proton relays | [Shi 2025] |
+| `walden` | \*OH → \*O → \*OOH → \*OO, then O2 leaves as water attaches (\*OO + H2O → \*OH + O2 + H⁺ + e⁻); and the same with the proton of the water attack going to a neighbouring O. The bare site is not an intermediate | Mononuclear-Walden and bifunctional-Walden mechanisms [Exner 2023, Adv. Sci.; Usama 2025] |
 | `oo_oo` | Two neighbouring OO groups and distal-O release; O4 kept as a transition-state seed | [Binninger 2022; Exner 2023] |
 | `cer_volmer_heyrovsky` | \* + Cl⁻ → \*Cl + e⁻; \*Cl + Cl⁻ → \* + Cl2 + e⁻ on bare metal sites | [Hansen 2010] |
 | `cer_volmer_tafel` | Two Volmer steps and 2 \*Cl → Cl2 on neighbouring sites | [Hansen 2010] |
@@ -70,6 +71,44 @@ guesses become stationary structures; nothing here identifies the catalytic flux
 
 Two-site families pair sites within `scope.pair_max_distance_A` (3.3 Å by default). This is
 a declared search boundary, not proof that more distant chemistry is impossible.
+
+**Walden steps.** The usual mechanisms let O2 leave first and water come afterwards, with the
+bare site between the two. In a Walden step the two happen together: O2 leaves the site as
+water attaches to it, so the bare site is never formed. Exner introduced it for the OER
+(*Adv. Sci.* 2023, crediting Hess and Over, *ACS Catal.* **13**, 3433 (2023), for the motif)
+with one proton–electron pair,
+
+    M–OO + H2O → HO–M + O2 + H⁺ + e⁻,
+
+as the last step of the mononuclear-Walden mechanism (eqs. 7–10: M–OH → M–O → M–OOH → M–OO →
+HO–M) and of the bifunctional-Walden one (eqs. 15–18, where the proton of the water attack
+goes to a neighbouring O that is deprotonated before the Walden step). Usama et al. (2025)
+find these two preferred over the usual mechanisms on IrO2(110), and also treat the exchange
+without charge transfer, \*OO + H2O → \*OH2 + O2, which they take from Ping, Nielsen and
+Goddard (*J. Am. Chem. Soc.* **139**, 149 (2017)) and González et al. (*J. Catal.* **396**,
+192 (2021)). A related exchange, O2 replacing adsorbed water, is the rate-limiting step
+reported for O2 reduction on Fe–N–C (Yu et al., *J. Am. Chem. Soc.* **145**, 25352 (2023)).
+
+Here both forms are declared for the OER (`Reaction.walden`), apart from the ordinary
+elementary steps. The `walden` family writes Exner's two cycles; it is not a core family,
+since it mostly reuses the intermediates of `aem` and `bifunctional`. `mechanet pathways`
+proposes a Walden step on any single site that holds O2 whole (\*OO) and whose \*OH (or bound
+H2O) is an intermediate of the campaign. What this does and does not say:
+
+* A cycle with a Walden step does not pass through the bare site. When leaving the site bare
+  is costly, the usual cycles need a high potential for the release (or cannot be driven at
+  all, if the release has no electron), and the Walden cycle does not.
+* The site model has one position per site, so the HO–M of the papers (water entering from
+  the other side than O2 leaves) and M–OH are the same intermediate. Whether the concerted
+  step has a low barrier is a kinetic question that this thermodynamic network does not answer.
+* A bound O2 whose Walden release runs downhill is treated like any other bound product in the
+  resting states (§5) and Pourbaix diagrams (§7): left out when the release has no electron,
+  flagged where an electrochemical one is downhill.
+* The cited works apply the step to metal sites, and Usama et al. exclude lattice oxygen for
+  IrO2(110). The rule here follows the site occupancy, so `pathways` also proposes it for the
+  \*OO of a bridging site, where O2 leaves with the lattice O as water refills it. That use
+  is an extension made here, not taken from those papers. A release from two sites at once
+  (an adsorbed O with a lattice O) has no Walden form here.
 
 ## 3. Starting structures
 
@@ -296,7 +335,8 @@ step, keyed by its ID) and searches it:
    (the partner of a two-site step may only gain or lose one proton, or both sites couple,
    decouple or release the product together), and when the step's reservoir vector is one
    of the reaction's elementary vectors (one PCET, water attack or adsorption, an internal
-   transfer, a product release, a Cl⁻ adsorption; `Reaction.elementary`). A step that gives
+   transfer, a product release, a Cl⁻ adsorption; `Reaction.elementary`), or a Walden step
+   on one site that holds the product whole (`Reaction.walden`, §2). A step that gives
    off the product is a release whatever the sites do, so the HER Tafel step 2 \*H → 2 \* + H2
    is proposed. Only steps in the reaction's direction are proposed unless `--allow-reverse`.
 2. **Cycles.** A turnover moves the reaction's *marker* (`Reaction.release`: O2 given off in
@@ -531,8 +571,10 @@ The keys are those of `mechanet.literature.LITERATURE`, recorded in `network.jso
 * bai2021: Bai, Lee, Hu, *Angew. Chem. Int. Ed.* **60**, 3095 (2021). https://doi.org/10.1002/anie.202011388
 * binninger2022: Binninger, Doublet, *Energy Environ. Sci.* **15**, 2519 (2022). https://doi.org/10.1039/D2EE00158F
 * exner2023: Exner, *Mater. Horiz.* **10**, 2086 (2023). https://doi.org/10.1039/D3MH00047H
+* exner2023walden: Exner, *Adv. Sci.* **10**, 2305505 (2023). https://doi.org/10.1002/advs.202305505
 * razzaq2023: Razzaq, Exner, *ACS Catal.* **13**, 1740 (2023). https://doi.org/10.1021/acscatal.2c03997
 * shi2025: Shi et al., *Nat. Chem.* **17**, 1607 (2025). https://doi.org/10.1038/s41557-025-01898-6
+* usama2025: Usama, Razzaq, Hättig, Steinmann, Exner, *Nat. Commun.* **16**, 6137 (2025). https://doi.org/10.1038/s41467-025-61367-z
 
 Sources motivate the chemical possibilities. They do not establish their energies, kinetic
 accessibility or occurrence on a new surface.
