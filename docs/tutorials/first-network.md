@@ -1,6 +1,6 @@
 # Tutorial 1: Your first OER network
 
-Without a cluster, you build the oxygen-evolution network of RuO2(110): 63 intermediates, 146 steps and 100 catalytic cycles, each intermediate with a starting structure ready for VASP. All you need is mechanet itself ([Getting started](../getting-started.md#install)).
+Without a cluster, you build the oxygen-evolution network of RuO2(110): 65 intermediates, 154 steps and 106 catalytic cycles, each intermediate with a starting structure ready for VASP. All you need is mechanet itself ([Getting started](../getting-started.md#install)).
 
 ## 1. Get an example slab
 
@@ -75,7 +75,7 @@ sites:                            # [confirmed] reactive sites; delete an entry 
   - {id: m0046, kind: open_metal, native: empty, metal: a0046}
 
 scope:
-  families: [aem, surface_bridge, pair_coupling, terminal_bridge_coupling, bifunctional, hydrated]  # [confirmed]
+  families: [aem, surface_bridge, pair_coupling, terminal_bridge_coupling, bifunctional, hydrated, walden]  # [confirmed]
 ```
 
 A misspelled key is refused with a suggestion (`ph`: did you mean `pH`?), so edits are safe to try.
@@ -88,17 +88,17 @@ mechanet generate
 ```
 
 ```text
-  candidate nodes: 63
-  computed nodes: 35
-  symmetry equivalent nodes: 28
-  unique initial structures: 69
-  proposed edges: 146
-  complete stoichiometric cycles: 100
-  symmetry unique cycles: 50
+  candidate nodes: 65
+  computed nodes: 36
+  symmetry equivalent nodes: 29
+  unique initial structures: 66
+  proposed edges: 154
+  complete stoichiometric cycles: 106
+  symmetry unique cycles: 53
   WARNING: No cluster profile in project.yaml: set `cluster:` and run ...
 ```
 
-Of the 63 intermediates, 28 are lattice-translation images of others and inherit their energies, so 35 are computed. Some intermediates get more than one starting placement, which gives 62 starting structures; a second placement that a rotation or mirror of the slab would turn into the first is not written, because DFT would repeat the same calculation. The warning is expected until [tutorial 3](cluster.md).
+Of the 65 intermediates, 29 are lattice-translation images of others and inherit their energies, so 36 are computed. Some intermediates get more than one starting placement, which gives 66 starting structures; a second placement that a rotation or mirror of the slab would turn into the first is not written, because DFT would repeat the same calculation. The warning is expected until [tutorial 3](cluster.md).
 
 Everything lands in `ruo2/campaign/`: `network.json` holds the intermediates, steps and cycles, and `states/` holds one folder per starting structure with its `POSCAR`.
 
@@ -109,17 +109,17 @@ mechanet plan
 ```
 
 ```text
-campaign (oer): 63 intermediates (35 computed, 28 symmetry images), 146 steps, 100 cycles (50 symmetry-unique)
-  cycles by family: aem 4, bifunctional 20, hydrated 24, pair_coupling 24, surface_bridge 4, terminal_bridge_coupling 24
-  starting structures: 62
+campaign (oer): 65 intermediates (36 computed, 29 symmetry images), 154 steps, 106 cycles (53 symmetry-unique)
+  cycles by family: aem 4, bifunctional 20, hydrated 24, pair_coupling 24, surface_bridge 4, terminal_bridge_coupling 24, walden 6
+  starting structures: 66
   stages: 01_loose -> 02_final -> 04_static -> 05_freq (frequency.central = final)
-  relaxation_jobs (01_loose + 02_final): 62
-  states_continuing_to_04_static_05_freq (estimate): 52
-  frequency_displacements (estimate): 1464
+  relaxation_jobs (01_loose + 02_final): 66
+  states_continuing_to_04_static_05_freq (estimate): 54
+  frequency_displacements (estimate): 1524
   node-hours: unknown. No finished runs yet: submit the pilot ...
 ```
 
-Every starting structure is relaxed with loose, then final settings. The best variants of each intermediate then get a single point and a partial Hessian by finite displacements, 1,464 single points here. Node-hours appear after the pilot of [tutorial 3](cluster.md#5-run-the-pilot). A smaller scope costs less: with `--scope aem` the same slab gives 9 intermediates (5 computed) and 9 starting structures.
+Every starting structure is relaxed with loose, then final settings. The best variants of each intermediate then get a single point and a partial Hessian by finite displacements, 1,524 single points here. Node-hours appear after the pilot of [tutorial 3](cluster.md#5-run-the-pilot). A smaller scope costs less: with `--scope aem` the same slab gives 9 intermediates (5 computed) and 9 starting structures.
 
 ## 7. Explore the cycles
 
@@ -152,7 +152,7 @@ mechanet pathways
 ```
 
 ```text
-6298 cycles of up to 6 steps on 2 sites: 100 of 100 curated cycles recovered, 6198 discovered (3099 symmetry-unique), 162 steps proposed
+8002 cycles of up to 6 steps on 2 sites: 106 of 106 curated cycles recovered, 7896 discovered (3948 symmetry-unique), 176 steps proposed
 ```
 
 mechanet proposes elementary steps between the intermediates and finds every balanced catalytic cycle among them. Without energies this is a census; [tutorial 4](analysis.md#5-rank-every-pathway-not-only-the-written-ones) ranks the cycles and finds the route of lowest overpotential.

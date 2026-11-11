@@ -100,9 +100,10 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(LITERATURE["exner2023walden"]["doi"], "10.1002/advs.202305505")
         self.assertEqual(LITERATURE["usama2025"]["doi"], "10.1038/s41467-025-61367-z")
         family = default_registry().families["walden"]
-        self.assertEqual((family.reaction, family.core), ("oer", False))
+        self.assertEqual((family.reaction, family.core), ("oer", True))
         self.assertEqual(list(family.sources), ["exner2023walden", "usama2025"])
-        self.assertNotIn("walden", default_registry().core_families("oer"))
+        # one of the default families of a new OER project, after the ones it shares intermediates with
+        self.assertEqual(default_registry().core_families("oer")[-2:], ["hydrated", "walden"])
         names = route({"id": "walden_a0065_mononuclear", "family": "walden"})
         self.assertEqual((names["short"], names["variant"]), ("mononuclear-Walden", None))
         names = route({"id": "walden_a0065_a0061_bifunctional", "family": "walden"})

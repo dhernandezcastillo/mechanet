@@ -90,8 +90,9 @@ Goddard (*J. Am. Chem. Soc.* **139**, 149 (2017)) and González et al. (*J. Cata
 reported for O2 reduction on Fe–N–C (Yu et al., *J. Am. Chem. Soc.* **145**, 25352 (2023)).
 
 Here both forms are declared for the OER (`Reaction.walden`), apart from the ordinary
-elementary steps. The `walden` family writes Exner's two cycles; it is not a core family,
-since it mostly reuses the intermediates of `aem` and `bifunctional`. `mechanet pathways`
+elementary steps. The `walden` family writes Exner's two cycles; it is one of the default
+families of a new OER project and mostly reuses the intermediates of `aem` and
+`bifunctional` (on RuO2(110): two more intermediates and four more starts). `mechanet pathways`
 proposes a Walden step on any single site that holds O2 whole (\*OO) and whose \*OH (or bound
 H2O) is an intermediate of the campaign. What this does and does not say:
 

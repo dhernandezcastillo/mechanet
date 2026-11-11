@@ -19,7 +19,7 @@ sites:                           # [auto] reactive sites; delete an entry to exc
   - {id: m0046, kind: open_metal, native: empty, metal: a0046}
 
 scope:
-  families: [aem, surface_bridge, pair_coupling, terminal_bridge_coupling, bifunctional, hydrated]   # [auto]
+  families: [aem, surface_bridge, pair_coupling, terminal_bridge_coupling, bifunctional, hydrated, walden]   # [auto]
   pair_max_distance_A: 3.3       # two-site families pair sites within this distance
 
 inputs:                          # DFT templates; INCAR tags are used as written

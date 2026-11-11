@@ -84,18 +84,19 @@ class BuilderTests(unittest.TestCase):
         return out, report
 
     def test_ruo2_oer_core(self):
+        def counts(report):
+            keys = ("candidate_nodes", "computed_nodes", "proposed_edges")
+            keys += ("complete_stoichiometric_cycles", "symmetry_unique_cycles")
+            return tuple(report[key] for key in keys)
+
         out, report = self.build("ruo2", config_of("ruo2_110"), "ruo2_110")
-        self.assertEqual(
-            (
-                report["candidate_nodes"],
-                report["computed_nodes"],
-                report["proposed_edges"],
-                report["complete_stoichiometric_cycles"],
-                report["symmetry_unique_cycles"],
-            ),
-            (63, 35, 146, 100, 50),
-        )
+        self.assertEqual(counts(report), (65, 36, 154, 106, 53))
         self.assertEqual(report["nodes_without_viable_start"], [])
+        # The walden family adds 2 intermediates, 8 steps and 6 cycles; the six families that were
+        # the default before it write exactly what they wrote.
+        earlier = ["aem", "surface_bridge", "pair_coupling", "terminal_bridge_coupling", "bifunctional", "hydrated"]
+        _, before = self.build("ruo2_earlier", config_of("ruo2_110", earlier), "ruo2_110")
+        self.assertEqual(counts(before), (63, 35, 146, 100, 50))
         # adsorbates on the CUS Ru sit at sensible Ru-O distances
         for sid, expected in (("n_m0038OH_9b2a79__v1", 1.95), ("n_m0038O_d0b786__v1", 1.75)):
             st = read_poscar(out / "states" / sid / "POSCAR")

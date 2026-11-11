@@ -77,7 +77,15 @@ class ReactionTests(unittest.TestCase):
         self.assertEqual(sorted(registry.reactions), ["cer", "oer"])
         self.assertEqual(
             registry.core_families("oer"),
-            ["aem", "surface_bridge", "pair_coupling", "terminal_bridge_coupling", "bifunctional", "hydrated"],
+            [
+                "aem",
+                "surface_bridge",
+                "pair_coupling",
+                "terminal_bridge_coupling",
+                "bifunctional",
+                "hydrated",
+                "walden",
+            ],
         )
         self.assertEqual(registry.core_families("cer"), ["cer_volmer_heyrovsky", "cer_ocl"])
         self.assertIn("pathways", registry.commands)

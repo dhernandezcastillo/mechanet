@@ -86,8 +86,8 @@ Start a new material with `aem`, then widen the scope once the first results are
 |---|---|---|
 | `aem` | `aem`: \*OH, \*O, \*OOH on terminal ligands and open metals | A first look at a new material |
 | `aem+bifunctional` | adds proton transfer to a neighbouring acceptor | Oxides with a basic O next to the active metal |
-| `core` | `aem`, `surface_bridge`, `pair_coupling`, `terminal_bridge_coupling`, `bifunctional`, `hydrated` | A full study of the literature mechanisms |
-| `all` | `core` plus `walden` (O2 leaves as water attaches) and `oo_oo` (O4 recombination) | Completeness |
+| `core` | `aem`, `surface_bridge`, `pair_coupling`, `terminal_bridge_coupling`, `bifunctional`, `hydrated`, `walden` | A full study of the literature mechanisms |
+| `all` | `core` plus `oo_oo` (O4 recombination) | Completeness |
 | a list | e.g. `--scope aem,bifunctional`, or `scope.families` in project.yaml | Your own selection |
 
 ## 4. Correct what was detected

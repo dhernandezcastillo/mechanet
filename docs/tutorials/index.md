@@ -83,7 +83,7 @@ has ready-made projects in `examples/`; set `cluster:` in a `project.yaml` and r
 | `examples/iro2_110` | IrO2(110), 2×1 | OER, core families |
 | `examples/pt_111` | Pt(111), 3×3×4 | OER, adsorbate evolution |
 | `examples/ruo2_110_cer` | RuO2(110) | CER, core families |
-| `examples/nife_ldh` | NiFe LDH edge (90 atoms, skewed cell, interlayer water) | OER, core families |
+| `examples/nife_ldh` | NiFe LDH edge (90 atoms, skewed cell, interlayer water) | OER, the core families without `walden` (the family list of its reference build) |
 
 The three slabs `RuO2_110`, `IrO2_110` and `Pt_111` also come with the package:
 `mechanet examples NAME` writes one to start a project from. `examples/build_slabs.py`

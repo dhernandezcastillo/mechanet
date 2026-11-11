@@ -13,8 +13,12 @@ test now checks it.
   (2023)), and the same exchange without charge transfer, \*OO + H2O → \*OH2 + O2 (Usama et
   al., *Nat. Commun.* **16**, 6137 (2025), after Ping 2017 and González 2021). Both are
   declared for the OER (`Reaction.walden`); `mechanet pathways` proposes them on a site that
-  holds \*OO, and the new family `walden` (not a core family; part of `--scope all`) writes
-  the mononuclear-Walden and bifunctional-Walden cycles of Exner. A campaign in which leaving
+  holds \*OO, and the new family `walden` writes the mononuclear-Walden and
+  bifunctional-Walden cycles of Exner. It is a core family: `mechanet init` proposes it for new
+  OER projects (RuO2(110) then has 65 intermediates, 154 steps, 106 cycles and 66 starts instead
+  of 63, 146, 100 and 62), and the RuO2(110) and IrO2(110) examples list it. Projects that
+  exist keep the families their project.yaml lists; the NiFe LDH example keeps the six families
+  of its reference build. A campaign in which leaving
   the site bare is costly now shows the cycle that avoids it. Consequences for existing
   campaigns: `pathways` proposes more steps and cycles, and a bound O2 whose Walden release is
   downhill is treated as a bound product that leaves (resting states, Pourbaix). The families

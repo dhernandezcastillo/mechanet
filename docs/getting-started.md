@@ -34,8 +34,8 @@ mechanet show-cycle aem_m0038_AEM       # one mechanism, as equations
 
 ![The site map of RuO2(110): two bridging O and two open Ru sites](images/site-map-ruo2.png)
 
-`generate` then builds 63 intermediates, 146 steps and 100 catalytic cycles from the literature
-mechanisms, with 62 starting structures ready for VASP, and `show-cycle` prints one of them:
+`generate` then builds 65 intermediates, 154 steps and 106 catalytic cycles from the literature
+mechanisms, with 66 starting structures ready for VASP, and `show-cycle` prints one of them:
 
 ```text
 aem_m0038_AEM: Adsorbate evolution (AEM)  [aem; oer]
@@ -80,7 +80,7 @@ campaign by itself when you run it inside the project folder.
 
 | Reaction | Net, per turnover | Potential scale | Mechanism families |
 |---|---|---|---|
-| `oer`, oxygen evolution | 2 H₂O → O₂ + 4 (H⁺ + e⁻) | RHE | `aem`, `surface_bridge`, `pair_coupling`, `terminal_bridge_coupling`, `bifunctional`, `hydrated`, and `oo_oo` |
+| `oer`, oxygen evolution | 2 H₂O → O₂ + 4 (H⁺ + e⁻) | RHE | `aem`, `surface_bridge`, `pair_coupling`, `terminal_bridge_coupling`, `bifunctional`, `hydrated`, `walden`, and `oo_oo` |
 | `cer`, chlorine evolution | 2 Cl⁻ → Cl₂ + 2 e⁻ | SHE | `cer_volmer_heyrovsky`, `cer_ocl`, and `cer_volmer_tafel` |
 | your own | from a [plugin](plugins.md), such as the HER example | RHE or SHE | yours |
 

@@ -507,7 +507,7 @@ FAMILIES = (
         "oer",
         "Mononuclear-Walden and bifunctional-Walden cycles: O2 leaves as water attaches, no bare site",
         ["exner2023walden", "usama2025"],
-        core=False,
+        core=True,
         order=65,
     ),
     Family(

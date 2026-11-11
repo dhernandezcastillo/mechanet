@@ -58,7 +58,7 @@ mechanet cluster import my_vasp_job.sh --name hpc     # once per cluster: a job 
 mechanet examples RuO2_110                            # an example slab (or use your own slab file)
 mechanet init RuO2_110.vasp ruo2 --cluster hpc        # inspect, answer a few questions -> ruo2/project.yaml
 cd ruo2
-mechanet generate                                     # 63 intermediates, 146 steps, 100 cycles, 69 starts
+mechanet generate                                     # 65 intermediates, 154 steps, 106 cycles, 66 starts
 mechanet plan                                         # what it will cost
 mechanet submit --pilot                               # preview the first jobs; add --execute to submit
 ```
@@ -187,7 +187,7 @@ releases the product last. Terminals that cannot show subscripts get an ASCII fo
 
 | Reaction | Net (one turnover) | Potential scale | Core families |
 |---|---|---|---|
-| `oer` | 2 H2O → O2 + 4 (H⁺ + e⁻) | RHE | `aem`, `surface_bridge`, `pair_coupling`, `terminal_bridge_coupling`, `bifunctional`, `hydrated` |
+| `oer` | 2 H2O → O2 + 4 (H⁺ + e⁻) | RHE | `aem`, `surface_bridge`, `pair_coupling`, `terminal_bridge_coupling`, `bifunctional`, `hydrated`, `walden` |
 | `cer` | 2 Cl⁻ → Cl2 + 2 e⁻ | SHE | `cer_volmer_heyrovsky`, `cer_ocl` |
 
 | Family | Proposes |
@@ -228,8 +228,8 @@ No new DFT is needed: discovered cycles reuse the computed intermediates.
 cycles into `network.json`, so `thermo` and `plot-profile` treat them like curated ones. To
 also discover new *intermediates*, use the `enumerated` family at generation time.
 
-On RuO2(110) with the core families, every one of the 100 curated cycles is recovered and
-6,198 further balanced cycles of up to six steps are found (3,099 symmetry-unique).
+On RuO2(110) with the core families, every one of the 106 curated cycles is recovered and
+7,896 further balanced cycles of up to six steps are found (3,948 symmetry-unique).
 
 ## Magnetic moments along a cycle
 
@@ -309,7 +309,7 @@ NH3, seven nitrogen intermediates) are complete examples, each run end to end by
 | `examples/iro2_110` | IrO2(110), 2×1 | OER, core families |
 | `examples/pt_111` | Pt(111), 3×3×4 | OER, adsorbate evolution |
 | `examples/ruo2_110_cer` | RuO2(110) | CER, core families |
-| `examples/nife_ldh` | NiFe LDH edge (90 atoms, skewed cell, interlayer water) | OER, core families, with a reference build checked by the tests |
+| `examples/nife_ldh` | NiFe LDH edge (90 atoms, skewed cell, interlayer water) | OER, the core families without `walden`: the family list of its reference build, which the tests check |
 
 The example folders are in the source distribution and the [repository](https://github.com/dhernandezcastillo/mechanet/tree/main/examples); the three slabs
 (`RuO2_110`, `IrO2_110`, `Pt_111`) also come with the package: `mechanet examples NAME` writes
