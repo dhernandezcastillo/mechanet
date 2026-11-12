@@ -401,7 +401,12 @@ def make_uma(
     ``inference_settings``: ``high-precision`` (TF32 off), not fairchem's default, which trades
     accuracy for speed. Neither OC22 nor OMat24 has dispersion: ``dispersion=true`` adds D3(BJ).
     The weights are gated on Hugging Face: request access to facebook/UMA and log in first.
-    ``options`` go to ``pretrained_mlip.get_predict_unit`` (``cache_dir``, ``overrides``, ...).
+    fairchem downloads the model file on the first run into its cache, ``~/.cache/fairchem`` or
+    the folder in ``FAIRCHEM_CACHE_DIR`` (``get_predict_unit``'s ``cache_dir`` moves only the
+    reference-energy files). ``model`` may also be the path of a checkpoint file, which fairchem
+    loads without its per-element reference energies: forces, and the comparison of starts of
+    one intermediate, are unchanged; absolute energies are not. ``options`` go to
+    ``pretrained_mlip.get_predict_unit`` (``overrides``, ``workers``, ...).
     """
     try:
         from fairchem.core import FAIRChemCalculator, pretrained_mlip

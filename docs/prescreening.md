@@ -102,7 +102,7 @@ Treat its relaxations as a cheap first look at the geometry, not as a result.
 | `--calculator` | What it is |
 |---|---|
 | `mace-mh1` | MACE-MH-1 on its OMAT head (`omat_pbe`), in float64 (needs `pip install "mace-torch>=0.3.14"`). Options: `head`, `device` (`auto`, `cpu`, `cuda`), `dispersion` (D3, below), `model` (`mh-1`, or the path of a model file, such as an MH-1 fine-tuned on your data), `default_dtype`, and any option of mace-torch's `MACECalculator` (`enable_cueq`, ...) |
-| `uma` | UMA through fairchem (needs `pip install "fairchem-core>=2.22"` and access to the gated weights), model `uma-s-1p2p1`, task `oc22`, `high-precision` inference. Options: `model`, `task`, `device`, `inference_settings`, `dispersion`, and any option of `pretrained_mlip.get_predict_unit` (`cache_dir`, ...) |
+| `uma` | UMA through fairchem (needs `pip install "fairchem-core>=2.22"` and access to the gated weights), model `uma-s-1p2p1`, task `oc22`, `high-precision` inference. Options: `model` (a name fairchem knows, or the path of a downloaded checkpoint file, which fairchem loads without its per-element reference energies: forces and the ranking of one intermediate's starts are unchanged), `task`, `device`, `inference_settings`, `dispersion`, and any option of `pretrained_mlip.get_predict_unit` (`overrides`, ...) |
 | `sevennet` | SevenNet-Omni (needs `pip install "sevenn>=0.13"`), modal `oc22`. Options: `model`, `modal` (lower case), `device`, `dispersion`, and any option of `SevenNetCalculator` (`enable_cueq`, ...) |
 | `mace-mp` | any MACE foundation potential by name (needs `pip install mace-torch`). Options: `model` (a name mace-torch knows, such as `small`, `medium` or `large`, or the path of a model file; default `medium`), `device` (`cpu` or `cuda`), `default_dtype` (default `float64`, as MACE recommends for relaxations), `dispersion` (D3). No recommended settings: mechanet's defaults apply |
 | `emt` | ASE's effective-medium toy potential, for testing the workflow only |
@@ -174,8 +174,25 @@ pip install -e ".[mace]"           # from a clone; or [uma], [sevennet]; add [d3
 ```
 
 UMA's weights are gated: request access at <https://huggingface.co/facebook/UMA>, then log in
-with `hf auth login` (`huggingface-cli login` in older versions) before the first prescreen. A compute node without internet needs the
-weights cached first (fairchem's `cache_dir`, mace-torch's `XDG_CACHE_HOME`).
+with `hf auth login` (`huggingface-cli login` in older versions) before the first prescreen.
+
+You do not place the model files yourself: each package downloads its model on the first run
+and keeps it. fairchem keeps UMA in `~/.cache/fairchem`, or in the folder that
+`FAIRCHEM_CACHE_DIR` names (its `cache_dir` option moves only some reference-energy files, not
+the model); mace-torch keeps MACE models in `~/.cache/mace` (`$XDG_CACHE_HOME/mace` when that
+variable is set). `prescreen.json` and every `result.json` record the file's name and SHA-256.
+
+On a cluster whose compute nodes have no internet, set the variable to a folder the jobs can
+read and download once on a login node; jobs that set the same variable find the file there:
+
+```bash
+export FAIRCHEM_CACHE_DIR=/scratch/$USER/.cache/fairchem
+python -c "from fairchem.core import pretrained_mlip; print(pretrained_mlip.pretrained_checkpoint_path_from_name('uma-s-1p2p1'))"
+```
+
+The second line prints where the file went. Run one short job on a compute node before a large
+prescreen: whether the download library tries the network although the file is there has not
+been tested; Hugging Face's `HF_HUB_OFFLINE=1` makes it use the stored copy only.
 
 ### Which model file was used
 
