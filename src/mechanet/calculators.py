@@ -412,7 +412,7 @@ def make_uma(
         from fairchem.core import FAIRChemCalculator, pretrained_mlip
     except ImportError as exc:
         raise RuntimeError(
-            "the uma calculator needs fairchem-core 2.22 or later (pip install 'fairchem-core>=2.22'), "
+            "the uma calculator needs fairchem-core 2.24 or later (pip install 'fairchem-core>=2.24'), "
             "in an environment of its own: mace-torch needs another e3nn version"
         ) from exc
     dev = resolve_device(device)
@@ -525,7 +525,7 @@ BUILTIN_CALCULATORS = (
     CalculatorFactory(
         "uma",
         make_uma,
-        "UMA through fairchem (needs fairchem-core>=2.22 and access to the gated weights): uma-s-1p2p1, "
+        "UMA through fairchem (needs fairchem-core>=2.24 and access to the gated weights): uma-s-1p2p1, "
         "task oc22 (oxide slabs with adsorbates); options model, task, device, inference_settings, dispersion",
         relax_settings=dict(RECOMMENDED_ML_RELAXATION),
     ),

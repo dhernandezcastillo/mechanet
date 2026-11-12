@@ -293,7 +293,7 @@ class PresetTests(unittest.TestCase):
             "uma": {"fairchem": None, "fairchem.core": None},
             "sevennet": {"sevenn": None, "sevenn.calculator": None},
         }
-        wanted = {"mace-mh1": "mace-torch>=0.3.14", "uma": "fairchem-core>=2.22", "sevennet": "sevenn>=0.13"}
+        wanted = {"mace-mh1": "mace-torch>=0.3.14", "uma": "fairchem-core>=2.24", "sevennet": "sevenn>=0.13"}
         for name in PRESETS:
             with patch.dict(sys.modules, absent[name]), self.assertRaisesRegex(RuntimeError, wanted[name]):
                 load_calculator(name, {"device": "cpu"})

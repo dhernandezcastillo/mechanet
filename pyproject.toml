@@ -37,7 +37,7 @@ test = ["pytest>=7", "matplotlib>=3.5"]
 # Foundation potentials for `mechanet prescreen`, one per environment: mace-torch pins an e3nn
 # that fairchem and sevenn do not accept. torch-dftd adds D3 (`--option dispersion=true`).
 mace = ["mace-torch>=0.3.14"]
-uma = ["fairchem-core>=2.22"]
+uma = ["fairchem-core>=2.24"]
 sevennet = ["sevenn>=0.13"]
 d3 = ["torch-dftd"]
 docs = ["sphinx>=8", "myst-parser>=4", "furo>=2024.8.6", "sphinx-design>=0.6.1"]

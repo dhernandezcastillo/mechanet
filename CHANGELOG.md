@@ -5,7 +5,7 @@
 - **Foundation potentials built in, with the settings they are meant for.** `mechanet prescreen`
   gains three calculators trained on surfaces with adsorbates: `mace-mh1` (MACE-MH-1, head
   omat_pbe, float64; needs mace-torch 0.3.14 or later), `uma` (UMA `uma-s-1p2p1`, task oc22,
-  fairchem's high-precision inference; needs fairchem-core 2.22 or later and access to the gated
+  fairchem's high-precision inference; needs fairchem-core 2.24 or later and access to the gated
   weights) and `sevennet` (SevenNet-Omni, modal oc22; needs sevenn 0.13 or later). MACE-MH-1 drew
   the closest diagram of seven MACE foundation models on the hydrogen coverage of a NiFe LDH edge;
   UMA's oc22 task and SevenNet-Omni's oc22 channel reproduce the OC22 oxide slabs (PBE+U), and
