@@ -10,7 +10,9 @@ registered the same way an external package would register its own:
 ``mechanet.commands``      ``register_command(subparsers, registry)`` adding CLI subcommands
 ``mechanet.calculators``   a factory returning an ASE calculator (or a
                            :class:`mechanet.calculators.Calculator`); the entry-point
-                           name is the calculator's name (``--calculator NAME``)
+                           name is the calculator's name (``--calculator NAME``), and a
+                           ``relax_settings`` attribute of the factory its recommended
+                           optimizer, fmax_eVA and steps
 =========================  ==========================================================
 
 A project can also load local plugin files (``plugins: [./my_families.py]`` in
@@ -149,14 +151,21 @@ class Registry:
         self.commands[name] = register
         self.loaded.append(("command", name, origin))
 
-    def add_calculator(self, name, make, description="", origin="builtin"):
+    def add_calculator(self, name, make, description="", origin="builtin", relax_settings=None):
         """A calculator ``mechanet prescreen --calculator NAME`` can use: ``make(**options)`` returns
-        an ASE calculator or a :class:`mechanet.calculators.Calculator`."""
-        from .calculators import CalculatorFactory
+        an ASE calculator or a :class:`mechanet.calculators.Calculator`.
+
+        ``relax_settings``: the optimizer, fmax_eVA and steps the calculator is meant to relax with
+        (any of them), used when the user gives none; by default the factory's own
+        ``relax_settings`` attribute, if it has one."""
+        from .calculators import CalculatorFactory, check_relax_settings
 
         if not callable(make):
             raise ValueError(f"Calculator {name!r}: the factory must be callable")
-        self.calculators[str(name)] = CalculatorFactory(str(name), make, str(description or ""), origin)
+        if relax_settings is None:
+            relax_settings = getattr(make, "relax_settings", None)
+        settings = check_relax_settings(relax_settings, f"Calculator {name!r}")
+        self.calculators[str(name)] = CalculatorFactory(str(name), make, str(description or ""), origin, settings)
         self.loaded.append(("calculator", str(name), origin))
 
     def add_sources(self, records: dict):

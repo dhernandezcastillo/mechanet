@@ -51,3 +51,28 @@ O–O pair.
   Rings cannot be written as templates either.
 - Not needed for oxygen and chlorine evolution on oxides; needed for CO2 reduction to formate
   and for most C2 chemistry.
+
+## `ml-coverage-shortlist`
+
+**An ML potential does not choose which coverages of a surface Pourbaix diagram need DFT.**
+
+`mechanet prescreen` compares a potential's energies only between starts of one intermediate.
+A surface Pourbaix diagram needs every coverage the `coverage` family enumerates, and DFT
+computes all of them, although only the few on the lower envelope of their formation planes in
+the window appear in the diagram.
+
+- The envelope of any subset of coverages that contains the truly stable ones is the true
+  envelope. A shortlist from the potential (its own envelope in the window, then a verify loop
+  that computes the next candidate with DFT while it could still be stable within the measured
+  error) therefore gives the exact DFT diagram, however wrong the potential's energies are.
+- On the 256 hydrogen coverages of a NiFe LDH edge, with the DFT vibrational correction of
+  each composition, the loop ended with the exact diagram for all 18 model runs tried, after 7
+  to 15 DFT relaxations for zero-shot MACE models (MACE-MH-1: 8) instead of 229. It failed on
+  energies without vibrations, and it relied on 24 DFT frequency runs, more than the
+  relaxations it needed (counted in runs, the saving falls from 15–33 to 6.5–8 times). Every DFT
+  result there was replayed from stored runs.
+- [A coverage shortlist from an ML potential](coverage-shortlist.md) holds the design: the
+  window gap, the verify loop and its settings, the sources of the vibrational correction, the
+  traps, where it goes and how to test it.
+- Left open because it needs new commands, a decision on the vibrational correction, and a
+  first test with new DFT (relaxations started from the potential's geometries).

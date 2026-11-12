@@ -141,8 +141,10 @@ class CalculatorTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "key=value"):
             parse_options(["model"])
-        names = {c["name"] for c in cli("plugins")["calculators"]}
-        self.assertLessEqual({"emt", "mace-mp"}, names)
+        listed = {c["name"]: c for c in cli("plugins")["calculators"]}
+        self.assertLessEqual({"emt", "mace-mp", "mace-mh1", "uma", "sevennet"}, set(listed))
+        self.assertEqual(listed["mace-mh1"]["relaxes"], "FIRE, 0.03 eV/A, at most 1500 steps")
+        self.assertEqual(listed["emt"]["relaxes"], "-")
 
 
 class PrescreenTests(unittest.TestCase):
@@ -321,6 +323,44 @@ class PrescreenTests(unittest.TestCase):
         result = self.run_prescreen(Scripted(self.plan()))
         rows = {s["state_id"]: s for s in result["states"]}
         self.assertEqual(rows[v2.name]["why_not"], f"a symmetry image of {v1.name}")
+
+    def test_recommended_settings_and_where_they_came_from(self):
+        """A calculator's recommended settings are used unless given; prescreen.json says which."""
+        plugin = self.tmp / "recommending.py"
+        plugin.write_text(
+            "def make(**options):\n"
+            "    from ase.calculators.emt import EMT\n"
+            "    return EMT()\n\n\n"
+            "def register(registry):\n"
+            "    registry.add_calculator('emt-fire', make, 'EMT with FIRE', "
+            "relax_settings={'optimizer': 'FIRE', 'fmax_eVA': 0.04, 'steps': 4})\n"
+        )
+        base = ["prescreen", self.campaign, "--plugin", plugin, "--calculator", "emt-fire", "--states", "ref"]
+        out = cli(*base)
+        self.assertEqual((out["settings"]["fmax_eVA"], out["settings"]["steps"]), (0.04, 4))
+        self.assertEqual(out["calculator"]["optimizer"], "FIRE")
+        self.assertEqual(
+            out["settings"]["chosen_by"], {"fmax_eVA": "calculator", "steps": "calculator", "optimizer": "calculator"}
+        )
+        given = cli(*base, "--steps", "2", "--optimizer", "BFGS")
+        self.assertEqual((given["settings"]["fmax_eVA"], given["settings"]["steps"]), (0.04, 2))
+        self.assertEqual(given["calculator"]["optimizer"], "BFGS")
+        self.assertEqual(
+            given["settings"]["chosen_by"], {"fmax_eVA": "calculator", "steps": "given", "optimizer": "given"}
+        )
+        plain = cli("prescreen", self.campaign, "--calculator", "emt", "--steps", "2", "--states", "ref")
+        self.assertEqual(plain["settings"]["fmax_eVA"], 0.05)
+        self.assertEqual(plain["calculator"]["optimizer"], "BFGS")
+        self.assertEqual(
+            plain["settings"]["chosen_by"], {"fmax_eVA": "default", "steps": "given", "optimizer": "default"}
+        )
+        self.assertIn(
+            "FIRE to 0.04 eV/A, at most 4 steps "
+            "(optimizer, force criterion and step limit as the calculator recommends)",
+            prescreen_text(out),
+        )
+        self.assertIn("at most 2 steps (force criterion as the calculator recommends)", prescreen_text(given))
+        self.assertNotIn("recommends", prescreen_text(plain))
 
     def test_command_with_emt(self):
         out = cli("prescreen", self.campaign, "--calculator", "emt", "--steps", "3", "--states", "ref")

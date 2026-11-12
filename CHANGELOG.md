@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- **Foundation potentials built in, with the settings they are meant for.** `mechanet prescreen`
+  gains three calculators trained on surfaces with adsorbates: `mace-mh1` (MACE-MH-1, head
+  omat_pbe, float64; needs mace-torch 0.3.14 or later), `uma` (UMA `uma-s-1p2p1`, task oc22,
+  fairchem's high-precision inference; needs fairchem-core 2.22 or later and access to the gated
+  weights) and `sevennet` (SevenNet-Omni, modal oc22; needs sevenn 0.13 or later). MACE-MH-1 drew
+  the closest diagram of seven MACE foundation models on the hydrogen coverage of a NiFe LDH edge;
+  UMA's oc22 task and SevenNet-Omni's oc22 channel reproduce the OC22 oxide slabs (PBE+U), and
+  docs/prescreening.md says what was left out and why. A calculator can now recommend its
+  relaxation settings (`relax_settings`: optimizer, fmax_eVA, steps), and `prescreen` uses them
+  unless `--optimizer`, `--fmax` or `--steps` is given: the three presets relax with FIRE to
+  0.03 eV/Å (the force criterion of the DFT relaxations) in at most 1500 steps, since BFGS broke
+  O–O bonds that FIRE kept on the LDH; `emt`, `mace-mp` and plugin calculators keep BFGS,
+  0.05 eV/Å and 300 steps. `prescreen.json` records where each setting came from
+  (`settings.chosen_by`), and `mechanet plugins` lists what each calculator recommends.
+  Every preset records its model file, SHA-256, head, task or modal, device and versions with
+  each result, so a retrained file under the same name relaxes the starts again; asking
+  `mace-mh1` for a head the file lacks stops with the heads it has (mace-torch alone silently
+  takes another). `--option dispersion=true` adds D3(BJ) with PBE parameters through torch-dftd,
+  for every preset. New install extras `mace`, `uma`, `sevennet` and `d3`, one environment per
+  potential (mace-torch pins an e3nn the others do not accept). Reading which package provides a
+  calculator's class now scans the installed distributions once per process, not at every
+  `describe()`.
+- **Designed, not built: a coverage shortlist from an ML potential.** docs/coverage-shortlist.md
+  specifies how a potential could choose which coverages of a surface Pourbaix diagram need DFT
+  (its window hull, then a verify loop that stops when the next candidate cannot be stable within
+  the measured error), with the evidence from the NiFe LDH benchmark, the traps, where it goes in
+  mechanet and how to test it. It is listed in docs/pending.md as `ml-coverage-shortlist`.
+
 Chemistry beyond oxygen and chlorine without changes to the core (carbon, nitrogen, hydrogen on
 metals, bonds between two sites), pre-screening with ML potentials, no repeated starts on
 symmetric sites, Windows and macOS support, a smaller `analysis.py`, and three corrections from

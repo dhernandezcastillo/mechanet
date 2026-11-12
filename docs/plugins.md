@@ -10,7 +10,7 @@ chemistry. A plugin can add:
 | Adsorbate | `mechanet.adsorbates.Adsorbate` | `registry.add_adsorbate(ads)` | `mechanet.adsorbates` (`register`) |
 | Mechanism family | `mechanet.plugins.Family` | `registry.add_family(family)` | `mechanet.families` (`register`) |
 | CLI command | `register_command(subparsers, registry)` | `registry.add_command(name, fn)` | `mechanet.commands` |
-| Calculator for `prescreen` | a factory returning an ASE calculator | `registry.add_calculator(name, factory, description)` | `mechanet.calculators` (the factory) |
+| Calculator for `prescreen` | a factory returning an ASE calculator | `registry.add_calculator(name, factory, description, relax_settings=...)` | `mechanet.calculators` (the factory) |
 
 Two ways to load one:
 
@@ -327,27 +327,38 @@ with exit code 2.
 A calculator relaxes structures inside Python for
 [`mechanet prescreen`](prescreening.md), usually through a machine-learned potential. A plugin
 registers a factory, which is called with the `--option key=value` pairs and returns an ASE
-calculator:
+calculator, and may recommend the settings it is meant to relax with (any of `optimizer`,
+`fmax_eVA`, `steps`; `prescreen` uses them unless the user gives `--optimizer`, `--fmax` or
+`--steps`):
 
 ```python
-def make_uma(model="uma-s-1p1", task="oc20", device="cpu"):
-    from fairchem.core import FAIRChemCalculator, pretrained_mlip
+def make_mattersim(load_path="MatterSim-v1.0.0-5M.pth", device="cpu"):
+    from mattersim.forcefield import MatterSimCalculator
 
-    return FAIRChemCalculator(pretrained_mlip.get_predict_unit(model, device=device), task_name=task)
+    return MatterSimCalculator(load_path=load_path, device=device)
 
 
 def register(registry):
-    registry.add_calculator("uma", make_uma, "UMA through fairchem (task oc20: slabs with adsorbates)")
+    registry.add_calculator(
+        "mattersim",
+        make_mattersim,
+        "MatterSim v1 (bulk materials; its authors advise caution beyond them)",
+        relax_settings={"optimizer": "FIRE", "fmax_eVA": 0.03, "steps": 1500},
+    )
 ```
 
-A package offers it through an entry point (the entry-point name is the calculator's name):
+(Check the potential's own documentation for its loader: interfaces change between releases.)
+A package offers it through an entry point (the entry-point name is the calculator's name); a
+`relax_settings` attribute of the factory carries the recommendation there:
 
 ```toml
 [project.entry-points."mechanet.calculators"]
-uma = "my_package.calculators:make_uma"
+mattersim = "my_package.calculators:make_mattersim"
 ```
 
-`emt` and `mace-mp` are registered this way. Import the potential's package inside the
+`emt`, `mace-mp`, `mace-mh1`, `uma` and `sevennet` are registered this way. A factory can also
+set `mechanet_model` (a dict: model file, SHA-256, versions) on the calculator it returns:
+`describe()` then stores it with every result, and a change of it relaxes the starts again. Import the potential's package inside the
 factory, so that mechanet loads without it. The factory may also return an object of its own
 with `describe()` (a dict: what was used, stored with every result) and
 `relax(structure, fmax, steps)` returning a `mechanet.calculators.Relaxation`, for an engine

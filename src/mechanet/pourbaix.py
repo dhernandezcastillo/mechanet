@@ -88,6 +88,10 @@ def _plane(vector, reservoirs, conditions):
     return a, -float(vector_electrons(vector)), c
 
 
+# PENDING(ml-coverage-shortlist): the lines are built from computed (DFT) energies only. A
+# shortlist of coverages from an ML potential would build the same lines from its energies, take
+# the states on (or near) their lower envelope in the window, and verify them with DFT until the
+# loop of docs/coverage-shortlist.md stops; the subset of states then gives this diagram exactly.
 def formation_lines(data, activities=None):
     """(A, B, C) of every computed node with an energy; ``data`` from :func:`analysis.energy_inputs`.
 

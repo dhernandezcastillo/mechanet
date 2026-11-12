@@ -1075,8 +1075,17 @@ def cmd_plugins(args, registry):
     adsorbates = [
         {"name": a.name, "geometry": a.geometry, "description": a.description} for a in registry.adsorbates.values()
     ]
+    from .calculators import relax_settings_text
+
     calculators = [
-        {"name": c.name, "origin": c.origin, "description": c.description} for c in registry.calculators.values()
+        {
+            "name": c.name,
+            "origin": c.origin,
+            "description": c.description,
+            "relax_settings": dict(getattr(c, "relax_settings", None) or {}),
+            "relaxes": relax_settings_text(getattr(c, "relax_settings", None) or {}),
+        }
+        for c in registry.calculators.values()
     ]
     result = {
         "reactions": reactions,
@@ -1096,8 +1105,8 @@ def cmd_plugins(args, registry):
         "Adsorbates:",
         _table(adsorbates, ["name", "geometry", "description"]),
         "",
-        "Calculators (mechanet prescreen --calculator NAME):",
-        _table(calculators, ["name", "origin", "description"]),
+        "Calculators (mechanet prescreen --calculator NAME; relaxes: the settings it recommends):",
+        _table(calculators, ["name", "origin", "relaxes", "description"]),
         "",
         "Plugin commands: " + ", ".join(result["commands"]),
     ]

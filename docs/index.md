@@ -165,5 +165,6 @@ plugins
 
 commands
 pending
+coverage-shortlist
 changelog
 ```

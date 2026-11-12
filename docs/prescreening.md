@@ -13,7 +13,7 @@ Nothing in the campaign changes: the starts, the network and the DFT inputs stay
 `submit` reads.
 
 ```bash
-mechanet prescreen --calculator mace-mp --option model=medium
+mechanet prescreen --calculator mace-mh1 --option device=cuda
 mechanet submit --states @campaign/prescreen/suggested_states.txt
 ```
 
@@ -23,9 +23,12 @@ start as before: the prescreen is optional, and its suggestion is advice.
 ## What it checks
 
 Each start is relaxed with the atoms its DFT relaxation would move (the same selective
-dynamics), at fixed cell, to `--fmax` (0.05 eV/Å) in at most `--steps` (300) steps. The
-relaxed structure then goes through the topology check of `collect`, with the same bond
-lengths and hysteresis, and gets one of these outcomes:
+dynamics), at fixed cell, with the settings the calculator recommends (for the
+foundation-potential presets FIRE, to 0.03 eV/Å, in at most 1500 steps; see
+[below](#relaxation-settings)) or else mechanet's defaults (BFGS, 0.05 eV/Å, 300 steps).
+`--optimizer`, `--fmax` and `--steps` override them. The relaxed structure then goes through
+the topology check of `collect`, with the same bond lengths and hysteresis, and gets one of
+these outcomes:
 
 | Outcome | Meaning |
 |---|---|
@@ -54,7 +57,10 @@ ranked by the calculator's energy, and a start is left out when:
 * it is beyond the `--max-per-node` (3) lowest starts.
 
 The summary gives the reason for each. The window is wider than that of `select` (0.10 eV)
-because ML energies are less certain than DFT ones.
+because ML energies are less certain than DFT ones. How far to trust the ranking: on the
+coverages of a NiFe LDH edge, MACE-MH-1 put the DFT-lowest arrangement of a composition first
+in 67 % of 21 compositions, and among its three lowest in 69 % of 13. Widening `--max-per-node`
+to 5 costs a few more DFT runs and loses fewer minima.
 
 Every other start is suggested, whatever the potential made of it:
 
@@ -83,7 +89,9 @@ they may be new intermediates.
 The energies only compare starts of one intermediate, which have the same atoms. They are not
 used for reaction energies, limiting potentials or Pourbaix diagrams: adsorption energies from
 universal ML potentials are not reliably within 0.1 eV of DFT, and differences of that size
-decide which mechanism wins.
+decide which mechanism wins. Using a potential to choose which *coverages* of a surface
+Pourbaix diagram need DFT, without using its energies in the diagram, is designed but not built
+yet: [a coverage shortlist from an ML potential](coverage-shortlist.md).
 
 An ML potential knows no magnetic moments, charges or Hubbard U, and was trained on another
 protocol than yours. Two starts that differ only in their spin arrangement look the same to it.
@@ -93,37 +101,118 @@ Treat its relaxations as a cheap first look at the geometry, not as a result.
 
 | `--calculator` | What it is |
 |---|---|
-| `mace-mp` | a MACE foundation potential (needs `pip install mace-torch`). Options: `model` (a name mace-torch knows, such as `small`, `medium` or `large`, or the path of a model file; default `medium`), `device` (`cpu` or `cuda`), `default_dtype` (default `float64`, as MACE recommends for relaxations), `dispersion` (D3) |
+| `mace-mh1` | MACE-MH-1 on its OMAT head (`omat_pbe`), in float64 (needs `pip install "mace-torch>=0.3.14"`). Options: `head`, `device` (`auto`, `cpu`, `cuda`), `dispersion` (D3, below), `model` (`mh-1`, or the path of a model file, such as an MH-1 fine-tuned on your data), `default_dtype`, and any option of mace-torch's `MACECalculator` (`enable_cueq`, ...) |
+| `uma` | UMA through fairchem (needs `pip install "fairchem-core>=2.22"` and access to the gated weights), model `uma-s-1p2p1`, task `oc22`, `high-precision` inference. Options: `model`, `task`, `device`, `inference_settings`, `dispersion`, and any option of `pretrained_mlip.get_predict_unit` (`cache_dir`, ...) |
+| `sevennet` | SevenNet-Omni (needs `pip install "sevenn>=0.13"`), modal `oc22`. Options: `model`, `modal` (lower case), `device`, `dispersion`, and any option of `SevenNetCalculator` (`enable_cueq`, ...) |
+| `mace-mp` | any MACE foundation potential by name (needs `pip install mace-torch`). Options: `model` (a name mace-torch knows, such as `small`, `medium` or `large`, or the path of a model file; default `medium`), `device` (`cpu` or `cuda`), `default_dtype` (default `float64`, as MACE recommends for relaxations), `dispersion` (D3). No recommended settings: mechanet's defaults apply |
 | `emt` | ASE's effective-medium toy potential, for testing the workflow only |
 | `module:callable` | any factory Python can import that returns an ASE calculator, called with the options, for example `mace.calculators:MACECalculator --option model_paths=my.model --option device=cpu` for a fine-tuned MACE model |
-| a name a plugin adds | see below; `mechanet plugins` lists the calculators that are loaded |
+| a name a plugin adds | see below; `mechanet plugins` lists the calculators that are loaded, with the settings each recommends |
 
 Options are given as `--option key=value`, repeated, and read as YAML: `--option
-dispersion=true` passes `True`, `--option n=3` passes `3`. `--optimizer` chooses ASE's `BFGS`
-(default), `LBFGS` or `FIRE`.
+dispersion=true` passes `True`, `--option n=3` passes `3`. `--optimizer` chooses ASE's `BFGS`,
+`LBFGS` or `FIRE`; without it, the calculator's recommendation, else BFGS.
 
-A calculator that needs more than keyword options, such as UMA through fairchem, is added by a
-plugin file:
+### Choosing a potential
+
+The three presets are foundation potentials trained on surfaces with adsorbates, with forces
+that are the gradient of the energy (so every optimizer, and a Hessian, behaves as it should).
+Which training data a potential reproduces matters more than its size: a potential reproduces
+the level of theory of its data, and none was trained on yours.
+
+| Preset | Model | Level of theory it reproduces | Evidence |
+|---|---|---|---|
+| `mace-mh1` | MACE-MH-1 (Batatia et al., arXiv:2510.25380), head `omat_pbe` | PBE/PBE+U (OMat24), with surface and molecular data through its other heads | On the hydrogen coverage of a NiFe LDH edge (256 states, DFT reference), the closest zero-shot diagram of seven MACE foundation models; its four lowest coverages held every DFT-stable one. The model card recommends this head for surfaces |
+| `uma` | UMA (Wood et al., arXiv:2506.23971), `uma-s-1p2p1`, task `oc22` | spin-polarised PBE+U slabs with adsorbates (OC22, oxides) | The `oc20` task came within about 0.1 eV of (non-spin-polarised) DFT adsorption energies on Pt, the `omat` task within about 0.3 eV on IrO₂ (a 2026 benchmark of adsorption on Pt and IrO₂); with organic molecules on Zn it ranked adsorption energies well after ML relaxations but placed the molecules too far from the surface (Kazhiyev et al., *J. Phys. Chem. Lett.* 2026). Not scored on the LDH |
+| `sevennet` | SevenNet-Omni (Kim et al., arXiv:2510.11241), modal `oc22` | the same OC22 data, one channel of a model trained on fifteen datasets | State-of-the-art cross-domain accuracy reported by its authors, including adsorption on catalytic surfaces. Not scored on the LDH |
+
+Other UMA tasks: `oc20` (metal slabs with adsorbates, RPBE, no oxides), `omat` (bulk, PBE/PBE+U
+at Materials Project settings), `oc25` (slabs with explicit water, RPBE+D3). `oc22` exists in
+the UMA 1.2 models only (`uma-s-1p2`, `uma-s-1p2p1`); fairchem lists the tasks a checkpoint has
+when you ask for one it lacks. Do not compare absolute energies across potentials, UMA tasks or
+SevenNet modals: each has its own energy zero. Within one prescreen only starts of one
+intermediate are compared, so this never mixes.
+
+Left out, with the reason:
+
+* **MatterSim** ranked first in one benchmark of ML relaxations followed by DFT single points
+  (organic molecules on Zn), but it is built for bulk materials, and its authors advise caution
+  outside that scope. Use it through `module:callable` if you want to try it.
+* **EquiformerV2 and GemNet-OC trained on OC22**: their forces are a separate output, not the
+  gradient of the energy, and they run only on the retired fairchem 1.x stack. UMA's `oc22`
+  task covers the same data with conservative forces.
+* **eSEN trained on OC25** (explicit water, RPBE+D3): another level of theory from the slabs in
+  vacuum that mechanet builds.
+
+### Relaxation settings
+
+The three presets recommend FIRE, 0.03 eV/Å and 1500 steps. 0.03 eV/Å is the force criterion
+of mechanet's DFT relaxations (`EDIFFG = -0.03` in the `pbe-d3` preset). FIRE, because on the
+LDH coverages MACE-MH-1 gave the same diagram with FIRE and with BFGS, but BFGS formed an O–O
+bond in 18 relaxations where FIRE formed none; LBFGSLineSearch stopped with an error. 1500
+steps, because FIRE needed up to 457 (87 on average) there. `prescreen.json` records which of
+the three settings were given, recommended or defaults (`settings.chosen_by`).
+
+### Dispersion
+
+None of these potentials learned dispersion: OMat24, OC20 and OC22 are PBE (RPBE) without it.
+`--option dispersion=true` adds D3 with Becke–Johnson damping and PBE parameters, as VASP's
+`IVDW = 12` in the `pbe-d3` preset, through torch-dftd (`pip install torch-dftd`) and with its
+pair cutoff of 95 bohr (VASP uses 50.2 Å); `dispersion_cutoff_A` changes it. The MACE-MH-1
+model card advises it for systems where dispersion matters. On the LDH, D3 was worth −0.05 to
+−0.06 eV per adsorbed H in the DFT energies, but whether it brings a potential closer to DFT
+has to be tested: adding it to MACE-MPA-0 made that model's diagram worse. Use it the same way
+for every start of a campaign.
+
+### Installing
+
+mace-torch pins an e3nn version that fairchem and sevenn do not accept, so each potential needs
+an environment of its own, with mechanet in each (it is light):
+
+```bash
+pip install -e ".[mace]"           # from a clone; or [uma], [sevennet]; add [d3] for dispersion
+```
+
+UMA's weights are gated: request access at <https://huggingface.co/facebook/UMA>, then log in
+with `hf auth login` (`huggingface-cli login` in older versions) before the first prescreen. A compute node without internet needs the
+weights cached first (fairchem's `cache_dir`, mace-torch's `XDG_CACHE_HOME`).
+
+### Which model file was used
+
+Every preset stores, in each `result.json` and in `prescreen.json`, the model file it loaded,
+its SHA-256, the head, task or modal, the device, the dtype and the package versions
+(`calculator.model`). A start is relaxed again when any of these changes, so a retrained file
+under the same name is not mistaken for the old one. Ask for a head the file lacks and
+`mace-mh1` stops with the heads it has: mace-torch alone would quietly use another.
+
+## Your own calculator
+
+A calculator that needs more than keyword options, or one you want under a name of your own,
+is added by a plugin file. It may recommend relaxation settings (`relax_settings`):
 
 ```python
-# uma_calculator.py
-def make_uma(model="uma-s-1p1", task="oc20", device="cpu"):
-    from fairchem.core import FAIRChemCalculator, pretrained_mlip
+# my_calculators.py
+from mechanet.calculators import make_uma
 
-    return FAIRChemCalculator(pretrained_mlip.get_predict_unit(model, device=device), task_name=task)
+
+def make_uma_metals(**options):
+    return make_uma(task="oc20", **options)  # metal slabs with adsorbates
 
 
 def register(registry):
-    registry.add_calculator("uma", make_uma, "UMA through fairchem (task oc20: slabs with adsorbates)")
+    registry.add_calculator(
+        "uma-metals",
+        make_uma_metals,
+        "UMA, task oc20 (metal slabs with adsorbates)",
+        relax_settings={"optimizer": "FIRE", "fmax_eVA": 0.03, "steps": 1500},
+    )
 ```
 
 ```bash
-mechanet prescreen --plugin uma_calculator.py --calculator uma --option device=cuda
+mechanet prescreen --plugin my_calculators.py --calculator uma-metals --option device=cuda
 ```
 
-The UMA weights are gated on Hugging Face (request access and log in first), and fairchem's
-interface changes between releases: check its documentation. A package can offer a calculator
-through the `mechanet.calculators` entry-point group instead
+A package can offer a calculator through the `mechanet.calculators` entry-point group instead
 ([Extending mechanet](plugins.md#calculators)).
 
 ## Files and reruns
@@ -133,16 +222,16 @@ In `<campaign>/prescreen/`:
 | File | Content |
 |---|---|
 | `STATE/CONTCAR` | the relaxed structure, atoms in the order of the state's POSCAR |
-| `STATE/result.json` | energy, largest remaining force, steps, outcome, the changes found, the calculator and its versions |
-| `prescreen.json` | the run: calculator, settings, every start, every intermediate, the suggestion, the possible new intermediates, warnings |
+| `STATE/result.json` | energy, largest remaining force, steps, outcome, the changes found, the calculator, its model file and versions |
+| `prescreen.json` | the run: calculator, settings and where each came from, every start, every intermediate, the suggestion, the possible new intermediates, warnings |
 | `prescreen.csv` | one row per start |
 | `suggested_states.txt` | one state ID per line, for `--states @FILE` |
 
-A start whose POSCAR, calculator (class, versions, options, optimizer), `--fmax` and `--steps`
-are unchanged is not relaxed again: changing `--window` or `--max-per-node` only recomputes the
-suggestion. `--redo` relaxes everything again; starts the calculator failed on are always tried
-again. `--states` and `--families` restrict the run (the suggestion then covers only those
-starts).
+A start whose POSCAR, calculator (class, versions, options, optimizer, model file and its
+SHA-256), force criterion and step limit are unchanged is not relaxed again: changing `--window`
+or `--max-per-node` only recomputes the suggestion. `--redo` relaxes everything again; starts
+the calculator failed on are always tried again. `--states` and `--families` restrict the run
+(the suggestion then covers only those starts).
 
 Most ML potentials print a banner when they load; it goes to stderr, with the progress lines,
 so `--json` output stays clean.

@@ -25,6 +25,10 @@ The energies only compare starts of one intermediate, which have the same atoms.
 used for reaction energies: adsorption energies from universal ML potentials carry errors of
 the order of 0.1 eV or more, the size of the differences that decide which mechanism wins.
 
+The relaxation settings are the ones given (``--optimizer``, ``--fmax``, ``--steps``), else the
+ones the calculator's factory recommends (the foundation-potential presets: FIRE, 0.03 eV/A,
+1500 steps), else BFGS, 0.05 eV/A and 300 steps; ``prescreen.json`` says where each came from.
+
 Files, in ``<campaign>/prescreen``: ``STATE/CONTCAR`` and ``STATE/result.json`` for every start,
 ``prescreen.json`` and ``prescreen.csv`` for the run, and ``suggested_states.txt`` for
 ``mechanet submit --states @FILE``. A start whose POSCAR, calculator and settings are unchanged
@@ -54,6 +58,7 @@ from .fileio import dump_json, file_hash, read_json, utc_now, write_json
 from .structure import Structure, read_poscar, write_poscar
 
 PRESCREEN_DIR = "prescreen"
+SETTING_NAMES = {"optimizer": "optimizer", "fmax_eVA": "force criterion", "steps": "step limit"}
 DEFAULT_WINDOW_EV = 0.20  # wider than `select` (0.10 eV): ML energies are less certain than DFT ones
 DEFAULT_MAX_PER_NODE = 3
 LIST_LIMIT = 30  # lines per list in the readable summary
@@ -272,6 +277,9 @@ def _suggest(campaign, rows, window_eV, max_per_node, images):
     intermediate, without its adsorbate, into an unlisted arrangement) or gave no verdict on is
     always suggested: DFT decides, and a change may be a new intermediate.
     """
+    # PENDING(ml-coverage-shortlist): only starts of one intermediate are compared here. Ranking
+    # the coverages of a surface Pourbaix diagram by the potential's energies (its window hull,
+    # then DFT on the shortlist until a verify loop stops) is designed in docs/coverage-shortlist.md.
     by_node = defaultdict(list)
     for row in rows:
         by_node[row["node_id"]].append(row)
@@ -340,12 +348,35 @@ def _labels(campaign, registry):
     return label, notation.occupancy_label
 
 
+def relaxation_settings(calculator, fmax_eVA=None, steps=None):
+    """The force criterion and step limit of a prescreen, and where each came from.
+
+    A value given wins; else the calculator's recommendation (``calculator.recommended``, which
+    :func:`mechanet.calculators.load_calculator` sets from the factory); else the defaults
+    (0.05 eV/A, 300 steps). Returns ({"fmax_eVA", "steps"}, {setting: "given", "calculator" or
+    "default"}); the optimizer's source is the calculator's ``optimizer_source``.
+    """
+    recommended = dict(getattr(calculator, "recommended", None) or {})
+    chosen, source = {}, {}
+    for key, given, default in (("fmax_eVA", fmax_eVA, DEFAULT_FMAX_EVA), ("steps", steps, DEFAULT_STEPS)):
+        if given is not None:
+            chosen[key], source[key] = given, "given"
+        elif key in recommended:
+            chosen[key], source[key] = recommended[key], "calculator"
+        else:
+            chosen[key], source[key] = default, "default"
+    optimizer_source = getattr(calculator, "optimizer_source", None)
+    if optimizer_source:
+        source["optimizer"] = optimizer_source
+    return chosen, source
+
+
 def prescreen(
     campaign,
     calculator,
     states=None,
-    fmax_eVA=DEFAULT_FMAX_EVA,
-    steps=DEFAULT_STEPS,
+    fmax_eVA=None,
+    steps=None,
     window_eV=DEFAULT_WINDOW_EV,
     max_per_node=DEFAULT_MAX_PER_NODE,
     redo=False,
@@ -353,10 +384,13 @@ def prescreen(
     progress=None,
 ):
     """Relax the starts with ``calculator`` (a :class:`mechanet.calculators.Calculator`), check them
-    and suggest which to compute with DFT; see the module docstring. ``states``: None for all."""
+    and suggest which to compute with DFT; see the module docstring. ``states``: None for all.
+    ``fmax_eVA`` and ``steps``: None takes what the calculator recommends, else 0.05 eV/A and 300."""
     from .plugins import campaign_registry
 
     campaign = Path(campaign)
+    chosen, chosen_by = relaxation_settings(calculator, fmax_eVA, steps)
+    fmax_eVA, steps = chosen["fmax_eVA"], chosen["steps"]
     if not fmax_eVA > 0 or steps < 0 or window_eV < 0 or max_per_node < 1:
         raise ValueError("Need fmax > 0, steps >= 0, window >= 0 and at least one start per intermediate")
     registry = registry or campaign_registry(campaign)
@@ -444,7 +478,11 @@ def prescreen(
         "calculator": description,
         "fingerprint": key,
         "settings": dict(
-            settings, window_eV=float(window_eV), max_per_node=int(max_per_node), symmetry_operations=len(images)
+            settings,
+            window_eV=float(window_eV),
+            max_per_node=int(max_per_node),
+            symmetry_operations=len(images),
+            chosen_by=chosen_by,
         ),
         "counts": {name: sum(1 for r in rows if r["outcome"] == name) for name in OUTCOMES},
         "reused": sum(1 for r in rows if r.get("reused")),
@@ -483,10 +521,14 @@ def prescreen_text(result):
     labels = {n["node_id"]: n.get("label") or n["node_id"] for n in result["nodes"]}
     package = " ".join(str(x) for x in (calc.get("package"), calc.get("package_version")) if x)
     detail = ", ".join(str(x) for x in (calc.get("class"), package) if x)
+    chosen_by = settings.get("chosen_by") or {}
+    recommended = [name for key, name in SETTING_NAMES.items() if chosen_by.get(key) == "calculator"]
+    recommended = ", ".join(recommended[:-1]) + (" and " if len(recommended) > 1 else "") + "".join(recommended[-1:])
     lines = [
         f"prescreen of {result['starts']} starts with {calc.get('calculator') or 'the calculator'}"
         + (f" ({detail})" if detail else "")
         + f": {calc.get('optimizer') or 'relaxed'} to {settings['fmax_eVA']:g} eV/A, at most {settings['steps']} steps"
+        + (f" ({recommended} as the calculator recommends)" if recommended else "")
     ]
     width = max(len(text) for text in OUTCOMES.values())
     lines += [f"  {OUTCOMES[name].ljust(width)}  {count}" for name, count in result["counts"].items() if count]
@@ -572,9 +614,24 @@ def register_command(subparsers, registry):
     )
     p.add_argument("--states", help="Comma-separated state IDs (or @file); default: every state")
     p.add_argument("--families", help="Every state used by these mechanism families")
-    p.add_argument("--fmax", type=float, default=DEFAULT_FMAX_EVA, help="Force criterion in eV/A (default 0.05)")
-    p.add_argument("--steps", type=int, default=DEFAULT_STEPS, help="Most optimizer steps per start (default 300)")
-    p.add_argument("--optimizer", choices=OPTIMIZERS, default="BFGS", help="ASE optimizer (default BFGS)")
+    p.add_argument(
+        "--fmax",
+        type=float,
+        default=None,
+        help="Force criterion in eV/A (default: what the calculator recommends, else 0.05)",
+    )
+    p.add_argument(
+        "--steps",
+        type=int,
+        default=None,
+        help="Most optimizer steps per start (default: what the calculator recommends, else 300)",
+    )
+    p.add_argument(
+        "--optimizer",
+        choices=OPTIMIZERS,
+        default=None,
+        help="ASE optimizer (default: what the calculator recommends, else BFGS)",
+    )
     p.add_argument(
         "--window",
         type=float,

@@ -73,7 +73,7 @@ before generating. Every value `init` detected is marked `[auto]` in `project.ya
 | 1 | `mechanet init SLAB` | Finds the vacuum axis, active side, fixed region, reactive sites (O/OH/H2O ligands, open metal sites), symmetry and site pairs; proposes the partial-Hessian region, PAW datasets, starting moments and (for oxides) Materials Project U values; writes the project, INCAR templates, KPOINTS, a references template and the site map. Your own choices go in at once with `--dft-u Fe=5.3,Ni=6.2` (or `none`), `--potcar-variants Fe=Fe_pv,...` and `--potcar-dir DIR`. |
 | 2 | `mechanet generate` | Builds the network from the mechanism families in `scope.families`, places every adsorbate with a scored clash-free search, merges lattice-translation images of intermediates, never writes two starts of an intermediate that a rotation or mirror of the slab maps onto each other, and writes one starting structure per variant into `campaign/states/`. No DFT. |
 | 3 | `mechanet plan` / `cycles` / `show-cycle` | Counts nodes, cycles, starts, DFT runs and displacement single points (node-hours once pilot timings exist); writes the method card. |
-| 4 | `mechanet prescreen --calculator mace-mp` (optional) | Relaxes every start with an ML potential (MACE, UMA or any ASE calculator), checks each relaxed structure as `collect` checks a DFT result, and suggests the starts worth DFT; `submit --states @campaign/prescreen/suggested_states.txt` runs only those. Nothing in the campaign changes. |
+| 4 | `mechanet prescreen --calculator mace-mh1` (optional) | Relaxes every start with an ML potential (MACE-MH-1, UMA, SevenNet-Omni or any ASE calculator), checks each relaxed structure as `collect` checks a DFT result, and suggests the starts worth DFT; `submit --states @campaign/prescreen/suggested_states.txt` runs only those. Nothing in the campaign changes. |
 | 5 | `mechanet submit --pilot --execute` | The reference, one start per adsorbate type and the most crowded start: checks the protocol and gives timings. |
 | 6 | `mechanet submit --execute` | All states through `02_final` (repeat the command to continue jobs stopped at the walltime; `--max-active N --refill` keeps N jobs running). `mechanet status` shows what is finished, running, queued or waiting, per state and per cycle. |
 | 7 | `mechanet collect`, `review`, then `select` | Parses results (convergence, forces, moments, topology) and assigns relaxed structures to the intermediates they became. `review` lists the finished structures that changed during the relaxation (which H moved where, which bond broke, the cycles they hold up) and records your decisions. `select` picks the variants that continue to frequencies (`--families aem,...` or `--cycles` to restrict them); variants that relaxed into the same minimum are merged first, and variants of one intermediate that converged to different magnetic solutions are reported. |
@@ -268,7 +268,7 @@ purpose. Only computed terminations can appear.
 ## Pre-screening with an ML potential
 
 ```bash
-mechanet prescreen --calculator mace-mp --option model=medium
+mechanet prescreen --calculator mace-mh1 --option device=cuda
 mechanet submit --states @campaign/prescreen/suggested_states.txt --execute
 ```
 
@@ -282,9 +282,16 @@ intermediate; when the new arrangement of the sites reads as one, the summary na
 ML energies only compare starts of one intermediate; they are never used as reaction
 energies. The approach follows AdsorbML (Lan et al., npj Comput. Mater. 2023), except that
 changed structures are kept rather than discarded.
-`mace-mp`, any `module:callable` returning an ASE calculator, and calculators added by plugins
-(UMA through fairchem, say) work the same way; see
-[docs/prescreening.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/prescreening.md).
+Three foundation potentials trained on surfaces with adsorbates are built in, each with the
+settings it is meant to relax with (FIRE, 0.03 eV/Å, 1500 steps): `mace-mh1` (MACE-MH-1, head
+omat_pbe, float64), `uma` (UMA `uma-s-1p2p1`, task oc22, through fairchem; gated weights) and
+`sevennet` (SevenNet-Omni, modal oc22). Each records its model file and SHA-256 with every
+result, and `--option dispersion=true` adds D3(BJ). `mace-mp`, any `module:callable` returning
+an ASE calculator, and calculators added by plugins work the same way; see
+[docs/prescreening.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/prescreening.md),
+which also explains the choice of potentials and settings. Using a potential to choose which
+coverages of a Pourbaix diagram need DFT is designed but not built
+([docs/coverage-shortlist.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/coverage-shortlist.md)).
 
 ## Extending mechanet
 
