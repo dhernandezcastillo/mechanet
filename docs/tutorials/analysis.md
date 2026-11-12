@@ -127,6 +127,8 @@ mechanet pourbaix --plot
 
 Each region shows the most stable computed termination at that pH and potential (SHE). In the example the native surface holds up to 0.80 V at pH 0, OH on m0038 up to 1.50 V, and OOH above. A dagger marks a termination that gives the product off downhill in its region: an intermediate under turnover rather than a resting surface. Terminations that release a bound product without any electron transfer, here bound O2, are left out and named under the plot; `--keep-transient` shows them. The exact transitions at pH 0, 7 and 14 go to `pourbaix_1d.csv` (`--at-pH` changes them), the rest to `campaign/pourbaix`.
 
+`--window 1.0:1.8` adds the candidates for a mechanism (the surfaces that are stable in that range of potential or close to the stable one) and `--figures` draws them; [surface first](../surface-first.md) explains both.
+
 The diagram can only compare terminations you computed. For coverages beyond the mechanism's intermediates, add the `coverage` family to `scope.families`: it builds every combination of up to two changed sites from per-kind default states (for example empty, OH, O and H2O on an open metal). In the RuO2 example, `families: [aem, coverage]` gives 52 intermediates, 29 of them computed, instead of 9. A `scope.coverage` block narrows it down: `coverage: {sites: [m0038, a0016], max_changed_sites: 1}` adds 3 intermediates to the 9 of `aem`.
 
 ## 7. Write the report

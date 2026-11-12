@@ -51,6 +51,6 @@ For anything else, run the command again with `--traceback` and keep the output 
 | `campaign/thermo_selection.json` | The variants `select` kept |
 | `campaign/analysis/` | Tables, profiles and the moments along each cycle (cycle_moments.csv) from `collect` and `thermo` |
 | `campaign/pathways/` | `pathways.json`, `pathways.csv`, `ranking.json` |
-| `campaign/pourbaix/` | `pourbaix.json`, `pourbaix.csv`, `pourbaix_1d.csv`, the figure |
+| `campaign/pourbaix/` | `pourbaix.json`, `pourbaix.csv`, `pourbaix_1d.csv`, the figure; with `--window`, `candidates.csv` and `compositions.csv`; with `--figures`, `pourbaix_lines`, `_hull`, `_margins`, `_levels` and `_isomers` (png and svg) |
 | `campaign/report.md` | The summary from `report` |
 | `campaign/status.html` | Every state and cycle with its progress, from `status` |

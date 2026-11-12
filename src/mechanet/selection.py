@@ -143,6 +143,7 @@ def select_for_thermo(
     registry=None,
     families=None,
     keep_duplicates=False,
+    nodes=None,
 ):
     """Choose which 02_final variants proceed to the later stages.
 
@@ -156,6 +157,8 @@ def select_for_thermo(
     waiting unless ``include_partial`` is set. ``cycles`` and ``families`` restrict the
     selection to the nodes of those cycles, or of the cycles of those families (every
     structure is still evaluated, so one that relaxed into such a node competes there).
+    ``nodes`` restricts it to these node IDs as well (the candidates of a surface Pourbaix
+    diagram, so that frequencies are run for them only).
     """
     campaign = Path(campaign).resolve()
     config = _load(campaign / "config.json")
@@ -182,6 +185,13 @@ def select_for_thermo(
             raise ValueError(f"No cycles of the families {unknown} in this campaign; it has {', '.join(present)}")
         restrict += [c["id"] for c in network["cycles"] if c.get("family") in set(families) and c["id"] not in restrict]
     wanted = _cycle_nodes(network, restrict) if (cycles or families) else None
+    if nodes:
+        known = {n["id"] for n in network.get("nodes", [])}
+        unknown = sorted(set(nodes) - known)
+        if unknown:
+            raise ValueError(f"No intermediates {unknown[:5]} in this campaign")
+        images = {n["id"]: n["computed_by"] for n in network.get("nodes", []) if n.get("computed_by")}
+        wanted = (wanted or set()) | {images.get(node_id, node_id) for node_id in nodes}
     selected, per_node, waiting, unresolved = [], [], [], []
     evaluated, own_variants, moment_rows, magmoms = {}, {}, [], {}
     merged_total, tautomer_rows = [], []
@@ -355,6 +365,7 @@ def select_for_thermo(
             "include_partial": bool(include_partial),
             "cycles": sorted(cycles) if cycles else None,
             "families": sorted(families) if families else None,
+            **({"nodes": sorted(nodes)} if nodes else {}),
             "duplicates": (
                 "kept (--keep-duplicates)"
                 if keep_duplicates

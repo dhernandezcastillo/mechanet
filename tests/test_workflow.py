@@ -274,6 +274,83 @@ class WorkflowTests(unittest.TestCase):
         steps = [(t["label"], round(t["from_V"], 6)) for t in kept["transitions"]]
         self.assertEqual(steps, [("native", -0.5), ("m0038:OH", 0.8), ("m0038:OO", 1.4)])
 
+    def test_candidates_of_a_window_then_frequencies_for_them_only(self):
+        """Lines at 0 V RHE: bare 0, *OH 0.80 - U, *O 2.40 - 2U, *OOH 3.80 - 3U (bound O2 is left out)."""
+        result = cli(
+            "pourbaix",
+            self.campaign,
+            "--screening",
+            "--scale",
+            "RHE",
+            "--at-pH",
+            "0",
+            "--window",
+            "1.0:1.8",
+            "--figures",
+        )
+        rows = result["candidates"]
+        self.assertEqual([r["label"] for r in rows], ["m0038:OH", "m0038:OOH", "m0038:O", "native"])
+        self.assertEqual(
+            [r["surface"] for r in rows[:2]],
+            ["terminal 1 OH, 1 empty | bridge 2 O", "terminal 1 OOH, 1 empty | bridge 2 O"],
+        )
+        oh, ooh, o, bare = rows
+        self.assertEqual((round(oh["stable_from_V"], 4), round(oh["stable_to_V"], 4)), (0.8, 1.5))
+        self.assertAlmostEqual(oh["lead_eV"], 0.4, places=4)  # 0.40 eV below the bare site and *O at 1.20 V
+        self.assertAlmostEqual(o["above_stable_eV"], 0.1, places=4)
+        self.assertAlmostEqual(o["closest_at_V"], 1.5, places=4)
+        self.assertAlmostEqual(bare["above_stable_eV"], 0.2, places=4)
+        self.assertEqual(ooh["releases_product_downhill"], "throughout")  # *OOH gives O2 off above 1.12 V
+        self.assertIsNone(oh["releases_product_downhill"])
+        self.assertFalse(any(r["free_energy"] for r in rows))  # no frequency calculation yet
+        self.assertEqual(result["surface_analysis"]["margin_eV"], 0.2)
+        folder = self.campaign / "pourbaix"
+        stored = read_json(folder / "pourbaix.json")
+        self.assertEqual([v["node_id"] for v in stored["hull"]["vertices"]], [r["node_id"] for r in (bare, oh, ooh)])
+        self.assertEqual([round(v["to_next_V"], 4) for v in stored["hull"]["vertices"][:2]], [0.8, 1.5])
+        levels = {level["level"]: level for level in stored["levels"]}
+        self.assertIn("unavailable", levels["free_energy"])
+        self.assertEqual([s["label"] for s in levels["screening"]["segments"]], ["native", "m0038:OH", "m0038:OOH"])
+        # without the 0.30 eV per H and 0.05 eV per O the steps are other steps: energies alone are another diagram
+        self.assertNotEqual(
+            [round(s["to_V"], 2) for s in levels["energy"]["segments"]],
+            [round(s["to_V"], 2) for s in levels["screening"]["segments"]],
+        )
+        for name in ("candidates.csv", "compositions.csv", "pourbaix_lines.png", "pourbaix_hull.png"):
+            self.assertTrue((folder / name).is_file(), name)
+        for name in ("pourbaix_margins.png", "pourbaix_levels.png", "pourbaix_lines.svg"):
+            self.assertTrue((folder / name).is_file(), name)
+        self.assertFalse((folder / "pourbaix_isomers.png").exists())  # one surface per composition here
+        header = (folder / "candidates.csv").read_text().splitlines()[0]
+        self.assertTrue(header.startswith("rank,node_id,surface,electrons,stable_in_window"))
+        narrow = cli(
+            "pourbaix", self.campaign, "--screening", "--scale", "RHE", "--window", "1.0:1.8", "--margin", "0.15"
+        )
+        self.assertEqual([r["label"] for r in narrow["candidates"]], ["m0038:OH", "m0038:OOH", "m0038:O"])
+        selection = cli("select", self.campaign, "--candidates")
+        chosen = read_json(self.campaign / "thermo_selection.json")
+        wanted = [r["node_id"] for r in narrow["candidates"]]
+        self.assertEqual(chosen["criteria"]["nodes"], sorted(wanted))
+        self.assertEqual(sorted(n["node_id"] for n in chosen["nodes"]), sorted(wanted))
+        self.assertEqual(selection["n_selected"], len(chosen["state_ids"]))
+        self.assertTrue(all(any(sid.startswith(node) for node in wanted) for sid in chosen["state_ids"]))
+        by_hand = cli("select", self.campaign, "--nodes", oh["node_id"])
+        self.assertEqual(read_json(self.campaign / "thermo_selection.json")["criteria"]["nodes"], [oh["node_id"]])
+        self.assertGreaterEqual(by_hand["n_selected"], 1)
+
+    def test_candidates_need_a_window_and_select_needs_the_candidates(self):
+        plain = cli("pourbaix", self.campaign, "--electronic-only", "--scale", "RHE")
+        self.assertNotIn("candidates", plain)
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = main(["select", str(self.campaign), "--candidates", str(self.tmp / "nothing.csv")])
+        self.assertEqual(code, 2)
+        self.assertIn("No candidates file", err.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = main(["select", str(self.campaign), "--nodes", "n_not_there"])
+        self.assertEqual(code, 2)
+        self.assertIn("No intermediates ['n_not_there']", err.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -297,11 +297,25 @@ def pourbaix(
     plot=False,
     registry=None,
     keep_transient=False,
+    window=None,
+    margin=None,
+    window_pH=None,
+    at_potentials=None,
+    reference_potential=None,
+    figures=False,
 ):
     """Stable surface terminations over a pH x potential window; writes pourbaix/*.json|csv[|png].
 
     Nodes that give the product off chemically and downhill (bound O2, a coupled O-O pair
     that releases O2, ...) are left out unless ``keep_transient``; see the module docstring.
+
+    ``window`` (potentials lo, hi on ``scale``) adds the candidates for the mechanism: the
+    surfaces that are stable somewhere in it or within ``margin`` eV (default 0.2) of the
+    stable one, at ``window_pH`` (default the campaign's pH), in candidates.csv, and the
+    surfaces grouped by composition in compositions.csv. ``figures`` draws the line diagram,
+    the hull, the distances per composition, the levels of the energies and the isomers
+    (:mod:`mechanet.surfaces`, :mod:`mechanet.surface_plots`). Without these two the result
+    is what it always was.
     """
     from .analysis import energy_inputs
 
@@ -453,6 +467,27 @@ def pourbaix(
         from .plotting import plot_pourbaix
 
         result["files"].append(plot_pourbaix(result, out / "pourbaix.png"))
+    if window is not None or figures:
+        from .surfaces import analyse
+
+        extra, files = analyse(
+            data,
+            lines,
+            conditions,
+            scale,
+            (u_lo, u_hi),
+            out,
+            window=window,
+            margin=margin,
+            pH=window_pH,
+            at_potentials=at_potentials,
+            reference=reference_potential,
+            figures=figures,
+            keep_transient=keep_transient,
+            activities=activities,
+        )
+        result.update(extra)
+        result["files"] += files
     dump_json(out / "pourbaix.json", result)
     return result
 
@@ -468,6 +503,27 @@ def register_command(subparsers, registry):
     p.add_argument("--scale", default="SHE", choices=["SHE", "RHE"], type=str.upper)
     p.add_argument("--at-pH", default="0,7,14", help="pH values of the exact 1-D transitions (default 0,7,14)")
     p.add_argument("--electronic-only", action="store_true", help="Without 05_freq: E0 + tabulated ZPE-TS (screening)")
+    p.add_argument(
+        "--screening",
+        action="store_true",
+        help="The same as --electronic-only: relaxed energies plus tabulated ZPE-TS, before any frequency run",
+    )
+    p.add_argument(
+        "--window",
+        help="Potential window lo:hi (V, on --scale) for the candidates: the surfaces that are stable in it or "
+        "within --margin of the stable one (candidates.csv, compositions.csv)",
+    )
+    p.add_argument("--margin", type=float, default=None, help="Distance above the stable surface, eV (default 0.2)")
+    p.add_argument("--window-pH", type=float, default=None, help="pH of the candidates (default: the campaign's pH)")
+    p.add_argument(
+        "--at-potential", help="Potentials of compositions.csv, comma-separated (default: window ends, middle)"
+    )
+    p.add_argument(
+        "--figures",
+        action="store_true",
+        help="Also draw the lines, the hull, the distances per composition, the levels of the energies and the "
+        "isomers (needs matplotlib)",
+    )
     p.add_argument(
         "--keep-transient",
         action="store_true",
@@ -499,9 +555,14 @@ def _cli(args, registry):
         _window(args.potential, "potential"),
         args.scale,
         [float(x) for x in args.at_pH.split(",") if x.strip()],
-        include_vibrations=not args.electronic_only,
+        include_vibrations=not (args.electronic_only or args.screening),
         plot=args.plot,
         keep_transient=args.keep_transient,
+        window=_window(args.window, "window") if args.window else None,
+        margin=args.margin,
+        window_pH=args.window_pH,
+        at_potentials=[float(x) for x in args.at_potential.split(",") if x.strip()] if args.at_potential else None,
+        figures=args.figures,
     )
     out = {
         "phases": [
@@ -516,7 +577,47 @@ def _cli(args, registry):
         "warnings": result["warnings"],
         "files": result["files"],
     }
+    if "candidates" in result:
+        out["candidates"] = result["candidates"]
+        out["surface_analysis"] = result["surface_analysis"]
     return out, _text(out, _window(args.pH, "pH"), _window(args.potential, "potential"), args.scale)
+
+
+def _candidates_text(rows, analysis):
+    """The candidates of a window as lines of text: rank, name, ID, what makes it a candidate."""
+    lo, hi = analysis["window_V"]
+    lines = [
+        f"  candidates between {lo:g} and {hi:g} V vs {analysis['scale']} at pH {analysis['pH']:g} "
+        f"(stable there, or within {analysis['margin_eV']:g} eV of the stable surface):"
+    ]
+    width = max((len(row["surface"] or row["label"]) for row in rows), default=0)
+    ids = max((len(row["node_id"]) for row in rows), default=0)
+    range_lo, range_hi = analysis.get("potential_range_V") or (lo, hi)
+    for row in rows:
+        name = row["surface"] or row["label"]
+        if row["stable_in_window"]:
+            below, above = row["stable_from_V"] <= range_lo + 1e-9, row["stable_to_V"] >= range_hi - 1e-9
+            if below and above:
+                why = "stable throughout"
+            elif below:
+                why = f"stable up to {row['stable_to_V']:.2f} V"
+            elif above:
+                why = f"stable above {row['stable_from_V']:.2f} V"
+            else:
+                why = f"stable {row['stable_from_V']:.2f} to {row['stable_to_V']:.2f} V"
+            if row["lead_eV"] is not None:
+                why += f", ahead by at most {row['lead_eV']:.2f} eV"
+        else:
+            why = f"{row['above_stable_eV']:.2f} eV above the stable surface at {row['closest_at_V']:.2f} V"
+        flag = row.get("releases_product_downhill")
+        if flag:
+            why += " (gives the product off downhill" + ("" if flag == "throughout" else " in part") + ")"
+        lines.append(
+            f"    {row['rank']:>2}  {name:<{width}}  {row['node_id']:<{ids}}  {why}"
+            + ("" if row.get("free_energy") else "  [no free energy yet]")
+        )
+    lines.append("    (candidates.csv; `mechanet select --candidates` sends them to the frequency stage)")
+    return lines
 
 
 def _text(out, ph, potential, scale):
@@ -558,6 +659,8 @@ def _text(out, ph, potential, scale):
             )
             text = ", ".join(parts)
         lines.append(f"  at pH {value:g}: {text}")
+    if "candidates" in out:
+        lines += _candidates_text(out["candidates"], out["surface_analysis"])
     for x in out["left_out"]:
         lines.append(f"  left out: {x['label']}: {x['reason']}")
     if out["left_out"]:

@@ -681,6 +681,23 @@ def cmd_run_state(args, registry):
     return result, render(result)
 
 
+def _candidate_nodes(campaign, path):
+    """Node IDs of a candidates.csv of `mechanet pourbaix --window` (default: the campaign's last one)."""
+    import csv
+
+    source = Path(path) if path else Path(campaign) / "pourbaix" / "candidates.csv"
+    if not source.is_file():
+        raise FileNotFoundError(
+            f"No candidates file {source}: run `mechanet pourbaix --window LO:HI` first (with --screening "
+            "before any frequency calculation)"
+        )
+    with source.open(newline="", encoding="utf-8") as stream:
+        found = [row["node_id"] for row in csv.DictReader(stream) if row.get("node_id")]
+    if not found:
+        raise ValueError(f"{source} lists no candidate")
+    return found
+
+
 def cmd_select(args, registry):
     from .analysis import select_for_thermo
     from .campaign import _ids
@@ -690,6 +707,11 @@ def cmd_select(args, registry):
         extra["families"] = _ids(args.families)
     if args.keep_duplicates:
         extra["keep_duplicates"] = True
+    listed = list(_ids(args.nodes)) if args.nodes else []
+    if args.candidates is not None:
+        listed += _candidate_nodes(_campaign(args), args.candidates)
+    if listed:
+        extra["nodes"] = sorted(set(listed))
     result = select_for_thermo(
         _campaign(args),
         energy_window_eV=args.window,
@@ -1468,6 +1490,16 @@ def build_parser(registry):
         "--keep-duplicates",
         action="store_true",
         help="Also select variants that relaxed into the same minimum as a lower one (merged by default)",
+    )
+    p.add_argument("--nodes", help="Restrict to these intermediates (comma-separated IDs, or @file)")
+    p.add_argument(
+        "--candidates",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="FILE",
+        help="Restrict to the candidate surfaces of `mechanet pourbaix --window` (default file: "
+        "<campaign>/pourbaix/candidates.csv)",
     )
     p.set_defaults(handler=cmd_select)
 

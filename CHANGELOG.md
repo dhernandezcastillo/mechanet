@@ -17,6 +17,22 @@ test now checks it.
   it and builds nothing. `families.coverage.patterns` and `count` give the same to a script,
   and `notation.surface_name` names a surface by its counts (`terminal 4 OH | bridge 2 O, 2
   OH`). See `docs/surface-first.md`.
+- **Candidates for the mechanism from the surface Pourbaix diagram.** `mechanet pourbaix
+  --window LO:HI` lists every surface that is stable somewhere in a potential window or within
+  a margin (`--margin`, 0.2 eV) of the stable one there, with its ID, its short name, the
+  range over which it is stable, the lead of a stable surface over its closest competitor, and
+  a note when it gives the product off downhill. The distances are exact (evaluated where
+  the stable surface changes, not sampled). `candidates.csv` holds the table and
+  `compositions.csv` the surfaces grouped by composition. `--figures` draws five views: the
+  lines with the stable surface along the potential and the distance of every surface above
+  it, the lower convex hull over the electrons released, the distance per composition, the
+  stable surfaces at three levels of the energies (free energy, energy with tabulated ZPE − TS,
+  energy alone), and the surfaces of each composition. `--screening` is a second name of
+  `--electronic-only`. `mechanet select --candidates` sends only the candidates on to the
+  frequency stage (`--nodes` takes any list of intermediates), so the diagram is first read
+  from relaxed energies and then redone with free energies where it matters. Without the new
+  options `pourbaix` and `select` write exactly what they wrote. New modules: `surfaces`
+  (the analysis, usable on plain arrays) and `surface_plots`.
 - **Surface patterns with many adsorbates build in seconds.** The orientation search tried
   every order in which the sites of an intermediate can be placed: 6 orders for three sites,
   24 for four, 40,320 for eight, and a surface with OOH on four sites took three minutes

@@ -402,6 +402,20 @@ images are not repeated; configurational entropy and interactions beyond the com
 are neglected, and terminations that were not computed cannot appear. The `coverage` family
 enumerates terminations of chosen sites for this purpose [Hansen 2008].
 
+**Candidates.** The most stable surface is not the only one worth a mechanism: a surface
+within the error of the method of the stable one may be the one that is there. For a
+potential window at one pH, `mechanet pourbaix --window` lists every surface that is stable
+somewhere in the window or within a margin (0.2 eV per cell by default) of the stable one
+somewhere in it. With ΔG_i(U) = a_i + b_i U, the distance of surface i above the stable one,
+a_i + b_i U − min_j (a_j + b_j U), is convex in U (a line minus a concave envelope), so its
+minimum over the window lies at an end of the window or where the stable surface changes;
+these points are evaluated and nothing is sampled. For a stable surface the *lead* is the
+largest distance by which it stays below every other surface on its stable range inside the
+window, found the same way on the envelope of the others. The same surfaces are the points
+(n_i, ΔG_i(U_ref)) over the electrons released: the corners of their lower convex hull are the
+surfaces that are stable at some potential, and two neighbouring corners are equally stable at
+U_ref + (ΔG_2 − ΔG_1)/(n_2 − n_1), a transition of the diagram.
+
 The product is not a reservoir of the diagram (above 1.23 V vs RHE, evolving O2 would
 undercut every termination), so a node that holds it bound can look stable although it
 gives it off. A node whose chemical release of the product (no electron, no proton: the
