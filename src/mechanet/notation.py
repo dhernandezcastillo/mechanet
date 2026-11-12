@@ -131,6 +131,34 @@ def site_number(site_id):
     return str(int(site_id[1:])) if SITE_ID.fullmatch(site_id) else site_id
 
 
+def surface_name(sites, occupancy=None, coupling=None):
+    """Short name of a surface: how many sites of each class are in each state.
+
+    ``sites`` holds the site records of a campaign (``kind`` and ``native``, as in sites.json: a
+    list, or a mapping by site ID); ``occupancy`` gives the sites that differ from their native
+    state. ``terminal 4 OH | bridge 2 O, 2 OH`` reads: four terminal sites (one metal: a terminal
+    ligand or an open metal site) carry OH, two bridging sites O and two OH. Coupled sites are
+    appended by their numbers.
+    """
+    if not isinstance(sites, dict):
+        sites = {site["id"]: site for site in sites}
+    occupancy = occupancy or {}
+    counts = {"terminal": {}, "bridge": {}}
+    for site_id, site in sites.items():
+        group = "terminal" if site["kind"] in TERMINAL_KINDS else "bridge"
+        state = occupancy.get(site_id, site["native"])
+        counts[group][state] = counts[group].get(state, 0) + 1
+    parts = []
+    for group in ("terminal", "bridge"):
+        if counts[group]:
+            listed = sorted(counts[group].items(), key=lambda item: (-item[1], item[0]))
+            parts.append(f"{group} " + ", ".join(f"{n} {state}" for state, n in listed))
+    name = " | ".join(parts)
+    if coupling:
+        name += " (" + "-".join(site_number(site) for site in coupling) + " coupled)"
+    return name
+
+
 def short_authors(authors):
     """'Rossmeisl, Logadottir and Norskov' -> 'Rossmeisl et al.'; two names stay; 'X et al.' stays."""
     authors = str(authors).strip()

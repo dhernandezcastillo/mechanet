@@ -267,14 +267,37 @@ def write_xyz(path, structure):
 OFFSETS27 = np.array(list(product((-1, 0, 1), repeat=3)), dtype=float)
 
 
+# The inverse of a cell and the neighbour-cell offsets of minimum_image, kept between calls. The
+# orientation search calls it some thousand times per scored site; the values are the ones a
+# fresh computation gives, so no result changes.
+_INVERSE_CELLS, _IMAGE_OFFSETS = {}, {}
+
+
+def _inverse_cell(cell):
+    key = cell.tobytes()
+    inverse = _INVERSE_CELLS.get(key)
+    if inverse is None:
+        if len(_INVERSE_CELLS) >= 64:
+            _INVERSE_CELLS.clear()
+        inverse = _INVERSE_CELLS[key] = np.linalg.inv(cell)
+    return inverse
+
+
+def _image_offsets(periodic):
+    key = tuple(bool(p) for p in periodic)
+    offsets = _IMAGE_OFFSETS.get(key)
+    if offsets is None:
+        offsets = _IMAGE_OFFSETS[key] = np.array(list(product(*[(-1, 0, 1) if p else (0,) for p in key])))
+    return offsets
+
+
 def minimum_image(vector, cell, periodic=(True, True, True)):
     """Nearest image, checking adjacent cells after fractional reduction (skewed cells included)."""
     vector = np.asarray(vector, dtype=float)
     cell = np.asarray(cell, dtype=float)
-    frac = vector @ np.linalg.inv(cell)
+    frac = vector @ _inverse_cell(cell)
     frac = frac - np.where(periodic, np.rint(frac), 0)
-    offsets = np.array(list(product(*[(-1, 0, 1) if p else (0,) for p in periodic])))
-    trial = (frac[None, :] + offsets) @ cell
+    trial = (frac[None, :] + _image_offsets(periodic)) @ cell
     return trial[np.argmin(np.einsum("ij,ij->i", trial, trial))]
 
 

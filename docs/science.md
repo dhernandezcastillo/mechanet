@@ -158,7 +158,12 @@ up to the cap; the H-bond term prefers an H that points at a neighbouring O.
 **Selection.** The sites of an intermediate are placed one after another, keeping the
 `beam_width` (6) best partial structures, each extended by up to three of the best diverse
 candidates of the next site. Every placement order is tried and the results are pooled, so
-an early greedy choice cannot block a later site. The `variants_per_site` (2) best
+an early greedy choice cannot block a later site. That holds up to `all_orders_up_to` (3)
+sites that need an orientation, which covers every mechanism family. A surface pattern with
+more of them (a coverage state with OOH or water on many sites) would need 24 orders for four
+sites and 40,320 for eight, each costing seconds, so two orders are tried, the sites in
+their order and in reverse, keeping two partial structures; the build report lists these
+intermediates (`limited_orientation_search`). The `variants_per_site` (2) best
 structures that differ by at least `diversity_min_displacement_A` (0.75 Å) are kept, with
 atoms matched by element and labels ignored (a water rotated by 180° is the same start).
 Intermediates without any feasible placement are reported in `nodes_without_viable_start`

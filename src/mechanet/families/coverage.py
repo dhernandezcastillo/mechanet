@@ -40,7 +40,8 @@ def default_states(kind, reaction):
     return list(declared.get(kind, ("O", "OH")))
 
 
-def coverage(ctx):
+def _options(ctx):
+    """(site IDs, states each may take besides the one it has, most sites changed at once)."""
     cfg = ctx.scope.get("coverage") or {}
     site_ids = list(cfg.get("sites") or ctx.sites)
     unknown = sorted(set(site_ids) - set(ctx.sites))
@@ -56,10 +57,42 @@ def coverage(ctx):
         options[aid] = [s for s in states if s != ctx.native[aid]]
     max_changed = cfg.get("max_changed_sites", 2)
     limit = len(site_ids) if max_changed is None else min(int(max_changed), len(site_ids))
+    return site_ids, options, limit
+
+
+def patterns(ctx):
+    """Every surface the family builds, as (changed sites -> state, label), in building order."""
+    site_ids, options, limit = _options(ctx)
     for k in range(1, limit + 1):
         for chosen in combinations(site_ids, k):
             for statuses in product(*(options[aid] for aid in chosen)):
-                ctx.node(dict(zip(chosen, statuses)), "coverage", "+".join(chosen))
+                yield dict(zip(chosen, statuses)), "+".join(chosen)
+
+
+def count(ctx):
+    """How many surfaces the coverage scope gives, without building them.
+
+    ``surfaces`` counts every combination and the slab as given; ``distinct`` leaves out those
+    that a lattice translation of the slab maps onto another one (they are the same calculation).
+    ``states`` lists, per site, the states it is probed in.
+    """
+    site_ids, options, limit = _options(ctx)
+    total, distinct = 0, set()
+    for occupancy, _ in patterns(ctx):
+        total += 1
+        distinct.add(ctx.canonical_key(occupancy))
+    return {
+        "sites": len(site_ids),
+        "max_changed_sites": limit,
+        "surfaces": total + 1,
+        "distinct": len(distinct) + 1,
+        "states": {aid: [ctx.native[aid], *options[aid]] for aid in site_ids},
+    }
+
+
+def coverage(ctx):
+    for occupancy, label in patterns(ctx):
+        ctx.node(occupancy, "coverage", label)
 
 
 FAMILY = Family(

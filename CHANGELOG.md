@@ -8,6 +8,26 @@ symmetric sites, Windows and macOS support, a smaller `analysis.py`, and three c
 an independent review of the thermodynamics. Everything 0.1.4 offered is still there, and a
 test now checks it.
 
+- **A coverage campaign of its own.** `mechanet generate --coverage` builds the surfaces of
+  `scope.coverage` (the adsorbates you list per kind of site or per site, in every combination
+  or up to `max_changed_sites` at once) and nothing else, in `<project>/coverage`, for the
+  surface Pourbaix diagram that comes before the mechanism. It says how many surfaces that is
+  before it builds, and how many are left once copies shifted by a lattice translation are
+  merged (256 and 136 for O and OH on the eight sites of the NiFe LDH example); `--count` says
+  it and builds nothing. `families.coverage.patterns` and `count` give the same to a script,
+  and `notation.surface_name` names a surface by its counts (`terminal 4 OH | bridge 2 O, 2
+  OH`). See `docs/surface-first.md`.
+- **Surface patterns with many adsorbates build in seconds.** The orientation search tried
+  every order in which the sites of an intermediate can be placed: 6 orders for three sites,
+  24 for four, 40,320 for eight, and a surface with OOH on four sites took three minutes
+  where one with a single OOH takes one second. Up to three sites to orient, which covers
+  every mechanism family and every example, nothing changes: the same orders, the same starts.
+  Beyond that, two orders are tried (the sites in their order and in reverse) with two partial
+  structures kept, and four to six OOH or OH now take 5 to 11 s. The build report lists the
+  intermediates placed this way (`limited_orientation_search`), and
+  `geometry.orientation_search.all_orders_up_to` moves the limit. Two computations the search
+  repeated for every candidate (the inverse of the cell, a metal–oxygen distance) are now done
+  once, with the same digits: three sites take a third less time.
 - **Walden steps for the OER.** O2 can leave a site as water attaches to it, so that the bare
   site is never formed: M–OO + H2O → HO–M + O2 + H⁺ + e⁻ (Exner, *Adv. Sci.* **10**, 2305505
   (2023)), and the same exchange without charge transfer, \*OO + H2O → \*OH2 + O2 (Usama et

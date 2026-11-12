@@ -92,6 +92,11 @@ DEFAULT_SEARCH = {
     "diversity_min_displacement_A": 0.75,
 }
 COUPLED_LIFT_SCALES = (1.0, 1.5, 2.0)
+# Every placement order of the sites that need an orientation is tried up to this many sites
+# (orientation_search.all_orders_up_to). Beyond it the orders grow as a factorial (24 for four
+# sites, 40,320 for eight, each costing seconds), so two are tried with a narrow beam.
+ALL_ORDERS_UP_TO = 3
+MANY_SITES_BEAM = 2
 # A site maps onto another under a symmetry operation when its image lies this close (A).
 SITE_MATCH_A = 0.1
 SIDE_ON_METAL_O_A = 1.95
@@ -234,9 +239,19 @@ class Builder:
         self.floor_table, self.floors = self._floor_table(self.geo.get("clash_floors_A"))
         search_in = self.geo.get("orientation_search", {})
         self.ignored_search_keys = [
-            f"orientation_search.{k}" for k in search_in if k not in DEFAULT_SEARCH and k != "note"
+            f"orientation_search.{k}"
+            for k in search_in
+            if k not in DEFAULT_SEARCH and k not in ("note", "all_orders_up_to")
         ]
         self.search_cfg = {**DEFAULT_SEARCH, **{k: v for k, v in search_in.items() if k in DEFAULT_SEARCH}}
+        self.all_orders_up_to = ALL_ORDERS_UP_TO
+        if search_in.get("all_orders_up_to") is not None:
+            self.all_orders_up_to = int(search_in["all_orders_up_to"])
+            if self.all_orders_up_to < 1:
+                raise ValueError("orientation_search.all_orders_up_to must be at least 1")
+            self.search_cfg["all_orders_up_to"] = self.all_orders_up_to
+        self.limited_searches = []
+        self._search_was_limited = False
         step = float(self.search_cfg["azimuth_step_deg"])
         if step <= 0 or int(self.search_cfg["variants_per_site"]) < 1:
             raise ValueError("orientation_search needs a positive azimuth step and variants_per_site >= 1")
@@ -796,6 +811,7 @@ class Builder:
         dist = pbc_distances(positions, env["pos"], self.seed.cell, self.inv_cell)
         floors = self.floor_table[np.array([self._category(r[1]) for r in rows])[:, None], env["cat"][None, :]]
         margin = dist - floors
+        metal_distance = {}  # (site atom, metal) -> M-O distance: the same for every candidate row
         for k, (_aid, _sym, pos, parent, grand, _local) in enumerate(rows):
             for partner in (parent, grand):
                 if partner is not None and partner in env["index"]:
@@ -806,7 +822,11 @@ class Builder:
                 for metal in self.anchor_metals[parent]:
                     q = env["index"].get(metal)
                     if q is not None:
-                        r_mo = float(np.linalg.norm(minimum_image(env["pos"][q] - parent_pos, self.seed.cell)))
+                        r_mo = metal_distance.get((parent, q))
+                        if r_mo is None:
+                            r_mo = metal_distance[parent, q] = float(
+                                np.linalg.norm(minimum_image(env["pos"][q] - parent_pos, self.seed.cell))
+                            )
                         floors[k, q] = max(floors[k, q], self._anchor_floor(r_mo, r_ox, self._anchor_angle(parent)))
                         margin[k, q] = dist[k, q] - floors[k, q]
         row_clear = margin.min(axis=1) if margin.shape[1] else np.full(len(rows), np.inf)
@@ -950,8 +970,9 @@ class Builder:
         # final selection below compares all placed atoms together.
         site_images = images if len(oriented) == 1 else ()
         cache, pooled, failures = {}, [], []
-        for order in permutations(oriented):
-            finals, failure = self._beam(order, occupancy, binding_modes, records, cache, site_images)
+        orders, beam = self._placement_orders(oriented)
+        for order in orders:
+            finals, failure = self._beam(order, occupancy, binding_modes, records, cache, site_images, beam)
             pooled.extend(finals)
             if failure:
                 failures.append(failure)
@@ -975,6 +996,20 @@ class Builder:
         # the later ones only to replace a start found to be a symmetry image of a kept one.
         chosen = self._diverse(ranked, atoms_of, max(per_site, len(ranked)), images)
         return [{"placement": p[0], "score": p[2], "min_clearance_A": p[3], "hbonds": p[4]} for p in chosen], None
+
+    def _placement_orders(self, oriented):
+        """(orders, beam width): the orders in which the sites that need an orientation are placed.
+
+        Up to ``all_orders_up_to`` sites every order is tried, as in every campaign built so far.
+        A surface pattern with more of them (a coverage state with OOH or water on many sites)
+        would need 24 orders for four sites and 40,320 for eight, so two are tried: the sites
+        in their order and in reverse, keeping MANY_SITES_BEAM partial structures per site.
+        """
+        beam = int(self.search_cfg["beam_width"])
+        self._search_was_limited = len(oriented) > self.all_orders_up_to
+        if not self._search_was_limited:
+            return list(permutations(oriented)), beam
+        return [tuple(oriented), tuple(reversed(oriented))], min(beam, MANY_SITES_BEAM)
 
     def _node_images(self, changes, coupling):
         """The slab's rotations and mirrors under which a start of this node is a start of the same
@@ -1022,8 +1057,8 @@ class Builder:
                     best = (state_id, d, describe_operation(rotation, self.normal))
         return best
 
-    def _beam(self, order, occupancy, binding_modes, records, cache, images=()):
-        beam = int(self.search_cfg["beam_width"])
+    def _beam(self, order, occupancy, binding_modes, records, cache, images=(), beam=None):
+        beam = int(self.search_cfg["beam_width"]) if beam is None else int(beam)
         per_site = int(self.search_cfg["variants_per_site"])
         partials = [({}, {}, 0.0, np.inf, 0)]  # placement, added atoms, score sum, min clearance, hbonds
         best_failure = None
@@ -1250,6 +1285,13 @@ class Builder:
                 best = (key, mapped, mapped_coupling, tr)
         return best
 
+    def canonical_key(self, occupancy, coupling=None):
+        """Key of the intermediate that is computed for an occupancy: its own, or that of the image
+        under a lattice translation of the slab which stands for all of them."""
+        changes = {k: v for k, v in occupancy.items() if v != self.native[k]}
+        representative = self._representative(changes, coupling)
+        return representative[0] if representative is not None else self._node_key(changes, coupling)
+
     @staticmethod
     def _map_label(label, label_map):
         return SITE_LABEL.sub(lambda m: label_map.get(m.group(0), m.group(0)), str(label))
@@ -1352,6 +1394,8 @@ class Builder:
                 if coupling and kept >= int(self.search_cfg["variants_per_site"]):
                     break
                 choices, failure = self._search(occupancy, coupling, binding, lift)
+                if self._search_was_limited and node_id not in self.limited_searches:
+                    self.limited_searches.append(node_id)
                 if not choices:
                     self.rejected.append(
                         {
@@ -1995,6 +2039,17 @@ class Builder:
                 "All graph edges remain proposed until endpoint and appropriate path validation.",
             ],
         }
+        if self.limited_searches:
+            report["limited_orientation_search"] = {
+                "nodes": len(self.limited_searches),
+                "all_orders_up_to": self.all_orders_up_to,
+                "rule": (
+                    "Intermediates with more sites to orient than all_orders_up_to were placed in two "
+                    f"orders (the sites in order and in reverse) with a beam of {MANY_SITES_BEAM}, not in "
+                    "every order: the number of orders grows as a factorial. Set "
+                    "geometry.orientation_search.all_orders_up_to to try every order for more sites."
+                ),
+            }
         dump_json(self.out / "build_report.json", report)
         dump_json(self.out / "label_duplicates_merged.json", self.duplicates_merged)
         return report

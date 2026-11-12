@@ -264,9 +264,23 @@ def cmd_init(args, registry):
 
 
 def cmd_generate(args, registry):
-    from .project import generate
+    from .project import coverage_count, generate
 
-    report = generate(args.project, args.out, families=args.families.split(",") if args.families else None)
+    if args.count and not args.coverage:
+        raise ValueError("--count goes with --coverage: it counts the surfaces of the coverage campaign")
+    if args.coverage:
+        found = coverage_count(args.project)
+        if args.count:
+            return {"coverage": found, "built": False}, found["text"] + "\n  nothing built (--count)"
+        if not getattr(args, "output_json", False):
+            # Said before the build, which can take minutes for hundreds of surfaces.
+            print(found["text"], file=sys.stderr, flush=True)
+    report = generate(
+        args.project,
+        args.out,
+        families=args.families.split(",") if args.families else None,
+        coverage=args.coverage,
+    )
     keys = (
         "candidate_nodes",
         "computed_nodes",
@@ -276,7 +290,16 @@ def cmd_generate(args, registry):
         "complete_stoichiometric_cycles",
         "symmetry_unique_cycles",
     )
-    text = [f"campaign: {report['campaign']}"] + [f"  {k.replace('_', ' ')}: {report[k]}" for k in keys]
+    text = [f"campaign: {report['campaign']}"]
+    if report.get("coverage"):
+        text.append(f"  {report['coverage']['text']}")
+    text += [f"  {k.replace('_', ' ')}: {report[k]}" for k in keys]
+    if report.get("limited_orientation_search"):
+        limited = report["limited_orientation_search"]
+        text.append(
+            f"  {limited['nodes']} intermediates with more than {limited['all_orders_up_to']} adsorbates to orient "
+            "were placed in two orders, not every order (build_report.json: limited_orientation_search)"
+        )
     if report["nodes_without_viable_start"]:
         text.append(
             f"  intermediates without a clash-free start: {len(report['nodes_without_viable_start'])} "
@@ -1311,6 +1334,13 @@ def build_parser(registry):
     p.add_argument("project", nargs="?", help="project.yaml or its folder (default: found from here upwards)")
     p.add_argument("--out", help="Campaign directory (default: <project>/campaign)")
     p.add_argument("--families", help="Comma-separated subset overriding scope.families")
+    p.add_argument(
+        "--coverage",
+        action="store_true",
+        help="Build the coverage campaign (the surfaces of scope.coverage, in <project>/coverage) for the "
+        "surface Pourbaix diagram that comes before the mechanism",
+    )
+    p.add_argument("--count", action="store_true", help="With --coverage: count the surfaces and build nothing")
     p.set_defaults(handler=cmd_generate)
 
     p = sub.add_parser("plan", help="Counts, DFT runs, node-hours (after the pilot) and the method card")

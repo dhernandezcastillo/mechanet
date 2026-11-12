@@ -60,7 +60,7 @@ direction of the missing ligand.
 |---|---|
 | `families` | Mechanism families to build (`mechanet plugins` lists them). |
 | `pair_max_distance_A` | Two-site families pair sites within this distance (3.3 Å). |
-| `coverage` | Settings of the `coverage` family: `sites`, `max_changed_sites` (2; null for all combinations), `states` per site kind. |
+| `coverage` | Settings of the `coverage` family: `sites`, `max_changed_sites` (2; null for all combinations), `states` per site kind or per site ID. `mechanet generate --coverage` builds these surfaces as a campaign of their own ([surface first](surface-first.md)). |
 | `enumerate` | Settings of the `enumerated` family: `sites` (one to three), `states` per site or kind, `max_length` (8), `max_cycles`. |
 
 ## geometry
@@ -71,7 +71,7 @@ direction of the missing ligand.
 | `symmetry_tolerance_A` | 0.005 | Maximum atom displacement for a translation, rotation or mirror to count as a symmetry. |
 | `anchor_min_M_O_X_angle_deg` | 100 | Minimum M–O–X angle for atoms bonded to a metal-coordinated O (lowered to the best angle less 5° at an O bridging two metals in their plane). |
 | `clash_floors_A` | H-H 1.5, O-H 1.5, O-O 2.2, M-H 1.8, M-O 1.6, S-any 2.0, X-any 2.0, default 1.35 | Non-bonded floors for new or moved atoms (S: spectator cations, X: halogens). |
-| `orientation_search` | azimuth_step_deg 15; OH_tilts_deg [20, 35, 50]; OO_tilts_deg [35, 55, 70]; OOH_H_torsion_step_deg 30; H2O_tilts_deg [0, 25, 50]; H2O_roll_step_deg 15; variants_per_site 2; hbond_bonus 0.15; clearance_cap_A 0.6; beam_width 6; diversity_min_displacement_A 0.75 | The search that places new atoms ([science §3](science.md#3-starting-structures)); `mechanet init` writes these values into project.yaml. Unknown keys are reported and ignored. |
+| `orientation_search` | azimuth_step_deg 15; OH_tilts_deg [20, 35, 50]; OO_tilts_deg [35, 55, 70]; OOH_H_torsion_step_deg 30; H2O_tilts_deg [0, 25, 50]; H2O_roll_step_deg 15; variants_per_site 2; hbond_bonus 0.15; clearance_cap_A 0.6; beam_width 6; diversity_min_displacement_A 0.75 | The search that places new atoms ([science §3](science.md#3-starting-structures)); `mechanet init` writes these values into project.yaml. Unknown keys are reported and ignored. One more key is read when given: `all_orders_up_to` (3), the number of sites to orient up to which every placement order is tried. |
 
 ## inputs
 

@@ -519,12 +519,13 @@ def _project_command(project):
     return bool((project.get("vasp") or {}).get("command"))
 
 
-def generate(project_path=None, out=None, families=None):
-    """Build the campaign of a project (default ``<project>/campaign``); returns the build report.
+COVERAGE_FOLDER = "coverage"
+# Above this many distinct surfaces a coverage campaign is a warning: each is a relaxation or more.
+MANY_SURFACES = 400
 
-    Without ``project_path`` the project.yaml of the current directory or a parent is used.
-    """
-    from .builder import build
+
+def _open_project(project_path):
+    """(project, campaign config, registry) of a project file (found from here upwards when None)."""
     from .plugins import default_registry
 
     if project_path is None:
@@ -535,11 +536,77 @@ def generate(project_path=None, out=None, families=None):
             )
     project = load_project(project_path)
     config = resolve_config(project, cluster=bool(project.get("cluster")))
-    registry = default_registry(config["plugins"])
-    out = Path(out) if out else Path(project["_dir"]) / "campaign"
+    return project, config, default_registry(config["plugins"])
+
+
+def coverage_count(project_path=None):
+    """The surfaces the coverage scope of a project gives, counted without building them.
+
+    ``surfaces`` is every combination of the states of ``scope.coverage`` (and the slab as
+    given), ``distinct`` those left once copies shifted by a lattice translation are merged;
+    ``text`` says it in one line. See :func:`mechanet.families.coverage.count`.
+    """
+    import tempfile
+
+    from .builder import Builder
+    from .families.coverage import count
+
+    project, config, registry = _open_project(project_path)
+    with tempfile.TemporaryDirectory() as scratch:
+        builder = Builder(config, Path(scratch) / "count", base_dir=project["_dir"], registry=registry)
+        found = count(builder)
+        kinds = {aid: site["kind"] for aid, site in builder.sites.items()}
+    found["text"] = _coverage_text(found, kinds)
+    return found
+
+
+def _coverage_text(found, kinds):
+    """'coverage: 256 surfaces on 8 sites, 136 distinct after symmetry (terminal: O, OH; ...)'."""
+    by_kind = {}
+    for aid, states in found["states"].items():
+        by_kind.setdefault(kinds[aid], {})[aid] = sorted(states)
+    listed = []
+    for kind, sites in by_kind.items():
+        if len({tuple(states) for states in sites.values()}) == 1:
+            listed.append(f"{kind}: {', '.join(next(iter(sites.values())))}")
+        else:
+            listed += [f"{aid}: {', '.join(states)}" for aid, states in sites.items()]
+    limit = found["max_changed_sites"]
+    changed = "every combination" if limit >= found["sites"] else f"up to {limit} sites changed at once"
+    return (
+        f"coverage: {found['surfaces']} surfaces on {found['sites']} sites, {found['distinct']} distinct after "
+        f"symmetry ({'; '.join(listed)}; {changed})"
+    )
+
+
+def generate(project_path=None, out=None, families=None, coverage=False):
+    """Build the campaign of a project (default ``<project>/campaign``); returns the build report.
+
+    Without ``project_path`` the project.yaml of the current directory or a parent is used.
+    ``coverage`` builds the coverage campaign instead: the surfaces of ``scope.coverage`` and
+    nothing else, in ``<project>/coverage``, for the surface Pourbaix diagram that comes
+    before the mechanism.
+    """
+    from .builder import build
+
+    project, config, registry = _open_project(project_path)
+    if coverage:
+        if families is not None:
+            raise ValueError("a coverage campaign builds the coverage family only: leave --families out")
+        families = ["coverage"]
+    default_folder = COVERAGE_FOLDER if coverage else "campaign"
+    out = Path(out) if out else Path(project["_dir"]) / default_folder
     report = build(config, out, base_dir=project["_dir"], families=families, registry=registry)
     shutil.copy2(project["_path"], out / "project.snapshot.yaml")
     report["warnings"] = []
+    if coverage:
+        report["coverage"] = coverage_count(project["_path"])
+        if report["coverage"]["distinct"] > MANY_SURFACES:
+            report["warnings"].append(
+                f"{report['coverage']['distinct']} distinct surfaces, each one relaxation or more: fewer states, "
+                "scope.coverage.max_changed_sites, or two passes (O and OH everywhere first, the other adsorbates "
+                "around the surfaces that come out) keep the campaign affordable."
+            )
     if not project.get("cluster"):
         report["warnings"].append(
             "No cluster profile in project.yaml: set `cluster:` and run "
