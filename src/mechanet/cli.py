@@ -268,8 +268,22 @@ def cmd_generate(args, registry):
 
     if args.count and not args.coverage:
         raise ValueError("--count goes with --coverage: it counts the surfaces of the coverage campaign")
+    surfaces = list(args.on or [])
+    if len(surfaces) > 1:
+        if args.out:
+            raise ValueError("--out names one folder: with several --on each campaign goes to <project>/on_NAME")
+        if args.count:
+            raise ValueError("--count takes one surface")
+        reports, texts = [], []
+        for surface in surfaces:
+            args.on = [surface]
+            report, text = cmd_generate(args, registry)
+            reports.append(report)
+            texts.append(text)
+        return {"campaigns": reports}, "\n".join(texts)
+    on = surfaces[0] if surfaces else None
     if args.coverage:
-        found = coverage_count(args.project)
+        found = coverage_count(args.project, on=on, source=args.source)
         if args.count:
             return {"coverage": found, "built": False}, found["text"] + "\n  nothing built (--count)"
         if not getattr(args, "output_json", False):
@@ -280,6 +294,8 @@ def cmd_generate(args, registry):
         args.out,
         families=args.families.split(",") if args.families else None,
         coverage=args.coverage,
+        on=on,
+        source=args.source,
     )
     keys = (
         "candidate_nodes",
@@ -291,6 +307,20 @@ def cmd_generate(args, registry):
         "symmetry_unique_cycles",
     )
     text = [f"campaign: {report['campaign']}"]
+    if report.get("surface"):
+        on_surface = report["surface"]
+        text.append(f"  on the surface {on_surface['name']}: {on_surface['description']} ({on_surface['node_id']})")
+        if on_surface["source_campaign"]:
+            started = (
+                f"{on_surface['nodes_started_from_the_relaxed_surface']} new intermediates start from the relaxed "
+                f"surface ({on_surface['relaxed_surface_state']})"
+                if on_surface["relaxed_surface_state"]
+                else "the surface has no relaxed structure there yet, so new intermediates start from the slab"
+            )
+            text.append(
+                f"  {on_surface['imported_states']} finished calculations of {on_surface['imported_nodes']} "
+                f"intermediates copied from {on_surface['source_campaign']}; {started}"
+            )
     if report.get("coverage"):
         text.append(f"  {report['coverage']['text']}")
     text += [f"  {k.replace('_', ' ')}: {report[k]}" for k in keys]
@@ -1363,6 +1393,21 @@ def build_parser(registry):
         "surface Pourbaix diagram that comes before the mechanism",
     )
     p.add_argument("--count", action="store_true", help="With --coverage: count the surfaces and build nothing")
+    p.add_argument(
+        "--on",
+        action="append",
+        metavar="SURFACE",
+        help="Build the campaign on a surface: a name of the `surfaces` block of project.yaml, or the ID of an "
+        "intermediate of the coverage campaign (a candidate of `mechanet pourbaix --window`). Repeat for one "
+        "campaign per surface, each in <project>/on_NAME",
+    )
+    p.add_argument(
+        "--from",
+        dest="source",
+        metavar="CAMPAIGN",
+        help="With --on: the campaign the surface, its relaxed structure and the finished calculations are taken "
+        "from (default: <project>/coverage when it exists)",
+    )
     p.set_defaults(handler=cmd_generate)
 
     p = sub.add_parser("plan", help="Counts, DFT runs, node-hours (after the pilot) and the method card")

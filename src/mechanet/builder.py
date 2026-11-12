@@ -39,7 +39,7 @@ import numpy as np
 
 from . import __version__, elements
 from .adsorbates import CORE_ELEMENTS, extra_elements
-from .fileio import dump_json, short_hash
+from .fileio import dump_json, read_json, short_hash
 from .plugins import default_registry
 from .reactions import add as add_vectors, clean, electrons, oer_trio
 from .structure import (
@@ -170,7 +170,11 @@ def _two_site_event_orders(a, b):
 class Builder:
     """Network and starting-structure builder; it is also the context handed to families."""
 
-    def __init__(self, config, output, base_dir=".", registry=None):
+    def __init__(self, config, output, base_dir=".", registry=None, reuse_source=False):
+        """``reuse_source``: read the source campaign of ``scope.surface`` (copy its finished
+        calculations, start new intermediates from the relaxed surface). Only the build of a
+        campaign does; a builder set up later from the campaign's config.json (to write one
+        more start, to count) must not depend on a folder that may be on another machine."""
         self.config = config
         self.registry = registry or default_registry()
         self.out = Path(output).resolve()
@@ -221,6 +225,7 @@ class Builder:
                 self.seed.mobile[j] = True
                 self.freq_mobile[j] = True
         self.native = {aid: s["native"] for aid, s in self.sites.items()}
+        self._read_surface(self.scope.get("surface") or {})
         # Metals coordinated to each reactive site: an atom X bonded to the site atom must keep an
         # M-O-X angle >= geometry.anchor_min_M_O_X_angle_deg, enforced as the equivalent M...X
         # distance floor; side-on OO and coupled O/O are exempt.
@@ -289,6 +294,12 @@ class Builder:
                     and self.sites[site_map[s]]["kind"] == self.sites[s]["kind"]
                     for s in self.sites
                 )
+                if closed and (self.base or self.base_coupling):
+                    # On a surface, only the translations that map the surface onto itself relate
+                    # intermediates that are the same calculation.
+                    closed = all(self.surface_state(site_map[s]) == self.surface_state(s) for s in self.sites) and (
+                        not self.base_coupling or {site_map[s] for s in self.base_coupling} == set(self.base_coupling)
+                    )
                 # Explicit moments on adsorbate role IDs (e.g. d_a0067) must also map onto equal values.
                 label_map = {**idmap, **site_map}
                 if closed and magmom:
@@ -333,7 +344,163 @@ class Builder:
         self.out.mkdir(parents=True, exist_ok=True)
         (self.out / "states").mkdir(exist_ok=True)
         (self.out / "inputs").mkdir(exist_ok=True)
-        self.reference = self.node({}, "reference", "whole_surface")
+        if reuse_source:
+            self._read_source(self.scope.get("surface") or {})
+        self.reference = self._node({}, "reference", "whole_surface")
+        self.surface_node = None
+        if self.base or self.base_coupling:
+            self.surface_node = self._node(dict(self.base), "surface", "whole_surface", self.base_coupling)
+        elif self.surface_name:
+            self.surface_node = self.reference  # built on the slab as given, named as a surface
+
+    # ------------------------------------------------------------------ surface
+    def _read_surface(self, surface):
+        """The surface a campaign is built on (``scope.surface``, written by ``mechanet generate --on``).
+
+        ``base`` holds the sites that differ from the slab as given; every intermediate a family
+        writes keeps them unless the family names the site.
+        """
+        self.surface_name = surface.get("name")
+        self.base, self.base_coupling = {}, None
+        self.source, self.source_nodes, self.environment = None, {}, None
+        self.imported, self.seeded = [], []
+        self._env_active = False
+        for aid, status in (surface.get("occupancy") or {}).items():
+            if aid not in self.sites:
+                raise ValueError(f"The surface {self.surface_name or ''} names the unknown site {aid}")
+            self.registry.adsorbate(str(status))
+            if status != self.native[aid]:
+                self.base[aid] = str(status)
+        if surface.get("coupling"):
+            pair = tuple(str(x) for x in surface["coupling"])
+            if len(pair) != 2 or any(aid not in self.sites for aid in pair):
+                raise ValueError(f"The coupling of the surface must name two sites, not {list(pair)}")
+            self.base_coupling = pair
+
+    def surface_state(self, aid):
+        """State of a site on the surface the campaign is built on (the slab as given without one)."""
+        return self.base.get(aid, self.native[aid])
+
+    def on_surface(self, occupancy):
+        """An occupancy a family names, completed with the surface: unnamed sites keep its state."""
+        return {**self.base, **occupancy}
+
+    def _read_source(self, surface):
+        """The campaign that finished calculations and the relaxed surface are taken from.
+
+        ``scope.surface.source.campaign`` is a campaign of the same project (same slab, same
+        sites): an intermediate it has already relaxed is copied, not built again.
+        ``scope.surface.relaxed`` names the relaxed structure of the surface itself; new
+        intermediates then start from it, with only the sites that differ rebuilt.
+        """
+        source = surface.get("source") or {}
+        if not source.get("campaign"):
+            return
+        path = Path(source["campaign"])
+        path = path if path.is_absolute() else self.base_dir / path
+        theirs = {s["id"]: (s["kind"], s["native"]) for s in read_json(path / "sites.json")["sites"]}
+        ours = {aid: (s["kind"], s["native"]) for aid, s in self.sites.items()}
+        if theirs != ours:
+            raise ValueError(
+                f"{path} was built with other reactive sites than this project: its calculations cannot be reused "
+                "(a surface and the campaign it comes from must share the slab and the sites)"
+            )
+        for node in read_json(path / "network.json")["nodes"]:
+            if node.get("computed_by") or not node.get("state_ids"):
+                continue
+            changes = {k: v for k, v in (node.get("occupancy") or {}).items() if v != self.native[k]}
+            self.source_nodes[self._node_key(changes, node.get("coupling"))] = node
+        self.source = path
+        relaxed = surface.get("relaxed") or {}
+        if not relaxed.get("state_id"):
+            return
+        state_dir = path / "states" / relaxed["state_id"]
+        meta = read_json(state_dir / "state.json")
+        geometry = Path(relaxed["geometry"])
+        structure = read_structure(geometry if geometry.is_absolute() else state_dir / geometry)
+        if len(structure) != len(meta["atom_ids"]) or not np.allclose(structure.cell, self.seed.cell, atol=1e-7):
+            raise ValueError(
+                f"{geometry} is not the relaxed structure of {relaxed['state_id']} in the cell of the slab"
+            )
+        self.environment = {
+            "state_id": relaxed["state_id"],
+            "campaign": str(path),
+            "positions": {aid: structure.positions[k].copy() for k, aid in enumerate(meta["atom_ids"])},
+            "binding_modes": dict((meta.get("variant") or {}).get("binding_modes") or {}),
+        }
+
+    def _rest_position(self, aid):
+        """Where an atom sits when a start leaves it alone: in the relaxed surface the start is made
+        from, else in the slab (None for an atom neither has)."""
+        if self._env_active and aid in self.environment["positions"]:
+            return self.environment["positions"][aid]
+        k = self.seed_index.get(aid)
+        return None if k is None else self.seed.positions[k]
+
+    def _kept_sites(self, occupancy, coupling):
+        """Sites that are in the state they have on the surface, coupling included."""
+        pair, base_pair = set(coupling or ()), set(self.base_coupling or ())
+        return {
+            aid
+            for aid in self.sites
+            if occupancy.get(aid, self.native[aid]) == self.surface_state(aid)
+            and (aid in pair) == (aid in base_pair)
+            and (aid not in pair or pair == base_pair)
+        }
+
+    def _place_from_environment(self, aid, status, records, bonds):
+        """Give a site that is as on the surface the atoms it has in the relaxed surface.
+
+        False when the relaxed surface lacks one of them: the site is then oriented as usual.
+        """
+        env = self.environment
+        modes = env["binding_modes"]
+        atoms = self._site_atoms(aid, status, self._site_grid(aid, status, modes)[0], modes, records)
+        if any(atom_id not in env["positions"] for atom_id, _, _, _ in atoms):
+            return False
+        for atom_id, symbol, _, parent in atoms:
+            position = np.array(env["positions"][atom_id], dtype=float)
+            if atom_id in records:
+                records[atom_id]["position"] = position
+            else:
+                records[atom_id] = self._record(symbol, position)
+            if parent is not None:
+                bonds.append([parent, atom_id])
+        return True
+
+    def _import_states(self, node, key):
+        """Copy the finished calculations of this intermediate from the source campaign.
+
+        True when at least one state with a completed 02_final was copied: the intermediate
+        then has no start of its own, it has results.
+        """
+        from .results import parse_run
+        from .vasp import STAGE_FINAL
+
+        theirs = self.source_nodes.get(key)
+        if theirs is None or theirs["id"] != node["id"]:
+            return False
+        copied = []
+        for sid in theirs["state_ids"]:
+            origin = self.source / "states" / sid
+            if not (origin / "state.json").is_file() or not parse_run(origin / STAGE_FINAL)["completed"]:
+                continue
+            target = self.out / "states" / sid
+            shutil.copytree(origin, target)
+            # state.json stays as it was run (its hash is part of the plan the calculation was
+            # prepared under); where the state comes from is written next to it.
+            origin_record = {"campaign": str(self.source), "state_id": sid}
+            dump_json(target / "imported.json", {"schema_version": 1, **origin_record})
+            meta = read_json(target / "state.json")
+            meta["imported_from"] = origin_record
+            self.states[sid] = meta
+            self.state_structures[sid] = read_structure(target / "POSCAR")
+            node["state_ids"].append(sid)
+            copied.append(sid)
+        if copied:
+            node["imported_from"] = {"campaign": str(self.source), "state_ids": copied}
+            self.imported.append(node["id"])
+        return bool(copied)
 
     # ------------------------------------------------------------------ set-up
     def _apply_fixed_region(self):
@@ -591,6 +758,12 @@ class Builder:
         bonds = [b.copy() for b in self.base_bonds]
         oriented, repositioned, localized = [], set(), []
         changed_sites = set()
+        env = self.environment if self._env_active else None
+        if env is not None:
+            # The start is made from the relaxed surface: its atoms sit where they relaxed.
+            for aid, position in env["positions"].items():
+                if aid in records:
+                    records[aid]["position"] = np.array(position, dtype=float)
         for aid, status in sorted(occupancy.items()):
             if aid not in self.sites:
                 raise ValueError(f"Unknown reactive site {aid}")
@@ -611,12 +784,27 @@ class Builder:
                 if records[aid]["symbol"] != ads.proximal:
                     records[aid]["symbol"] = ads.proximal
             else:
-                metal = self.seed.positions[self.seed_index[site["metal_id"]]]
+                metal = records[site["metal_id"]]["position"]
                 records[aid] = self._record(ads.proximal, metal + ads.metal_distance_A * np.asarray(site["direction"]))
             if ads.oriented:
                 oriented.append(aid)
         if coupling:
             changed_sites.update(coupling)
+        kept = set()
+        if env is not None:
+            # Sites that are as on the surface keep the atoms of the relaxed surface; only the
+            # others are oriented, and only they count as changed below.
+            kept = self._kept_sites(occupancy, coupling)
+            for aid in sorted(kept & changed_sites):
+                site, status = self.sites[aid], occupancy.get(aid, self.native[aid])
+                if site["kind"] == "open_metal" and aid in env["positions"]:
+                    records[aid]["position"] = np.array(env["positions"][aid], dtype=float)
+            oriented = [
+                aid
+                for aid in oriented
+                if not (aid in kept and self._place_from_environment(aid, occupancy[aid], records, bonds))
+            ]
+            changed_sites -= kept
         # A strongly shared proton whose acceptor oxygen is modified is localized
         # on its (unchanged) donor at a normal O-H length; the relaxation decides.
         for sp in self.shared_protons:
@@ -625,7 +813,9 @@ class Builder:
                 vec = minimum_image(records[hid]["position"] - records[donor]["position"], self.seed.cell)
                 records[hid]["position"] = records[donor]["position"] + 0.98 * unit(vec)
                 localized.append(hid)
-        if coupling:
+        if coupling and env is not None and set(coupling) <= kept:
+            bonds.append(list(coupling))  # the pair as it relaxed on the surface
+        elif coupling:
             a, b = coupling
             pa, pb = records[a]["position"], records[b]["position"]
             vec = minimum_image(pb - pa, self.seed.cell)
@@ -729,7 +919,9 @@ class Builder:
             if site["kind"] not in TERMINAL_KINDS or len(site["metal_neighbors"]) != 1:
                 raise ValueError("Side-on binding requires one single-metal anchor")
             metal_id = site["metal_neighbors"][0]["id"]
-            metal = self.seed.positions[self.seed_index[metal_id]]
+            metal = (
+                records[metal_id]["position"] if metal_id in records else self.seed.positions[self.seed_index[metal_id]]
+            )
             metal = origin + minimum_image(metal - origin, self.seed.cell)
             az = math.radians(params["azimuth_deg"])
             lateral = math.cos(az) * t + math.sin(az) * v
@@ -947,8 +1139,8 @@ class Builder:
         """[(symbol, position)] of atoms that are new or moved relative to the seed."""
         out = []
         for aid, symbol, position in zip(st.ids, st.symbols, st.positions):
-            k = self.seed_index.get(aid)
-            if k is None or np.linalg.norm(minimum_image(position - self.seed.positions[k], st.cell)) > 1e-6:
+            rest = self._rest_position(aid)
+            if rest is None or np.linalg.norm(minimum_image(position - rest, st.cell)) > 1e-6:
                 out.append((symbol, position))
         return out
 
@@ -964,7 +1156,8 @@ class Builder:
             return [{"placement": {}, "score": None, "min_clearance_A": None, "hbonds": 0}], None
         per_site = int(self.search_cfg["variants_per_site"])
         changes = {k: v for k, v in occupancy.items() if v != self.native[k]}
-        images = self._node_images(changes, coupling) if self.images else []
+        # A relaxed surface need not keep the symmetry of the slab: its starts are compared as they are.
+        images = self._node_images(changes, coupling) if self.images and not self._env_active else []
         # Within the beam a site is compared on its own, which is exact only when it is the one
         # oriented site (an operation could also turn another site's adsorbate); with several, the
         # final selection below compares all placed atoms together.
@@ -1181,8 +1374,8 @@ class Builder:
         index = {aid: i for i, aid in enumerate(st.ids)}
         changed = set()
         for aid, p in zip(st.ids, st.positions):
-            k = self.seed_index.get(aid)
-            if k is None or np.linalg.norm(minimum_image(p - self.seed.positions[k], st.cell)) > 1e-6:
+            rest = self._rest_position(aid)
+            if rest is None or np.linalg.norm(minimum_image(p - rest, st.cell)) > 1e-6:
                 changed.add(aid)
         neighbors = {aid: set() for aid in st.ids}
         for a, b in bonds:
@@ -1227,7 +1420,13 @@ class Builder:
                     floor = max(floor, anchored[aid][other])
                 elif aid in anchored.get(other, {}):
                     floor = max(floor, anchored[other][aid])
-                if (
+                if self._env_active:
+                    # A contact the relaxed surface already has is not a clash of the start.
+                    rest_a, rest_b = self._rest_position(aid), self._rest_position(other)
+                    if rest_a is not None and rest_b is not None and other not in changed:
+                        rested = float(np.linalg.norm(minimum_image(rest_a - rest_b, st.cell)))
+                        floor = min(floor, rested - 0.05)
+                elif (
                     aid in self.seed_index
                     and other in self.seed_index
                     and aid not in repositioned
@@ -1268,7 +1467,7 @@ class Builder:
         return {k: v for k, v in delta.items() if k in ("O", "H") or v}
 
     def _family_sources(self, family):
-        if family == "reference":
+        if family in ("reference", "surface"):
             return []
         return list(self.registry.family(family).sources)
 
@@ -1297,7 +1496,18 @@ class Builder:
         return SITE_LABEL.sub(lambda m: label_map.get(m.group(0), m.group(0)), str(label))
 
     def node(self, occupancy, family, site, coupling=None):
-        """Node ID for an occupancy map (created with its starting structures on first use)."""
+        """Node ID for an occupancy map (created with its starting structures on first use).
+
+        In a campaign built on a surface, the sites the map does not name keep the state they
+        have on that surface, and so does its coupled pair unless the map names one of its sites.
+        """
+        if self.base_coupling and coupling is None and not set(self.base_coupling) & set(occupancy):
+            coupling = self.base_coupling
+        return self._node(self.on_surface(occupancy), family, site, coupling)
+
+    def _node(self, occupancy, family, site, coupling=None):
+        """:meth:`node` for a complete occupancy (the builder's own calls: the reference, the
+        surface, symmetry images)."""
         occupancy = dict(occupancy)
         for aid, status in occupancy.items():
             if aid not in self.sites:
@@ -1354,7 +1564,7 @@ class Builder:
         representative = self._representative(changes, coupling)
         if representative is not None:
             _, mapped, mapped_coupling, tr = representative
-            rep_id = self.node(mapped, family, self._map_label(site, tr["label_map"]), mapped_coupling)
+            rep_id = self._node(mapped, family, self._map_label(site, tr["label_map"]), mapped_coupling)
             rep = self.nodes[rep_id]
             if rep["delta_atoms"] != node["delta_atoms"]:
                 raise AssertionError(f"Symmetry image {rep_id} changes composition of {node_id}")
@@ -1374,6 +1584,17 @@ class Builder:
                 rep["families"].append(family)
             rep["source_ids"] = sorted(set(rep["source_ids"] + node["source_ids"]))
             return node_id
+        if self.source is not None and self._import_states(node, key):
+            node["geometry_status"] = "imported"
+            return node_id
+        self._env_active = self.environment is not None and node_id != "ref"
+        try:
+            return self._build_starts(node, node_id, family, site, occupancy, coupling, changes)
+        finally:
+            self._env_active = False
+
+    def _build_starts(self, node, node_id, family, site, occupancy, coupling, changes):
+        """The starting structures of a new intermediate (the orientation search and its checks)."""
         side_on_sites = sorted(
             k
             for k, v in changes.items()
@@ -1383,10 +1604,18 @@ class Builder:
         )
         if not self.geo.get("side_on_OO", True):
             side_on_sites = []
-        binding_patterns = [{}]
+        kept_modes = {}
+        if self._env_active:
+            # Sites that are as on the surface are bound the way they relaxed there.
+            kept = self._kept_sites(occupancy, coupling)
+            side_on_sites = [k for k in side_on_sites if k not in kept]
+            kept_modes = {k: v for k, v in self.environment["binding_modes"].items() if k in kept}
+        binding_patterns = [dict(kept_modes)]
         for switches in product((False, True), repeat=len(side_on_sites)):
             if any(switches):
-                binding_patterns.append({k: "side_on" for k, flag in zip(side_on_sites, switches) if flag})
+                binding_patterns.append(
+                    {**kept_modes, **{k: "side_on" for k, flag in zip(side_on_sites, switches) if flag}}
+                )
         built = []
         for binding in binding_patterns:
             kept = 0
@@ -1410,7 +1639,7 @@ class Builder:
                     continue
                 per_site = int(self.search_cfg["variants_per_site"])
                 queue, reserve = list(choices[:per_site]), list(choices[per_site:])
-                images = self._node_images(changes, coupling) if self.images else []
+                images = self._node_images(changes, coupling) if self.images and not self._env_active else []
                 position = 0
                 while position < len(queue):
                     choice = queue[position]
@@ -1573,6 +1802,15 @@ class Builder:
                 "See edge atom_bookkeeping.",
             ],
         }
+        if self._env_active:
+            meta["seeded_from"] = {
+                "campaign": self.environment["campaign"],
+                "state_id": self.environment["state_id"],
+                "note": "Sites in the state they have on the surface keep the atoms of its relaxed structure; "
+                "only the other sites were built and oriented.",
+            }
+            if node["id"] not in self.seeded:
+                self.seeded.append(node["id"])
         if info["localized_shared_protons"]:
             meta["notes"].append(
                 "A strongly shared seed proton next to a modified acceptor site was moved to 0.98 A "
@@ -1646,8 +1884,8 @@ class Builder:
         changed = [
             i
             for i, (aid, p) in enumerate(zip(st.ids, st.positions))
-            if aid not in self.seed_index
-            or np.linalg.norm(minimum_image(p - self.seed.positions[self.seed_index[aid]], st.cell)) > 1e-6
+            if self._rest_position(aid) is None
+            or np.linalg.norm(minimum_image(p - self._rest_position(aid), st.cell)) > 1e-6
         ]
         for i in changed:
             for j in range(len(st)):
@@ -1805,6 +2043,8 @@ class Builder:
         for node in self.nodes.values():
             for sid in node["state_ids"]:
                 meta = self.states[sid]
+                if meta.get("imported_from"):
+                    continue  # a copied calculation keeps the state.json it was run with
                 meta["source_ids"] = sorted(set(meta["source_ids"] + node["source_ids"]))
                 meta["family_aliases"] = sorted(set(meta.get("family_aliases", []) + node["families"]))
                 if node.get("symmetry_twins"):
@@ -1893,6 +2133,8 @@ class Builder:
             "families": families,
             "TS_search_motifs": [m["id"] for m in self.motifs],
         }
+        if self.surface_node is not None:
+            network["surface"] = self._surface_record()
         dump_json(self.out / "network.json", network)
         sites_out = [{k: v for k, v in s.items()} for s in self.sites.values()]
         analysis = {
@@ -2039,6 +2281,14 @@ class Builder:
                 "All graph edges remain proposed until endpoint and appropriate path validation.",
             ],
         }
+        if self.surface_node is not None:
+            report["surface"] = {
+                **self._surface_record(),
+                "imported_nodes": len(self.imported),
+                "imported_states": sum(1 for s in self.states.values() if s.get("imported_from")),
+                "nodes_started_from_the_relaxed_surface": len(self.seeded),
+                "relaxed_surface_state": self.environment["state_id"] if self.environment else None,
+            }
         if self.limited_searches:
             report["limited_orientation_search"] = {
                 "nodes": len(self.limited_searches),
@@ -2053,6 +2303,19 @@ class Builder:
         dump_json(self.out / "build_report.json", report)
         dump_json(self.out / "label_duplicates_merged.json", self.duplicates_merged)
         return report
+
+    def _surface_record(self):
+        """What network.json and the build report say about the surface the campaign is built on."""
+        from .notation import surface_name
+
+        return {
+            "name": self.surface_name,
+            "node_id": self.surface_node,
+            "occupancy": dict(sorted(self.base.items())),
+            "coupling": list(self.base_coupling) if self.base_coupling else None,
+            "description": surface_name(self.sites, self.base, self.base_coupling),
+            "source_campaign": str(self.source) if self.source else None,
+        }
 
     def _copy_inputs(self):
         """Copy every input into <campaign>/inputs and point the campaign config at the copies."""
@@ -2125,4 +2388,4 @@ def build(config, out_dir, base_dir=".", families=None, registry=None):
     if families is not None:
         config = json.loads(json.dumps(config))
         config.setdefault("scope", {})["families"] = list(families)
-    return Builder(config, out, base_dir, registry).finish()
+    return Builder(config, out, base_dir, registry, reuse_source=True).finish()

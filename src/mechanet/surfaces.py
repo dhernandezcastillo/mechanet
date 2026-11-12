@@ -524,3 +524,135 @@ def analyse(
             )
         )
     return extra, files
+
+
+# ---------------------------------------------------------------------------
+# Picking a surface: `mechanet generate --on`
+# ---------------------------------------------------------------------------
+
+NO_SOURCE = "none"
+
+
+def relaxed_surface(campaign, node_id, registry=None):
+    """The relaxed structure of a surface of a campaign, or None.
+
+    Of the states of the intermediate whose 02_final relaxation finished and whose relaxed
+    structure still is that intermediate, the one of lowest energy:
+    {"state_id", "geometry" (path inside the state folder), "energy_eV"}.
+    """
+    from .plugins import campaign_registry
+    from .results import parse_run
+    from .topology import topology_check
+    from .vasp import STAGE_FINAL
+
+    campaign = Path(campaign)
+    config = read_json(campaign / "config.json")
+    registry = registry or campaign_registry(campaign, config=config)
+    node = next((n for n in read_json(campaign / "network.json")["nodes"] if n["id"] == node_id), None)
+    best = None
+    for sid in (node or {}).get("state_ids", []):
+        state_dir = campaign / "states" / sid
+        final = parse_run(state_dir / STAGE_FINAL)
+        if not final["completed"] or final.get("energy_e0_eV") is None:
+            continue
+        topology = topology_check(state_dir, read_json(state_dir / "state.json"), config, STAGE_FINAL, registry)
+        if topology.get("assigned_node_id") != node_id or not topology.get("geometry"):
+            continue
+        if best is None or final["energy_e0_eV"] < best["energy_eV"]:
+            best = {
+                "state_id": sid,
+                "geometry": Path(topology["geometry"]).as_posix(),
+                "energy_eV": float(final["energy_e0_eV"]),
+            }
+    return best
+
+
+def _same_inputs(source, config):
+    """Refuse a source campaign that was built from another slab or run with other DFT inputs."""
+    import hashlib
+
+    provenance = read_json(Path(source) / "build_report.json").get("input_provenance") or {}
+    names = {"seed": "slab file", "incar_loose": "INCAR_loose", "incar_final": "INCAR_final", "kpoints": "KPOINTS"}
+    for key, what in names.items():
+        recorded = (provenance.get(key) or {}).get("sha256")
+        path = Path(config["inputs"][key])
+        if recorded and path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() != recorded:
+            raise ValueError(
+                f"The {what} of the project ({path}) is not the one {source} was built with: energies of the two "
+                "would not be comparable, so its calculations are not reused. Build on the surface without a source "
+                f"(--from {NO_SOURCE}), or restore the file."
+            )
+
+
+def pick(project, config, registry, on, source=None):
+    """The surface ``mechanet generate --on`` builds a campaign on: the ``scope.surface`` of its config.
+
+    ``on`` is a name of the ``surfaces`` block of project.yaml or the ID of an intermediate of
+    the source campaign (``source``; default ``<project>/coverage`` when it exists; "none" for
+    no source). The result names the surface, the sites that differ from the slab, the source
+    campaign whose finished calculations are reused, and the relaxed structure of the surface
+    in it when there is one. ``notes`` says what could not be done.
+    """
+    project_dir = Path(project["_dir"])
+    native = {str(s["id"]): str(s["native"]) for s in project["sites"]}
+    declared = project.get("surfaces") or {}
+    source_dir = None
+    if source is None:
+        if (project_dir / "coverage" / "network.json").is_file():
+            source_dir = project_dir / "coverage"
+    elif str(source).lower() != NO_SOURCE:
+        source_dir = Path(source)
+        if not (source_dir / "network.json").is_file():
+            raise FileNotFoundError(f"{source_dir} is not a campaign (no network.json)")
+    nodes = {n["id"]: n for n in read_json(source_dir / "network.json")["nodes"]} if source_dir else {}
+    notes, node = [], None
+    if on in declared:
+        pattern = {str(k): v for k, v in declared[on].items()}
+        coupling = pattern.pop("coupling", None)
+        occupancy = {site: str(state) for site, state in pattern.items()}
+        name = on
+    elif on in nodes:
+        node = nodes[on]
+        if node.get("computed_by"):
+            notes.append(
+                f"{on} is the image of {node['computed_by']} under a translation of the slab: the campaign is built "
+                f"on {node['computed_by']}, which holds the calculations."
+            )
+            node = nodes[node["computed_by"]]
+        occupancy, coupling, name = dict(node.get("occupancy") or {}), node.get("coupling"), node["id"]
+    else:
+        where = (
+            f"an intermediate of {source_dir}" if source_dir else "a campaign to take it from (no coverage campaign)"
+        )
+        known = f" (surfaces: {', '.join(sorted(declared))})" if declared else ""
+        raise ValueError(
+            f"No surface {on!r}: it is neither a name of `surfaces` in project.yaml{known} nor {where}. The IDs of "
+            "the candidates are in pourbaix/candidates.csv of the coverage campaign."
+        )
+    unknown = sorted(set(occupancy) - set(native))
+    if unknown:
+        raise ValueError(f"The surface {name} names sites the project does not have: {unknown}")
+    for state in occupancy.values():
+        registry.adsorbate(state)
+    occupancy = {site: state for site, state in sorted(occupancy.items()) if state != native[site]}
+    surface = {"name": name, "occupancy": occupancy, "coupling": [str(x) for x in coupling] if coupling else None}
+    if source_dir is not None:
+        _same_inputs(source_dir, config)
+        surface["source"] = {"campaign": str(source_dir.resolve())}
+        if node is None:  # a declared surface: is it an intermediate of the source?
+            wanted = (occupancy, sorted(surface["coupling"] or []))
+            for candidate in nodes.values():
+                theirs = {k: v for k, v in (candidate.get("occupancy") or {}).items() if v != native.get(k)}
+                if not candidate.get("computed_by") and (theirs, sorted(candidate.get("coupling") or [])) == wanted:
+                    node = candidate
+                    break
+        relaxed = relaxed_surface(source_dir, node["id"], registry) if node is not None else None
+        if relaxed is not None:
+            surface["relaxed"] = {"state_id": relaxed["state_id"], "geometry": relaxed["geometry"]}
+        else:
+            notes.append(
+                f"{source_dir} has no finished relaxation of the surface {name} that kept it: new intermediates "
+                "start from the slab as given, with every adsorbate placed anew."
+            )
+    surface["notes"] = notes
+    return surface

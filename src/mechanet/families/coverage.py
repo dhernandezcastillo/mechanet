@@ -2,8 +2,10 @@
 
 It enumerates occupancy combinations of the reactive sites, up to ``max_changed_sites``
 sites away from the native surface (default 2; ``null`` for every combination), and builds
-each as a node. No edges or cycles are written: ``mechanet pourbaix`` compares the
-formation free energies of these nodes as a function of potential and pH.
+each as a node. In a campaign built on a surface (``mechanet generate --coverage --on ID``)
+the combinations are counted from that surface instead: a look at its neighbourhood. No
+edges or cycles are written: ``mechanet pourbaix`` compares the formation free energies of
+these nodes as a function of potential and pH.
 
 Configured in project.yaml under ``scope.coverage``::
 
@@ -54,7 +56,7 @@ def _options(ctx):
         states = list(states_cfg.get(aid) or states_cfg.get(kind) or default_states(kind, ctx.reaction))
         for status in states:
             ctx.adsorbate(status)
-        options[aid] = [s for s in states if s != ctx.native[aid]]
+        options[aid] = [s for s in states if s != ctx.surface_state(aid)]
     max_changed = cfg.get("max_changed_sites", 2)
     limit = len(site_ids) if max_changed is None else min(int(max_changed), len(site_ids))
     return site_ids, options, limit
@@ -80,13 +82,13 @@ def count(ctx):
     total, distinct = 0, set()
     for occupancy, _ in patterns(ctx):
         total += 1
-        distinct.add(ctx.canonical_key(occupancy))
+        distinct.add(ctx.canonical_key(ctx.on_surface(occupancy)))
     return {
         "sites": len(site_ids),
         "max_changed_sites": limit,
         "surfaces": total + 1,
         "distinct": len(distinct) + 1,
-        "states": {aid: [ctx.native[aid], *options[aid]] for aid in site_ids},
+        "states": {aid: [ctx.surface_state(aid), *options[aid]] for aid in site_ids},
     }
 
 

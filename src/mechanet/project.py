@@ -54,6 +54,7 @@ TOP_LEVEL = (
     "plugins",
     "origins",
     "notes",
+    "surfaces",
 )
 SLAB_KEYS = (
     "file",
@@ -344,10 +345,41 @@ def validate_project(data, registry=None):
     if isinstance(scope, dict):
         errors += _scope_problems(scope, registry)
     errors += _value_problems(data)
+    errors += _surface_problems(data)
     if data.get("plugins") is not None and not isinstance(data["plugins"], list):
         errors.append("`plugins` must be a list of plugin files")
     if data.get("cluster") is not None and not isinstance(data["cluster"], str):
         errors.append("`cluster` must be a profile name (`mechanet cluster list`) or a profile file")
+    return errors
+
+
+SURFACE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _surface_problems(data):
+    """Problems of the ``surfaces`` block: named patterns of the sites a campaign can be built on."""
+    surfaces = data.get("surfaces")
+    if surfaces is None:
+        return []
+    if not isinstance(surfaces, dict):
+        return ["`surfaces` must map a name to the sites that differ from the slab, e.g. {oxidised: {a0061: O}}"]
+    sites = {str(s.get("id")) for s in data.get("sites") or [] if isinstance(s, dict)}
+    errors = []
+    for name, pattern in surfaces.items():
+        if not isinstance(name, str) or not SURFACE_NAME.match(name):
+            errors.append(f"surfaces: the name {name!r} must be letters, digits, '.', '_' or '-' (it names a folder)")
+            continue
+        if not isinstance(pattern, dict) or not pattern:
+            errors.append(f"surfaces.{name} must map site IDs to states, e.g. {{a0061: O, a0063: O}}")
+            continue
+        for key, value in pattern.items():
+            if key == "coupling":
+                if not (isinstance(value, list) and len(value) == 2 and all(str(x) in sites for x in value)):
+                    errors.append(f"surfaces.{name}.coupling must list two sites of the project")
+            elif str(key) not in sites:
+                errors.append(_unknown(f"sites of surfaces.{name}", [key], sorted(sites)))
+            elif not isinstance(value, str):
+                errors.append(f"surfaces.{name}.{key} must be a state such as O, OH or empty")
     return errors
 
 
@@ -539,12 +571,13 @@ def _open_project(project_path):
     return project, config, default_registry(config["plugins"])
 
 
-def coverage_count(project_path=None):
+def coverage_count(project_path=None, on=None, source=None):
     """The surfaces the coverage scope of a project gives, counted without building them.
 
     ``surfaces`` is every combination of the states of ``scope.coverage`` (and the slab as
-    given), ``distinct`` those left once copies shifted by a lattice translation are merged;
-    ``text`` says it in one line. See :func:`mechanet.families.coverage.count`.
+    given, or the surface ``on`` the campaign is built on), ``distinct`` those left once copies
+    shifted by a lattice translation are merged; ``text`` says it in one line. See
+    :func:`mechanet.families.coverage.count`.
     """
     import tempfile
 
@@ -552,11 +585,19 @@ def coverage_count(project_path=None):
     from .families.coverage import count
 
     project, config, registry = _open_project(project_path)
+    if on is not None:
+        from .surfaces import pick
+
+        surface = pick(project, config, registry, on, source)
+        # Counting needs the pattern only: no calculation is copied and no start is made.
+        config["scope"]["surface"] = {k: surface[k] for k in ("name", "occupancy", "coupling")}
     with tempfile.TemporaryDirectory() as scratch:
         builder = Builder(config, Path(scratch) / "count", base_dir=project["_dir"], registry=registry)
         found = count(builder)
         kinds = {aid: site["kind"] for aid, site in builder.sites.items()}
     found["text"] = _coverage_text(found, kinds)
+    if on is not None:
+        found["text"] = found["text"].replace("coverage:", f"coverage around {config['scope']['surface']['name']}:", 1)
     return found
 
 
@@ -579,13 +620,20 @@ def _coverage_text(found, kinds):
     )
 
 
-def generate(project_path=None, out=None, families=None, coverage=False):
+def generate(project_path=None, out=None, families=None, coverage=False, on=None, source=None):
     """Build the campaign of a project (default ``<project>/campaign``); returns the build report.
 
     Without ``project_path`` the project.yaml of the current directory or a parent is used.
     ``coverage`` builds the coverage campaign instead: the surfaces of ``scope.coverage`` and
     nothing else, in ``<project>/coverage``, for the surface Pourbaix diagram that comes
     before the mechanism.
+
+    ``on`` builds the campaign on a surface: a name of the ``surfaces`` block of project.yaml,
+    or the ID of an intermediate of the campaign ``source`` (default: the coverage campaign).
+    Every intermediate then keeps the surface where its family does not say otherwise, the
+    calculations ``source`` has finished for these intermediates are copied, and new ones
+    start from the relaxed surface. The campaign goes to ``<project>/on_NAME``
+    (``coverage_on_NAME`` with ``coverage``): one campaign per surface.
     """
     from .builder import build
 
@@ -595,12 +643,24 @@ def generate(project_path=None, out=None, families=None, coverage=False):
             raise ValueError("a coverage campaign builds the coverage family only: leave --families out")
         families = ["coverage"]
     default_folder = COVERAGE_FOLDER if coverage else "campaign"
+    surface = None
+    if on is not None:
+        from .surfaces import pick
+
+        surface = pick(project, config, registry, on, source)
+        surface_notes = surface.pop("notes")
+        config["scope"]["surface"] = surface
+        default_folder = f"{COVERAGE_FOLDER}_on_{surface['name']}" if coverage else f"on_{surface['name']}"
+    elif source is not None:
+        raise ValueError("--from names the campaign a surface is taken from: give the surface with --on")
     out = Path(out) if out else Path(project["_dir"]) / default_folder
     report = build(config, out, base_dir=project["_dir"], families=families, registry=registry)
     shutil.copy2(project["_path"], out / "project.snapshot.yaml")
     report["warnings"] = []
+    if surface is not None:
+        report["warnings"] += surface_notes
     if coverage:
-        report["coverage"] = coverage_count(project["_path"])
+        report["coverage"] = coverage_count(project["_path"], on=on, source=source)
         if report["coverage"]["distinct"] > MANY_SURFACES:
             report["warnings"].append(
                 f"{report['coverage']['distinct']} distinct surfaces, each one relaxation or more: fewer states, "
@@ -629,6 +689,7 @@ def generate(project_path=None, out=None, families=None, coverage=False):
             report["warnings"].append(
                 f"scope.{key} configures the {family.name} family, which this campaign does not build "
                 f"(scope.families: {sorted(listed)}): the block has no effect"
+                + (" here (`mechanet generate --coverage` builds its surfaces)" if key == "coverage" else "")
             )
     machine = platform.machine().lower()
     if machine and machine not in X86_MACHINES:

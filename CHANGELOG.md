@@ -17,6 +17,21 @@ test now checks it.
   it and builds nothing. `families.coverage.patterns` and `count` give the same to a script,
   and `notation.surface_name` names a surface by its counts (`terminal 4 OH | bridge 2 O, 2
   OH`). See `docs/surface-first.md`.
+- **The mechanism on a surface you pick.** `mechanet generate --on SURFACE` builds a campaign on
+  a surface: a candidate of the coverage campaign, by its ID, or a pattern written in the new
+  `surfaces` block of project.yaml. Every family writes its usual intermediates, and each
+  site the family does not name keeps the state it has on that surface; the families and the
+  names of the cycles are untouched. The campaign goes to `<project>/on_NAME` (repeat `--on`
+  for one campaign per surface) and shares slab, sites and zero of energy with the coverage
+  campaign, so the calculations that campaign has finished for these intermediates are copied
+  instead of repeated (the folders as they are, with `imported.json`; the coverage campaign is
+  only read), and new intermediates start from the relaxed surface with only the sites that
+  differ rebuilt (`seeded_from` in state.json). `--from` names another source campaign or
+  `none`; a campaign built from another slab or run with other INCAR or KPOINTS files is
+  refused. Only the lattice translations that map the surface onto itself merge
+  intermediates. `--coverage --on` builds the coverage states around a surface (a second pass
+  with more adsorbates). `mechanet pourbaix` labels the intermediates of such a campaign by
+  what differs from the surface. A campaign without `--on` is built exactly as before.
 - **Candidates for the mechanism from the surface Pourbaix diagram.** `mechanet pourbaix
   --window LO:HI` lists every surface that is stable somewhere in a potential window or within
   a margin (`--margin`, 0.2 eV) of the stable one there, with its ID, its short name, the

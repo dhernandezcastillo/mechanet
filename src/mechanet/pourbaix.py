@@ -36,7 +36,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .fileio import dump_json
+from .fileio import dump_json, read_json
 from .reactions import electrons as vector_electrons
 from .thermo import DOWNHILL_TOLERANCE_EV, Conditions, species_free_energy
 
@@ -53,6 +53,35 @@ def node_label(node, native):
     if node.get("coupling"):
         text += " (" + "-".join(node["coupling"]) + " coupled)"
     return text
+
+
+def _labels(data, network, native):
+    """{node ID: label}. In a campaign built on a surface the label says what differs from that
+    surface (the surface itself is named, the slab as given shows the sites it has otherwise)."""
+    surface = network.get("surface")
+    campaign = data.get("campaign")
+    sites = None
+    if surface and campaign and (Path(campaign) / "sites.json").is_file():
+        sites = {s["id"]: s["native"] for s in read_json(Path(campaign) / "sites.json")["sites"]}
+    if sites is None:
+        return {node["id"]: node_label(node, native) for node in network["nodes"]}
+    on_surface, pair = surface.get("occupancy") or {}, sorted(surface.get("coupling") or [])
+    # A surface picked by its ID has no name of its own.
+    itself = "the surface" if surface["name"] == surface["node_id"] else f"surface {surface['name']}"
+    out = {}
+    for node in network["nodes"]:
+        occupancy = node.get("occupancy") or {}
+        parts = [
+            f"{site}:{occupancy.get(site, slab)}"
+            for site, slab in sorted(sites.items())
+            if occupancy.get(site, slab) != on_surface.get(site, slab)
+        ]
+        text = " ".join(parts) or itself
+        coupled = sorted(node.get("coupling") or [])
+        if coupled != pair:
+            text += " (" + "-".join(coupled or pair) + (" coupled)" if coupled else " not coupled)")
+        out[node["id"]] = text
+    return out
 
 
 def _reactions_of(data):
@@ -111,6 +140,7 @@ def formation_lines(data, activities=None):
     for node in network["nodes"]:
         if node["id"] == reference:
             native = dict(node.get("occupancy") or {})
+    labels = _labels(data, network, native)
     conditions = Conditions(
         data["settings"]["temperature_K"], 0.0, {**(data["thermo_cfg"].get("activities") or {}), **(activities or {})}
     )
@@ -154,7 +184,7 @@ def formation_lines(data, activities=None):
         lines.append(
             {
                 "node_id": node["id"],
-                "label": node_label(node, native),
+                "label": labels[node["id"]],
                 "A_eV": selected[node["id"]] - selected[reference] + a,
                 "B_eV_per_V": b,
                 "C_eV_per_pH": c,
@@ -616,7 +646,10 @@ def _candidates_text(rows, analysis):
             f"    {row['rank']:>2}  {name:<{width}}  {row['node_id']:<{ids}}  {why}"
             + ("" if row.get("free_energy") else "  [no free energy yet]")
         )
-    lines.append("    (candidates.csv; `mechanet select --candidates` sends them to the frequency stage)")
+    lines.append(
+        "    (candidates.csv; `mechanet select --candidates` sends them to the frequency stage, "
+        "`mechanet generate --on ID` builds the mechanism on one)"
+    )
     return lines
 
 

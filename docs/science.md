@@ -169,6 +169,14 @@ atoms matched by element and labels ignored (a water rotated by 180° is the sam
 Intermediates without any feasible placement are reported in `nodes_without_viable_start`
 (with reasons in `rejected_placements.json`), never started from an unphysical geometry.
 
+**Starts on a relaxed surface.** In a campaign built on a surface that another campaign has
+relaxed (`mechanet generate --on`), a start is made from that relaxed structure: every atom
+of the slab and of the sites that are in the state they have on the surface sits where it
+relaxed, and the search above places only the atoms of the sites that differ, scored against
+that environment. The clearance floors apply to the new atoms; a contact the relaxed surface
+already has is not counted as a clash. Rotations and mirrors of the slab are not used to
+merge starts there, since a relaxed surface need not keep them.
+
 **Symmetry images of a start.** The difference is also measured after every rotation and
 mirror of the slab that keeps its normal, its fixed and frequency regions and any explicit
 MAGMOM, and maps the intermediate's sites onto sites in the same state (found with spglib,

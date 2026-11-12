@@ -63,6 +63,20 @@ direction of the missing ligand.
 | `coverage` | Settings of the `coverage` family: `sites`, `max_changed_sites` (2; null for all combinations), `states` per site kind or per site ID. `mechanet generate --coverage` builds these surfaces as a campaign of their own ([surface first](surface-first.md)). |
 | `enumerate` | Settings of the `enumerated` family: `sites` (one to three), `states` per site or kind, `max_length` (8), `max_cycles`. |
 
+## surfaces
+
+Named surfaces a campaign can be built on with `mechanet generate --on NAME`
+([surface first](surface-first.md#3-pick-the-surfaces-and-build-the-mechanism-on-each)):
+
+```yaml
+surfaces:
+  oxidised: {a0061: O, a0063: O}                     # the sites that differ from the slab, and their state
+  peroxo: {a0061: O, a0062: O, coupling: [a0061, a0062]}   # two sites bonded to each other
+```
+
+A name may hold letters, digits, `.`, `_` and `-`: it names the campaign folder
+(`<project>/on_NAME`). A surface picked from the coverage campaign by its ID needs no entry.
+
 ## geometry
 
 | Key | Default | Meaning |

@@ -93,7 +93,7 @@ mechanet pourbaix --screening --scale RHE --window 1.0:1.8 --figures
      2  terminal 1 OOH, 1 empty | bridge 2 O  n_m0038OOH_5560a2  stable above 1.50 V, ahead by at most 0.40 eV (gives the product off downhill)  [no free energy yet]
      3  terminal 1 O, 1 empty | bridge 2 O    n_m0038O_d0b786    0.10 eV above the stable surface at 1.50 V  [no free energy yet]
      4  terminal 2 empty | bridge 2 O         ref                0.20 eV above the stable surface at 1.00 V  [no free energy yet]
-    (candidates.csv; `mechanet select --candidates` sends them to the frequency stage)
+    (candidates.csv; `mechanet select --candidates` sends them to the frequency stage, `mechanet generate --on ID` builds the mechanism on one)
 ```
 
 The numbers are those of the example of [tutorial 4](tutorials/analysis.md). A candidate is a
@@ -167,3 +167,80 @@ A surface keeps its colour in all figures of a run, and every number in them is 
   ([science §7](science.md#7-surface-pourbaix-diagrams)).
 * Surfaces can differ in their magnetic solution; `mechanet select` reports intermediates
   whose variants converged to different ones.
+
+## 3. Pick the surfaces and build the mechanism on each
+
+Give `generate` the ID of a candidate (they are in the table and in `candidates.csv`):
+
+```bash
+mechanet generate --on n_m0038OH_m0046OH_69d918
+```
+
+```text
+campaign: ruo2/on_n_m0038OH_m0046OH_69d918
+  on the surface n_m0038OH_m0046OH_69d918: terminal 2 OH | bridge 2 O (n_m0038OH_m0046OH_69d918)
+  10 finished calculations of 9 intermediates copied from ruo2/coverage; 5 new intermediates start from the relaxed surface (n_m0038OH_m0046OH_69d918__v1)
+  candidate nodes: 25
+  ...
+```
+
+Repeat `--on` to build one campaign per surface in one go. Each goes to its own folder,
+`<project>/on_NAME`, and is planned, run, checked and analysed like any campaign: its
+cycles, its `pathways`, its limiting potentials are those of the mechanism on that surface.
+
+What the campaign contains:
+
+* **The families of `scope.families`, written on the surface.** A family names the states
+  of the sites it works on: the adsorbate evolution on a terminal site writes that site as
+  empty, OH, O, OOH and OO. Every site it does not name keeps the state it has on the picked
+  surface. The families themselves are unchanged, and so are the names of the cycles.
+* **The slab as given**, as the zero of energy the coverage campaign and every campaign on a
+  surface share. Formation energies are therefore on one scale across them.
+* **The finished calculations of the coverage campaign**, for every intermediate it already
+  has: the picked surface itself, the slab as given, and any other surface of the coverage
+  campaign that the mechanism passes through. Their folders are copied as they are, with a
+  note of where they come from (`imported.json`); nothing is computed twice, and the coverage
+  campaign is only read.
+* **New intermediates that start from the relaxed surface.** Their atoms sit where the
+  surface relaxed; only the sites that differ from the surface are rebuilt and oriented, in
+  that environment. This is what one does by hand when editing the CONTCAR of a surface, and
+  it keeps the spectators of all intermediates of a cycle in the same arrangement, so that a
+  step energy is not the difference between two hydrogen-bond patterns. `state.json` records
+  it (`seeded_from`).
+
+Symmetry follows the surface: of the lattice translations of the slab, only those that map
+the surface onto itself merge intermediates. A surface with OH on every second site has
+fewer equivalent sites than the bare slab, and more intermediates are computed.
+
+`mechanet pourbaix` on such a campaign labels its intermediates by what differs from the
+surface (`the surface`, `m0046:OOH`), so the diagram reads as the neighbourhood of the
+surface you picked.
+
+### A surface you already know
+
+A surface can also be written by hand, for instance from a diagram computed elsewhere:
+
+```yaml
+surfaces:
+  oxidised: {a0061: O, a0063: O}       # the sites that differ from the slab file, and their state
+```
+
+```bash
+mechanet generate --on oxidised
+```
+
+Without a coverage campaign there is nothing to copy and no relaxed surface, so every start
+is built from the slab with all adsorbates placed anew. To get the starts from the relaxed
+surface, relax it first in a campaign of its own and name that campaign with `--from`:
+`mechanet generate --on oxidised --from DIR` takes the surface, its relaxed structure and
+the finished calculations from any campaign of the same project (`--from none` uses none).
+A campaign built from another slab file, or run with other INCAR or KPOINTS files, is
+refused: its energies would not be comparable.
+
+### A second pass around a surface
+
+`mechanet generate --coverage --on ID` builds the coverage states around a surface instead
+of around the slab: the combinations of `scope.coverage` are counted from the surface. With
+`max_changed_sites: 2` this probes, for example, OOH, OO and water next to a surface that a
+first pass with O and OH brought out, at a fraction of the cost of every combination. The
+campaign goes to `<project>/coverage_on_NAME`; surfaces the first pass has relaxed are copied.
