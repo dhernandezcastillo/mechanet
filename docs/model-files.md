@@ -107,7 +107,14 @@ is no substitute.
 
 ## UMA with a Hugging Face token
 
-This is the way UMA's own documentation describes. Set it up once:
+**What the token is for.** UMA's model file is gated: Hugging Face gives it only to accounts
+that have been granted access. In a web browser, being logged in shows who you are; a program
+that downloads the file, such as fairchem or `mechanet models uma --download`, shows your token
+instead. The token only serves to get the file from Hugging Face. UMA always runs on your own
+computer, never on Hugging Face, so the calculations themselves never use the token. Downloading
+the file in your browser while logged in (way A) needs no token at all.
+
+UMA's own documentation sets the token up this way. Do it once:
 
 1. Log in to Hugging Face and ask for access on the
    [model page](https://huggingface.co/facebook/UMA). Requests are reviewed: wait for the

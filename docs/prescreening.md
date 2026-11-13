@@ -179,8 +179,10 @@ its package, which downloads it on the first run. UMA's weights are gated. As UM
 documentation says, request access at <https://huggingface.co/facebook/UMA>, create a Hugging
 Face token with "Read access to contents of all public gated repos you can access" (a token of
 type Read has it), and give it to huggingface_hub with `hf auth login` (`huggingface-cli login`
-in older versions) or the `HF_TOKEN` variable: the first prescreen then downloads the model.
-Or download the file in your browser and put it in the models folder.
+in older versions) or the `HF_TOKEN` variable: the first prescreen then downloads the model
+with it. The token only serves to get the file from Hugging Face: UMA runs on your own
+computer. Or, without a token, download the file in your browser while logged in, and put it
+in the models folder.
 
 On a cluster whose compute nodes have no internet, or where you would rather not log in to
 Hugging Face there, fill the models folder once: [Model files on a cluster](model-files.md)
