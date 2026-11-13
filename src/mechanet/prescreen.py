@@ -586,6 +586,17 @@ def prescreen_text(result):
     return "\n".join(lines)
 
 
+def _calculator_help(registry):
+    """The help of --calculator: every calculator the registry holds, mechanet's own first, then
+    those that plugins add. The command reference of the documentation is written from
+    `mechanet prescreen --help` at every build, so it always names them."""
+    names = "".join(f"{name.replace('%', '%%')}, " for name in registry.calculators)
+    return (
+        f"{names}a name a --plugin file adds, or module:callable (`mechanet plugins` lists the "
+        "calculators, with what each needs)"
+    )
+
+
 def register_command(subparsers, registry):
     p = subparsers.add_parser(
         "prescreen",
@@ -593,11 +604,7 @@ def register_command(subparsers, registry):
         description=__doc__.split("\n\n")[0],
     )
     p.add_argument("campaign", nargs="?")
-    p.add_argument(
-        "--calculator",
-        required=True,
-        help="emt, mace-mp, a name a plugin adds (`mechanet plugins` lists them) or module:callable",
-    )
+    p.add_argument("--calculator", required=True, help=_calculator_help(registry))
     p.add_argument(
         "--option",
         action="append",

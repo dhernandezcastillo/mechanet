@@ -23,7 +23,8 @@
   for every preset. New install extras `mace`, `uma`, `sevennet` and `d3`, one environment per
   potential (mace-torch pins an e3nn the others do not accept). Reading which package provides a
   calculator's class now scans the installed distributions once per process, not at every
-  `describe()`.
+  `describe()`. The help of `--calculator` names every calculator mechanet knows, read from the
+  registry (plugins' included), so the command reference in the documentation lists them.
 - **Model files from a folder, for clusters without internet.** `mace-mh1`, `uma` and `sevennet`
   load their model file from mechanet's models folder (`$MECHANET_MODELS`, else
   `~/.local/share/mechanet/models`) when it is there under its official name, and download

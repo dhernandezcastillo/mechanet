@@ -10,6 +10,7 @@ of each other (generate merges them when spglib is there, see test_start_symmetr
 prescreen must recognise relaxed structures that are images of each other in any case.
 """
 
+import argparse
 import contextlib
 import importlib.util
 import io
@@ -29,10 +30,11 @@ from support import EXAMPLE, write_potcars
 from mechanet import symmetry
 from mechanet.builder import Builder
 from mechanet.calculators import ASECalculator, Relaxation, load_calculator, parse_options, to_ase
-from mechanet.cli import main
+from mechanet.cli import build_parser, main
 from mechanet.fileio import read_json
 from mechanet.plugins import Registry, default_registry
 from mechanet.prescreen import prescreen, prescreen_text
+from mechanet.prescreen import register_command as register_prescreen
 from mechanet.project import load_project, resolve_config
 from mechanet.structure import Structure, from_ase, minimum_image, read_poscar
 
@@ -145,6 +147,23 @@ class CalculatorTests(unittest.TestCase):
         self.assertLessEqual({"emt", "mace-mp", "mace-mh1", "uma", "sevennet"}, set(listed))
         self.assertEqual(listed["mace-mh1"]["relaxes"], "FIRE, 0.03 eV/A, at most 1500 steps")
         self.assertEqual(listed["emt"]["relaxes"], "-")
+
+    def test_help_names_every_calculator(self):
+        # The command reference of the documentation is mechanet's --help, written at every build:
+        # --calculator names the calculators the registry holds, mechanet's own first.
+        def calculator_help(parser):
+            command = next(a for a in parser._actions if a.dest == "command").choices["prescreen"]
+            return command, next(a for a in command._actions if "--calculator" in a.option_strings).help
+
+        _, text = calculator_help(build_parser(default_registry()))
+        self.assertTrue(text.startswith("emt, mace-mp, mace-mh1, uma, sevennet, "), text)
+        registry = Registry()  # a plugin's calculator, with a % that argparse must not read as a format
+        registry.add_calculator("10%-test", lambda **options: None, "a plugin's calculator")
+        parser = argparse.ArgumentParser(prog="mechanet")
+        register_prescreen(parser.add_subparsers(dest="command"), registry)
+        command, _ = calculator_help(parser)
+        printed = " ".join(command.format_help().split())
+        self.assertIn("10%-test, a name a --plugin file adds, or module:callable (`mechanet plugins`", printed)
 
 
 class PrescreenTests(unittest.TestCase):
