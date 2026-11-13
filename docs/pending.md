@@ -73,6 +73,27 @@ structures kept, which builds a coverage state with OOH on four sites in 10 s in
 - A coverage campaign is the case that needs it. Mechanism campaigns on a picked surface start
   from the relaxed surface and orient only the sites that differ, so they do not depend on it.
 
+## `relaxed-surface-images`
+
+**Sites that the pattern of a surface makes equivalent are computed once, also when its
+relaxed structure differs between them.**
+
+A campaign on a surface merges intermediates that a lattice translation of the slab maps onto
+each other, when that translation maps the pattern of the surface onto itself. The relaxed
+surface the starts are made from need not keep the translation atom for atom: one OH may
+donate a hydrogen bond that its image does not. The mechanism is then computed on the first
+site, in its environment, and stands for the others.
+
+- This is what one does by hand (one site per kind), and it is said: the build report gives
+  the largest distance between an atom of the relaxed surface and its translated image
+  (`surface.equivalent_sites_differ_by_A`), and `generate` prints a line above 0.5 Å
+  (`SITES_DIFFER_A` in `builder.py`, a choice).
+- `geometry.symmetry_reduction: false` computes every site, at two to four times the cost in
+  a 2 × 2 cell.
+- Open: whether to compute each site by default beyond some distance, and beyond which. That
+  needs relaxed surfaces from real campaigns: how large the differences are, and how much the
+  step energies change between such sites.
+
 ## `surface-from-discovered`
 
 **A surface that exists only as a structure another start relaxed into cannot be reused yet.**

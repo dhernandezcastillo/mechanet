@@ -122,22 +122,27 @@ of the window (`--at-potential` chooses other potentials).
 `--screening` uses the relaxed energy plus a tabulated ZPE − TS for every atom the surface
 has more or less than the slab (0.30 eV per H and 0.05 eV per O by default,
 `thermodynamics.electronic_mode_corrections`). It needs no frequency calculation, so it is
-available for every surface as soon as it is relaxed. Energies alone are not a level to
-choose surfaces with: every proton removed changes the vibrational terms by about 0.3 eV, so
-the transitions move by tenths of a volt.
+available for every surface as soon as it is relaxed: the energy is that of the relaxation
+(`02_final`) under either protocol. (`--electronic-only` applies the same corrections to the
+energies the protocol analyses, which with `frequency.central: refine` are those of
+`04_static` and do not exist yet at this point.) Energies alone are not a level to choose
+surfaces with: every proton removed changes the vibrational terms by about 0.3 eV, so the
+transitions move by tenths of a volt.
 
 The screening level ranks surfaces that are far apart correctly and can swap two that are
 close. Hence the margin, and the second pass:
 
 ```bash
-mechanet select --candidates        # only the candidates go on to the frequency stage
+mechanet select --candidates        # only the candidates and the reference surface go on
 mechanet submit --execute
 mechanet pourbaix --scale RHE --window 1.0:1.8 --figures     # now with free energies
 ```
 
-Without `--screening` the diagram uses free energies and contains the surfaces that have
-one. A candidate without a frequency calculation is marked `[no free energy yet]` in the
-table.
+`select --candidates` sends the candidates and the reference surface (the slab as given):
+every formation energy is counted from it, so its free energy is needed even when it is not
+a candidate itself, and `select` says that it added it. Without `--screening` the diagram
+uses free energies and contains the surfaces that have one. A candidate without a frequency
+calculation is marked `[no free energy yet]` in the table.
 
 ### The figures
 
@@ -201,17 +206,31 @@ What the campaign contains:
   campaign that the mechanism passes through. Their folders are copied as they are, with a
   note of where they come from (`imported.json`); nothing is computed twice, and the coverage
   campaign is only read. A calculation whose relaxed structure is no longer the surface it
-  was built as is not copied: that intermediate gets a fresh start here.
+  was built as is not copied: that intermediate gets a fresh start here. A start that has
+  not finished there is left behind when another start of the same intermediate has; both
+  are said and listed (`surface.not_copied` in `build_report.json`). The copies are a
+  snapshot: build the campaign when the coverage campaign has finished what you want from it.
 * **New intermediates that start from the relaxed surface.** Their atoms sit where the
   surface relaxed; only the sites that differ from the surface are rebuilt and oriented, in
   that environment. This is what one does by hand when editing the CONTCAR of a surface, and
   it keeps the spectators of all intermediates of a cycle in the same arrangement, so that a
   step energy is not the difference between two hydrogen-bond patterns. `state.json` records
-  it (`seeded_from`).
+  it (`seeded_from`). The atoms of the surface are never turned. If an adsorbate of the
+  surface leans over the site so that no start fits next to it, that one intermediate is
+  started as in a campaign without the relaxed surface, from the slab with every adsorbate
+  placed anew; `generate` says how many, and `surface.started_anew` lists them.
 
 Symmetry follows the surface: of the lattice translations of the slab, only those that map
 the surface onto itself merge intermediates. A surface with OH on every second site has
 fewer equivalent sites than the bare slab, and more intermediates are computed.
+
+The pattern decides this, not the relaxed structure. Two sites that the pattern makes
+equivalent can differ in the relaxed surface (one OH donates a hydrogen bond, its image does
+not), and the mechanism is then computed on the first of them only. The build report gives
+the largest distance between an atom of the relaxed surface and the place where such a
+translation puts it (`surface.equivalent_sites_differ_by_A`), and `generate` says so above
+0.5 Å. `geometry.symmetry_reduction: false` computes every site
+([open points](pending.md)).
 
 `mechanet pourbaix` on such a campaign labels its intermediates by what differs from the
 surface (`the surface`, `m0046:OOH`), so the diagram reads as the neighbourhood of the
@@ -235,9 +254,11 @@ is built from the slab with all adsorbates placed anew. (If you have the relaxed
 the surface itself, give that file to `mechanet init` instead: section 4.) To get the starts from the relaxed
 surface, relax it first in a campaign of its own and name that campaign with `--from`:
 `mechanet generate --on oxidised --from DIR` takes the surface, its relaxed structure and
-the finished calculations from any campaign of the same project (`--from none` uses none).
+the finished calculations from any campaign of the same project (`--from none` uses none;
+an ID is then still read from the coverage campaign, for its pattern only).
 A campaign built from another slab file, or run with other INCAR or KPOINTS files, is
-refused: its energies would not be comparable.
+refused: its energies would not be comparable. Other `vasp` or `frequency` settings in
+project.yaml are noticed when the copied calculations are prepared, and `prepare` says so.
 
 ### A second pass around a surface
 
@@ -295,6 +316,9 @@ unchanged and does not react, and the inspection says so with the atoms and the 
 | Two such adsorbates on one metal | `... holds 2 adsorbates ..., and a metal has one open site` |
 
 Answer `n` to the question of `init` to keep a recognised group in the framework as well.
+The site of a carried adsorbate cannot be left out of the sites afterwards: its atoms are no
+longer in the slab file, so `init` keeps the site and says so, and `generate` refuses a
+project whose `sites` lack it.
 Groups of one kind kept for one reason are said in one line. What belongs to the material is
 not listed here: a covalent sheet (the nitrogen of an Fe–N4 site leads into the carbon of the
 sheet) is the slab itself, and a lone anion between two or more metals (the sulfur of a

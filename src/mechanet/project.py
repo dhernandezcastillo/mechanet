@@ -1151,15 +1151,19 @@ def init_project(
             if not unknown:
                 break
             output(f"        unknown site IDs {unknown}; the proposed sites are {', '.join(known_ids)}")
+        if given:
+            # The atoms of a carried adsorbate are no longer in the slab: only its site can put
+            # them back, so the site stays (dropping it would silently change the surface).
+            for site in sorted(set(given["occupancy"]) - wanted):
+                wanted.add(site)
+                output(
+                    f"  [note] {site} stays a site: it holds the {given['occupancy'][site]} the slab carried, whose "
+                    "atoms are no longer in the slab. To keep that group as a fixed part of the slab instead, run "
+                    "init again and answer n to the question about the adsorbates the slab carries."
+                )
         sites = [s for s in sites if s["id"] in wanted]
         if not sites:
             output("  [warn] no site kept; add sites to project.yaml by hand")
-        if given:
-            dropped = sorted(set(given["occupancy"]) - wanted)
-            for site in dropped:  # its adsorbate is no longer in the slab: it leaves the model, and that is said
-                state = given["occupancy"].pop(site)
-                given["positions"] = {k: v for k, v in given["positions"].items() if not k.endswith(site)}
-                output(f"  [warn] the {state} the slab carried on {site} is left out with its site")
     reactions = sorted(registry.reactions)
     reaction = reaction or ask.choose(
         "reaction", "Reaction", [(r, registry.reaction(r).title) for r in reactions], "oer"
@@ -1322,7 +1326,8 @@ def init_project(
         if slab.resolve() != as_given_copy.resolve():
             shutil.copy2(slab, as_given_copy)
         if frequency_mask:
-            mask_copy = root / "slab" / f"{Path(frequency_mask).stem}_bare.vasp"
+            stem = Path(frequency_mask).stem  # a mask named like the slab must not replace the slab's copy
+            mask_copy = root / "slab" / (f"{stem}_bare.vasp" if stem != slab.stem else f"{stem}_mask_bare.vasp")
             write_poscar(mask_copy, mask_source, comment=f"{Path(frequency_mask).name} without the carried adsorbates")
         carried_file = root / "slab" / "as_given.json"
         write_json(

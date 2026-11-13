@@ -270,6 +270,7 @@ def cmd_init(args, registry):
 
 
 def cmd_generate(args, registry):
+    from .builder import SITES_DIFFER_A
     from .project import coverage_count, generate
 
     if args.count and not args.coverage:
@@ -332,11 +333,36 @@ def cmd_generate(args, registry):
                 f"  {on_surface['imported_states']} finished calculations of {on_surface['imported_nodes']} "
                 f"intermediates copied from {on_surface['source_campaign']}; {started}"
             )
-            if on_surface.get("not_copied"):
+            not_copied = on_surface.get("not_copied") or []
+            became_other = sum(1 for entry in not_copied if "relaxed_into" in entry)
+            if became_other:
                 text.append(
-                    f"  {len(on_surface['not_copied'])} finished calculations were not copied: their relaxed "
-                    "structure is no longer the intermediate they were built as (build_report.json: surface.not_copied)"
+                    f"  {became_other} finished {_plural(became_other, 'calculation was', 'calculations were')} not "
+                    "copied: the relaxed structure is no longer the intermediate it was built as "
+                    "(build_report.json: surface.not_copied)"
                 )
+            unfinished = len(not_copied) - became_other
+            if unfinished:
+                text.append(
+                    f"  {unfinished} {_plural(unfinished, 'calculation that has', 'calculations that have')} not "
+                    f"finished there {_plural(unfinished, 'was', 'were')} left behind: the intermediate has finished "
+                    "ones, which were copied (surface.not_copied)"
+                )
+        anew = len(on_surface.get("started_anew") or [])
+        if anew:
+            text.append(
+                f"  {anew} {_plural(anew, 'intermediate has', 'intermediates have')} no start next to the atoms of the "
+                "surface as they are (an adsorbate of the surface is in the way): "
+                f"{_plural(anew, 'it starts', 'they start')} from the slab, with every adsorbate placed anew "
+                "(build_report.json: surface.started_anew)"
+            )
+        apart = on_surface.get("equivalent_sites_differ_by_A")
+        if apart is not None and apart > SITES_DIFFER_A:
+            text.append(
+                f"  the relaxed surface differs between sites its pattern makes equivalent (atoms up to {apart:.2f} A "
+                "from where a lattice translation puts them): intermediates on such sites are computed once, on "
+                "the first one (`geometry.symmetry_reduction: false` computes each)"
+            )
     if report.get("coverage"):
         text.append(f"  {report['coverage']['text']}")
     text += [f"  {k.replace('_', ' ')}: {report[k]}" for k in keys]
@@ -393,9 +419,17 @@ def cmd_list(args, registry):
     config = read_json(campaign / "config.json")
     nfree = int(config.get("frequency", {}).get("nfree", 2))
     rows = []
+    used_by = {}  # a state copied from another campaign keeps the family that built it there
+    if args.family:
+        for node in read_json(campaign / "network.json").get("nodes", []):
+            for sid in node.get("state_ids", []):
+                used_by.setdefault(sid, set()).update(node.get("families") or [])
     for path in sorted((campaign / "states").glob("*/state.json")):
         meta = read_json(path)
-        if args.family and args.family not in set(meta.get("family_aliases", [])) | {meta.get("family")}:
+        families = set(meta.get("family_aliases", [])) | {meta.get("family")}
+        if path.with_name("imported.json").is_file():
+            families |= used_by.get(meta["id"], set())  # here it belongs to the families that use it
+        if args.family and args.family not in families:
             continue
         ndof = sum(sum(bool(v) for v in x) for x in meta["frequency_mobile"])
         rows.append(
@@ -770,6 +804,12 @@ def cmd_select(args, registry):
         f"{len(result['waiting_nodes'])} node(s) wait for 02_final results, "
         f"{len(result['unresolved_nodes'])} have no accepted variant"
     )
+    reference = (result.get("criteria") or {}).get("reference_surface")
+    if reference and reference not in listed:
+        text += (
+            f"\n  with the reference surface ({reference}): every formation energy is counted from it, so its free "
+            "energy is needed too"
+        )
     merged = result.get("duplicates_merged") or []
     if merged:
         text += (

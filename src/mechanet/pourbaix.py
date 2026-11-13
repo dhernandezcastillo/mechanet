@@ -221,7 +221,9 @@ def _coefficients(lines, scale, nernst):
 
 def lower_envelope(a, b, u_min, u_max, tolerance=1e-12):
     """Exact stable segments of the lines a_i + b_i U on [u_min, u_max]: [(u_from, u_to, index)]."""
-    values = a + b * u_min
+    # The line that is lowest just inside the window: one that is lowest at u_min itself but
+    # crossed within the tolerance of it would never be left (the crossing is not ahead).
+    values = a + b * (u_min + tolerance)
     current = int(min(range(len(a)), key=lambda i: (round(values[i], 12), b[i], i)))
     u, out = u_min, []
     while True:
@@ -536,7 +538,8 @@ def register_command(subparsers, registry):
     p.add_argument(
         "--screening",
         action="store_true",
-        help="The same as --electronic-only: relaxed energies plus tabulated ZPE-TS, before any frequency run",
+        help="Energies of the relaxations (02_final) plus tabulated ZPE-TS: available as soon as a surface is "
+        "relaxed. The same as --electronic-only unless frequency.central is refine, where that reads 04_static",
     )
     p.add_argument(
         "--window",
@@ -586,6 +589,7 @@ def _cli(args, registry):
         args.scale,
         [float(x) for x in args.at_pH.split(",") if x.strip()],
         include_vibrations=not (args.electronic_only or args.screening),
+        energy_source="final" if args.screening else None,  # the relaxed energies, under either protocol
         plot=args.plot,
         keep_transient=args.keep_transient,
         window=_window(args.window, "window") if args.window else None,

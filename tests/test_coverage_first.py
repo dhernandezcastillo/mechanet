@@ -124,6 +124,8 @@ class PlacementOrderTests(TempCase):
         self.assertEqual(builder.limited_searches, [node_id])
         two = builder.node({site: "OH" for site in list(builder.sites)[:2]}, "coverage", "two")
         self.assertEqual(builder.limited_searches, [node_id], two)
+        bare = builder.node({"m0038": "O", "m0046": "O"}, "coverage", "two O")  # nothing to orient at all
+        self.assertEqual(builder.limited_searches, [node_id], bare)
         report = builder.finish(["coverage"])
         self.assertEqual(report["limited_orientation_search"]["nodes"], 1)
         self.assertEqual(report["limited_orientation_search"]["all_orders_up_to"], 3)

@@ -204,6 +204,105 @@ class SurfaceBuilderTests(TempCase):
         self.assertEqual(len(pairs), 9)
         self.assertEqual(len(around.nodes), 9)  # the slab as given is the pattern empty/empty, the surface OH/OH
 
+    def test_the_search_motif_of_a_family_is_on_the_surface(self):
+        """oo_oo writes a transition-state search guess with its own call of structure(): on a
+        surface it carries the surface, as the intermediates of the family do."""
+        project = self.project_copy()
+        on = self.builder(project, "on", {"name": "bridges-OH", "occupancy": {"a0016": "OH", "a0019": "OH"}})
+        self.assertEqual(on.surface_pattern({"m0038": "OO"}), ({"a0016": "OH", "a0019": "OH", "m0038": "OO"}, None))
+        on.finish(["oo_oo"])
+        (motif,) = on.motifs
+        self.assertIn("h_a0016", motif["atom_ids"])
+        self.assertIn("h_a0019", motif["atom_ids"])
+        plain = self.builder(project, "plain")
+        plain.finish(["oo_oo"])
+        self.assertEqual(len(motif["atom_ids"]), len(plain.motifs[0]["atom_ids"]) + 2)
+
+    def test_an_adsorbate_of_the_surface_in_the_way_of_a_new_one(self):
+        """The surface has OOH on a bridging O whose outer O lies over the open metal next to it,
+        where an adsorbate of that metal would sit. Nothing fits on that metal next to it, and the
+        atoms of the surface are not turned: those intermediates start from the slab instead."""
+        project = self.project_copy()
+        plain = self.builder(project, "plain")
+        blocked, free = "m0046", "m0038"
+        site = plain.sites[blocked]
+        over = plain.seed.positions[plain.seed_index[site["metal_id"]]] + 1.9 * np.asarray(site["direction"])
+        given = {"d_a0016": over.tolist(), "p_a0016": (over + 0.98 * np.asarray(site["direction"])).tolist()}
+        occupancy = {"a0016": "OOH"}
+        surface = {"name": "x", "occupancy": occupancy, "coupling": None, "given": {"positions": given}}
+        on = self.builder(project, "on", surface)
+        report = on.finish(["aem"])
+        self.assertEqual(report["nodes_without_viable_start"], [])
+        anew = report["surface"]["started_anew"]
+        on_the_blocked_metal = [n["id"] for n in on.nodes.values() if n["occupancy"].get(blocked, "empty") != "empty"]
+        self.assertTrue(on_the_blocked_metal)
+        self.assertEqual(sorted(anew), sorted(on_the_blocked_metal))
+        self.assertTrue(any(n["occupancy"].get(free, "empty") != "empty" for n in on.nodes.values()))
+        for node_id in anew:
+            node = on.nodes[node_id]
+            self.assertEqual({**on.native, **node["occupancy"]}["a0016"], "OOH")
+            self.assertTrue(node["state_ids"])
+            self.assertFalse(any("seeded_from" in on.states[sid] for sid in node["state_ids"]))
+        others = [n for n in on.nodes.values() if n["id"] not in anew and n["id"] != "ref" and n["state_ids"]]
+        self.assertTrue(others)
+        self.assertTrue(all("seeded_from" in on.states[sid] for n in others for sid in n["state_ids"]))
+        self.assertEqual(report["surface"]["nodes_started_from_the_slab_as_given"], len(others))
+        # what did not fit next to the atoms of the surface is kept, marked as that attempt
+        marked = {r["node_id"] for r in on.rejected if r.get("next_to_the_atoms_of_the_surface")}
+        self.assertEqual(marked, set(anew))
+
+    def test_the_coupled_pair_of_the_surface_apart(self):
+        """The surface has a peroxo pair between a bridging O and the O on a metal, lifted towards
+        each other in its relaxed structure. A family that changes one of the two breaks the pair:
+        the other atom is then where the slab has it, not where the bond held it."""
+        project = self.project_copy()
+        probe = self.builder(project, "probe")
+        a, b = next(p for p in probe.nearby_pairs() if p[0].startswith("a") and p[1].startswith("m"))
+        other = "m0038" if b != "m0038" else "m0046"
+        surface = {"name": "peroxo", "occupancy": {b: "O"}, "coupling": [a, b]}
+        paired = self.builder(project, "paired", surface)
+        start = paired.state_structures[paired.nodes[paired.surface_node]["state_ids"][0]]
+        relaxed = {aid: start.positions[k].tolist() for k, aid in enumerate(start.ids)}
+        in_slab = paired.seed.positions[paired.seed_index[a]]
+        lifted = float(np.linalg.norm(minimum_image(np.array(relaxed[a]) - in_slab, start.cell)))
+        self.assertGreater(lifted, 0.3)  # the bridging O left its place to bond
+        on = self.builder(project, "on", {**surface, "given": {"positions": relaxed}})
+        beside = on.node({other: "OH"}, "aem", other)  # the pair is not named: it stays as it relaxed
+        self.assertEqual(on.nodes[beside]["coupling"], [a, b])
+        kept = on.state_structures[on.nodes[beside]["state_ids"][0]]
+        self.assertTrue(np.allclose(kept.positions[kept.ids.index(a)], relaxed[a]))
+        broken = on.node({b: "OH"}, "aem", b)  # names one site of the pair
+        self.assertIsNone(on.nodes[broken]["coupling"])
+        apart = on.state_structures[on.nodes[broken]["state_ids"][0]]
+        self.assertTrue(np.allclose(apart.positions[apart.ids.index(a)], in_slab))
+
+    def test_sites_the_pattern_makes_equivalent_are_compared_in_the_relaxed_surface(self):
+        """Two OH on the two metals, which a translation of the slab maps onto each other. In the
+        relaxed surface one H points elsewhere, 0.5 A from where the translation puts the other."""
+        project = self.project_copy()
+        plain = self.builder(project, "plain")
+        self.assertIsNone(plain._surface_images_apart())  # no surface, no relaxed structure
+        start = plain.structure(TWO_OH, None)[0]
+        index = {aid: k for k, aid in enumerate(start.ids)}
+        shift = minimum_image(
+            plain.seed.positions[plain.seed_index["a0046"]] - plain.seed.positions[plain.seed_index["a0038"]],
+            plain.seed.cell,
+        )
+        given = {aid: start.positions[k].tolist() for aid, k in index.items()}
+        for atom in ("m0038", "h_m0038"):  # the second OH is the first one, translated
+            given[atom.replace("38", "46")] = (start.positions[index[atom]] + shift).tolist()
+        surface = {"name": "two-OH", "occupancy": dict(TWO_OH), "coupling": None}
+        same = self.builder(project, "same", {**surface, "given": {"positions": given}})
+        self.assertTrue(same.translations)
+        self.assertIsNone(same._surface_images_apart())  # the slab file as given is not a relaxed surface
+        same.environment["state_id"] = "relaxed"
+        self.assertLess(same._surface_images_apart(), 0.02)  # within what the slab itself keeps of the translation
+        turned = dict(given)
+        turned["h_m0046"] = (np.array(given["h_m0046"]) + (0.3, 0.0, 0.4)).tolist()
+        differ = self.builder(project, "differ", {**surface, "given": {"positions": turned}})
+        differ.environment["state_id"] = "relaxed"
+        self.assertAlmostEqual(differ._surface_images_apart(), 0.5, places=2)
+
 
 class PickTests(TempCase):
     def setUp(self):
@@ -239,6 +338,25 @@ class PickTests(TempCase):
         declared = self.pick("two-OH")  # the declared surface is found among the intermediates of the source
         self.assertIn("source", declared)
         self.assertNotIn("source", self.pick("two-OH", "none"))
+
+    def test_an_id_without_a_source(self):
+        """--from none: the pattern of an ID is still read from the coverage campaign; nothing else is."""
+        generate(self.project / "project.yaml", coverage=True)
+        network = read_json(self.project / "coverage" / "network.json")
+        both = next(n for n in network["nodes"] if n["occupancy"] == TWO_OH)
+        surface = self.pick(both["id"], "none")
+        self.assertEqual((surface["name"], surface["occupancy"]), (both["id"], TWO_OH))
+        self.assertNotIn("source", surface)
+        self.assertNotIn("relaxed", surface)
+        self.assertIn("none of its calculations is reused", surface["notes"][0])
+        # also after an input changed: a source is then refused, and --from none is what the refusal advises
+        incar = self.project / "inputs" / "INCAR_final"
+        incar.write_text(incar.read_text() + "\nENCUT = 777\n")
+        with self.assertRaisesRegex(ValueError, "--from none"):
+            self.pick(both["id"])
+        self.assertEqual(self.pick(both["id"], "none")["occupancy"], TWO_OH)
+        with self.assertRaisesRegex(ValueError, "No surface 'n_nothing'.*an intermediate of"):
+            self.pick("n_nothing", "none")
 
     def test_what_is_not_a_surface(self):
         with self.assertRaisesRegex(
@@ -386,6 +504,9 @@ class SurfaceWorkflowTests(unittest.TestCase):
         self.assertEqual(len(imported), 2)
         self.assertEqual(surface["imported_nodes"], 2)
         self.assertEqual(sorted(x["state_id"] for x in surface["not_copied"]), self.lost)
+        self.assertTrue(all("no longer the intermediate it was built as" in x["reason"] for x in surface["not_copied"]))
+        self.assertEqual(surface["started_anew"], [])
+        self.assertIsInstance(surface["equivalent_sites_differ_by_A"], float)  # the two OH, compared as relaxed
         single = next(n for n in network["nodes"] if n["id"] == self.single_id)
         self.assertEqual(single["geometry_status"], "generated")
         self.assertNotIn("imported_from", single)
@@ -486,17 +607,148 @@ class SurfaceWorkflowTests(unittest.TestCase):
         by_id = {line["node_id"]: line["label"] for line in lines}
         self.assertEqual(by_id[self.surface_id], "the surface")
         self.assertEqual(by_id["ref"], "m0038:empty m0046:empty")  # the slab as given, seen from the surface
+        # The second pass: frequencies for one intermediate only. The reference surface goes with
+        # it (every formation energy is counted from it), and the diagram of free energies is drawn.
+        # (Not the surface itself: its relaxed structure was moved by hand above, away from the
+        # minimum of the synthetic forces, which the static point before the frequencies checks.)
+        network = read_json(self.campaign / "network.json")
+        target = next(n["id"] for n in network["nodes"] if n.get("geometry_status") == "generated")
+        code, out, err = run("select", self.campaign, "--nodes", target)
+        self.assertEqual(code, 0, err)
+        self.assertIn("with the reference surface (ref)", out)
+        chosen = read_json(self.campaign / "thermo_selection.json")
+        self.assertEqual(chosen["criteria"]["nodes"], [target])
+        self.assertEqual(chosen["criteria"]["reference_surface"], "ref")
+        self.assertEqual(sorted(n["node_id"] for n in chosen["nodes"]), sorted([target, "ref"]))
+        self.assertIn("ref", chosen["state_ids"])
+        # the reference surface was copied from the coverage campaign and goes on here
+        self.assertTrue((self.campaign / "states" / "ref" / "imported.json").is_file())
+        for sid in chosen["state_ids"]:
+            done = run_state(self.campaign / "states" / sid, through="freq", execute=True)
+            self.assertEqual(done["status"], "complete", sid)
+        code, out, err = run(
+            "--json", "pourbaix", self.campaign, "--references", references, "--scale", "RHE", "--window", "0.5:1.5"
+        )
+        self.assertEqual(code, 0, err)
+        rows = json.loads(out)["candidates"]
+        self.assertTrue(rows)
+        self.assertTrue(all(row["free_energy"] for row in rows))
+        self.assertLessEqual({row["node_id"] for row in rows}, {target, "ref"})
 
     def test_text_of_generate_says_what_was_reused(self):
         code, out, _ = run("generate", self.project, "--on", self.surface_id, "--out", self.tmp / "again")
         self.assertEqual(code, 0)
         self.assertIn(f"on the surface {self.surface_id}: terminal 2 OH | bridge 2 O", out)
         self.assertIn("finished calculations of 2 intermediates copied from", out)
-        self.assertIn(f"{len(self.lost)} finished calculations were not copied", out)
+        lost = len(self.lost)
+        self.assertIn(f"{lost} finished {'calculation was' if lost == 1 else 'calculations were'} not copied", out)
         self.assertIn(f"new intermediates start from the relaxed surface ({self.surface_id}__v1)", out)
         code, out, err = run("generate", self.project, "--on", self.surface_id, "--on", "ref", "--out", self.tmp / "x")
         self.assertEqual(code, 2)
         self.assertIn("--out names one folder", err)
+
+
+@unittest.skipIf(os.environ.get("MECHANET_SKIP_SLOW"), "slow workflow test disabled by environment")
+class PartialSourceTests(unittest.TestCase):
+    """A coverage campaign under the other protocol (frequency.central: refine), of which one
+    start of an intermediate has not finished when the mechanism campaign is built on it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        cls.env = patch.dict(os.environ, {"MECHANET_CONFIG_DIR": str(cls.tmp / "config")})
+        cls.env.start()
+        project = cls.tmp / "ruo2"
+        shutil.copytree(RUO2, project)
+        data = yaml.safe_load((project / "project.yaml").read_text())
+        fake = cls.tmp / "fake_vasp.py"
+        fake.write_text(FAKE_VASP)
+        data["scope"]["families"] = ["aem"]
+        data["scope"]["coverage"] = {"sites": ["m0038"], "states": {"open_metal": ["empty", "OOH"]}}
+        data["vasp"] = {
+            "potcars": write_potcars(cls.tmp, ("Ru", "O", "H")),
+            "magmom_by_element": None,
+            "command": [sys.executable, "-I", str(fake)],
+        }
+        data["frequency"] = {"central": "refine"}
+        data["thermodynamics"]["references"] = "inputs/references.json"
+        (project / "project.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+        (project / "inputs" / "references.json").write_text(
+            json.dumps({"references": {"H2": {"E": -6.77, "Gcorr": 0.0}, "H2O": {"E": -14.22, "Gcorr": 0.0}}})
+        )
+        cls.data, cls.project, cls.coverage = data, project, project / "coverage"
+        code, _, err = run("--json", "generate", project, "--coverage")
+        assert code == 0, err
+        network = read_json(cls.coverage / "network.json")
+        node = next(n for n in network["nodes"] if n["occupancy"] == {"m0038": "OOH"})
+        cls.node_id, cls.variants = node["id"], sorted(node["state_ids"])
+        assert len(cls.variants) >= 2, cls.variants
+        for state in sorted((cls.coverage / "states").iterdir()):
+            positions = read_poscar(state / "POSCAR").positions
+            (state / "harmonic.json").write_text(
+                json.dumps({"x0": positions.reshape(-1).tolist(), "K": (10.0 * np.eye(positions.size)).tolist()})
+            )
+        assert run("prepare", cls.coverage)[0] == 0
+        for state in sorted((cls.coverage / "states").iterdir()):
+            assert run_state(state, through="final", execute=True)["status"] == "complete", state.name
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.env.stop()
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_from_the_screening_to_a_campaign_with_a_start_left_behind(self):
+        # 1. The screening level reads the relaxations, which is all a campaign has at this point:
+        #    under this protocol the energies of the analysis are those of 04_static, not run yet.
+        code, out, err = run(
+            "--json", "pourbaix", self.coverage, "--screening", "--scale", "RHE", "--window", "1.0:1.8"
+        )
+        self.assertEqual(code, 0, err)
+        self.assertTrue(json.loads(out)["candidates"])
+        code, _, err = run("pourbaix", self.coverage, "--electronic-only", "--scale", "RHE")
+        self.assertEqual(code, 2)
+        self.assertIn("no accepted energy yet", err)
+
+        # 2. As if the second start of *OOH was still running when the mechanism campaign is built.
+        finished, running = self.variants[0], self.variants[1:]
+        for sid in running:
+            for name in ("OUTCAR", "CONTCAR", "vasprun.xml", "attempt.json", "input_hashes.json"):
+                (self.coverage / "states" / sid / "02_final" / name).unlink(missing_ok=True)
+        (self.coverage / "states" / finished / "run_job.sh").write_text("#SBATCH --chdir=/the/coverage/campaign\n")
+        code, out, err = run("generate", self.project, "--on", self.node_id)
+        self.assertEqual(code, 0, err)
+        left = "1 calculation that has" if len(running) == 1 else f"{len(running)} calculations that have"
+        self.assertIn(f"{left} not finished there {'was' if len(running) == 1 else 'were'} left behind", out)
+        campaign = self.project / f"on_{self.node_id}"
+        surface = read_json(campaign / "build_report.json")["surface"]
+        self.assertEqual(
+            surface["not_copied"],
+            [{"state_id": sid, "reason": "its relaxation has not finished in the source campaign"} for sid in running],
+        )
+        node = next(n for n in read_json(campaign / "network.json")["nodes"] if n["id"] == self.node_id)
+        self.assertEqual(node["state_ids"], [finished])
+        self.assertFalse(any((campaign / "states" / sid).exists() for sid in running))
+        copied = campaign / "states" / finished
+        self.assertTrue((copied / "imported.json").is_file())
+        self.assertFalse((copied / "run_job.sh").exists())  # it names the folder of the other campaign
+
+        # 3. Here the copied state belongs to the family that uses it, not only to the one that built it.
+        for family in ("aem", "coverage"):
+            code, out, _ = run("--json", "list", campaign, "--family", family, "--limit", "0")
+            self.assertEqual(code, 0)
+            self.assertIn(finished, [row["id"] for row in json.loads(out)["states"]], family)
+        self.assertEqual(run("prepare", campaign)[0], 0)
+
+        # 4. Other settings than the source was run with: said when the copied state is prepared.
+        changed = {**self.data, "vasp": {**self.data["vasp"], "common_overrides": {"ENCUT": 777}}}
+        (self.project / "project.yaml").write_text(yaml.safe_dump(changed, sort_keys=False))
+        code, _, err = run("generate", self.project, "--on", self.node_id, "--out", self.tmp / "other")
+        self.assertEqual(code, 0, err)
+        code, _, err = run("prepare", self.tmp / "other")
+        self.assertEqual(code, 2)
+        self.assertIn(f"{finished} was copied from", err)
+        self.assertIn("prepared with other settings", err)
+        self.assertIn("--from none", err)
 
 
 if __name__ == "__main__":

@@ -330,13 +330,21 @@ class WorkflowTests(unittest.TestCase):
         selection = cli("select", self.campaign, "--candidates")
         chosen = read_json(self.campaign / "thermo_selection.json")
         wanted = [r["node_id"] for r in narrow["candidates"]]
+        self.assertNotIn("ref", wanted)  # the slab as given is no candidate at this margin
         self.assertEqual(chosen["criteria"]["nodes"], sorted(wanted))
-        self.assertEqual(sorted(n["node_id"] for n in chosen["nodes"]), sorted(wanted))
+        # ... and is selected all the same: every formation energy is counted from it
+        self.assertEqual(chosen["criteria"]["reference_surface"], "ref")
+        self.assertEqual(sorted(n["node_id"] for n in chosen["nodes"]), sorted([*wanted, "ref"]))
+        self.assertIn("ref", chosen["state_ids"])
         self.assertEqual(selection["n_selected"], len(chosen["state_ids"]))
-        self.assertTrue(all(any(sid.startswith(node) for node in wanted) for sid in chosen["state_ids"]))
+        self.assertTrue(all(any(sid.startswith(node) for node in [*wanted, "ref"]) for sid in chosen["state_ids"]))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["select", str(self.campaign), "--candidates"]), 0)
+        self.assertIn("with the reference surface (ref)", out.getvalue())
         by_hand = cli("select", self.campaign, "--nodes", oh["node_id"])
         self.assertEqual(read_json(self.campaign / "thermo_selection.json")["criteria"]["nodes"], [oh["node_id"]])
-        self.assertGreaterEqual(by_hand["n_selected"], 1)
+        self.assertGreaterEqual(by_hand["n_selected"], 2)  # *OH and the reference surface
 
     def test_candidates_need_a_window_and_select_needs_the_candidates(self):
         plain = cli("pourbaix", self.campaign, "--electronic-only", "--scale", "RHE")

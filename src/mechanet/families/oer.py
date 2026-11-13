@@ -336,8 +336,9 @@ def oo_oo(ctx):
                 "path unverified",
             )
         # Separate search seed, NEVER inserted as a normal minimum or submitted for frequencies.
-        occ = {a: "OO", b: "OO"}
-        st, _, _, _ = ctx.structure(occ, None, ctx.default_placement(occ, None, {}), {})
+        # On a surface the other sites keep its states, as in the intermediates above.
+        occ, pair = ctx.surface_pattern({a: "OO", b: "OO"})
+        st, _, _, _ = ctx.structure(occ, pair, ctx.default_placement(occ, pair, {}), {})
         ia, ib = st.ids.index(f"d_{a}"), st.ids.index(f"d_{b}")
         pa, pb = st.positions[ia].copy(), st.positions[ib].copy()
         delta = minimum_image(pb - pa, st.cell)

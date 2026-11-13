@@ -32,8 +32,16 @@ class PendingTests(unittest.TestCase):
         self.assertEqual(sorted(marked), sorted(listed), f"comments in the code: {marked}")
         # the ones known today, each marked where a fix would go
         self.assertEqual(
-            sorted(listed), ["many-site-placement", "surface-from-discovered", "tie-break", "two-site-adsorbates"]
+            sorted(listed),
+            [
+                "many-site-placement",
+                "relaxed-surface-images",
+                "surface-from-discovered",
+                "tie-break",
+                "two-site-adsorbates",
+            ],
         )
+        self.assertIn("builder.py", marked["relaxed-surface-images"])
         self.assertIn("builder.py", marked["tie-break"])
         self.assertIn("adsorbates.py", marked["two-site-adsorbates"])
         self.assertIn("carried.py", marked["two-site-adsorbates"])

@@ -27,10 +27,13 @@ test now checks it.
   then react, and the mechanism next to it starts from the given structure. A group that is no
   registered adsorbate, binds through several atoms, or sits between metals through an element
   other than oxygen (CO on a bridge, H in a hollow) stays part of the framework, and the
-  inspection says so with the atoms and the reason; answering `n` at `init` keeps a recognised group there too. `init` warns when the
-  reaction has no reservoir for an element the slab carries. Slabs without such groups are read
-  as before. New module `carried`; `inspect_slab` takes the registry, so adsorbates of a
-  plugin are recognised.
+  inspection says so with the atoms and the reason; answering `n` at `init` keeps a recognised
+  group there too. A lone anion between two or more metals (the sulfur of a sulfide, a bridging
+  chloride) is a ligand of the slab and is reported as before. `init` warns when the reaction
+  has no reservoir for an element the slab carries, and `generate` refuses a project whose
+  `sites` no longer has the site of a carried adsorbate, saying what the choices are. Slabs
+  without such groups are read as before. New module `carried`; `inspect_slab` takes the
+  registry, so adsorbates of a plugin are recognised.
 - **The mechanism on a surface you pick.** `mechanet generate --on SURFACE` builds a campaign on
   a surface: a candidate of the coverage campaign, by its ID, or a pattern written in the new
   `surfaces` block of project.yaml. Every family writes its usual intermediates, and each
@@ -40,9 +43,17 @@ test now checks it.
   campaign, so the calculations that campaign has finished for these intermediates are copied
   instead of repeated (the folders as they are, with `imported.json`; the coverage campaign is
   only read), and new intermediates start from the relaxed surface with only the sites that
-  differ rebuilt (`seeded_from` in state.json). `--from` names another source campaign or
-  `none`; a campaign built from another slab or run with other INCAR or KPOINTS files is
-  refused. Only the lattice translations that map the surface onto itself merge
+  differ rebuilt (`seeded_from` in state.json). A calculation whose relaxed structure is no
+  longer the intermediate it was built as is not copied, nor is a start that has not finished
+  when another start of the intermediate has (the build report lists both), and a
+  start made from a relaxed surface is checked on the atoms it adds or moves: a relaxed O–H
+  of 1.30 Å next to the active site is not a fault of the start. An intermediate with no
+  start next to the atoms of the surface (an adsorbate of the surface is in the way) starts
+  from the slab instead, with every adsorbate placed anew, and is listed. The build report
+  says how far the relaxed surface differs between sites its pattern makes equivalent, which
+  are computed once (`docs/pending.md`). `--from` names another
+  source campaign or `none`; a campaign built from another slab or run with other INCAR or
+  KPOINTS files is refused. Only the lattice translations that map the surface onto itself merge
   intermediates. `--coverage --on` builds the coverage states around a surface (a second pass
   with more adsorbates). `mechanet pourbaix` labels the intermediates of such a campaign by
   what differs from the surface. A campaign without `--on` is built exactly as before.
@@ -56,10 +67,13 @@ test now checks it.
   lines with the stable surface along the potential and the distance of every surface above
   it, the lower convex hull over the electrons released, the distance per composition, the
   stable surfaces at three levels of the energies (free energy, energy with tabulated ZPE − TS,
-  energy alone), and the surfaces of each composition. `--screening` is a second name of
-  `--electronic-only`. `mechanet select --candidates` sends only the candidates on to the
-  frequency stage (`--nodes` takes any list of intermediates), so the diagram is first read
-  from relaxed energies and then redone with free energies where it matters. Without the new
+  energy alone), and the surfaces of each composition. `--screening` reads the energies of
+  the relaxations with the tabulated corrections, under either protocol; `--electronic-only`
+  reads the energies the protocol analyses, which are the same unless `frequency.central` is
+  `refine`. `mechanet select --candidates` sends only the candidates on to the frequency
+  stage, with the reference surface every formation energy is counted from (`--nodes` takes
+  any list of intermediates), so the diagram is first read from relaxed energies and then
+  redone with free energies where it matters. Without the new
   options `pourbaix` and `select` write exactly what they wrote. New modules: `surfaces`
   (the analysis, usable on plain arrays) and `surface_plots`.
 - **Surface patterns with many adsorbates build in seconds.** The orientation search tried
@@ -73,6 +87,11 @@ test now checks it.
   `geometry.orientation_search.all_orders_up_to` moves the limit. Two computations the search
   repeated for every candidate (the inverse of the cell, a metal–oxygen distance) are now done
   once, with the same digits: three sites take a third less time.
+- **A surface that takes over at the first point of a potential range is found.** The exact
+  transitions (`lower_envelope`) started from the line that is lowest at the lower end of the
+  range; a line that crosses below it within 10⁻¹² V of that end was never taken up, and the
+  first one was reported for the whole range. The search now starts from the line that is
+  lowest just inside the range. No diagram of the examples or of the reference changes.
 - **Walden steps for the OER.** O2 can leave a site as water attaches to it, so that the bare
   site is never formed: M–OO + H2O → HO–M + O2 + H⁺ + e⁻ (Exner, *Adv. Sci.* **10**, 2305505
   (2023)), and the same exchange without charge transfer, \*OO + H2O → \*OH2 + O2 (Usama et

@@ -99,6 +99,10 @@ ALL_ORDERS_UP_TO = 3
 MANY_SITES_BEAM = 2
 # A site maps onto another under a symmetry operation when its image lies this close (A).
 SITE_MATCH_A = 0.1
+# A relaxed surface is said to differ between sites that its pattern makes equivalent when an
+# atom lies further than this (A) from where a lattice translation puts it: an H that points
+# to another acceptor moves by more, a soft wag of the same bond by less. A choice, not fitted.
+SITES_DIFFER_A = 0.5
 SIDE_ON_METAL_O_A = 1.95
 OPEN_SITE_REFERENCE_A = 1.75
 TERMINAL_KINDS = ("terminal", "open_metal")
@@ -346,6 +350,7 @@ class Builder:
         (self.out / "inputs").mkdir(exist_ok=True)
         if reuse_source:
             self._read_source(self.scope.get("surface") or {})
+        self.images_apart = self._surface_images_apart()
         self.reference = self._node({}, "reference", "whole_surface")
         self.surface_node = None
         if self.base or self.base_coupling:
@@ -363,7 +368,8 @@ class Builder:
         self.surface_name = surface.get("name")
         self.base, self.base_coupling = {}, None
         self.source, self.source_nodes, self.source_config, self.environment = None, {}, {}, None
-        self.imported, self.seeded, self.not_copied = [], [], []
+        self.imported, self.seeded, self.not_copied, self.started_anew = [], [], [], []
+        self.images_apart = None
         self._env_active = False
         for aid, status in (surface.get("occupancy") or {}).items():
             if aid not in self.sites:
@@ -485,8 +491,9 @@ class Builder:
         A state is copied when its 02_final relaxation finished and the relaxed structure still
         is this intermediate (or was accepted as it in review). True when at least one was
         copied: the intermediate then has no start of its own, it has results. A state that
-        became something else is left where it is (``not_copied``), and when none is left the
-        intermediate gets fresh starts here, from the relaxed surface.
+        became something else is left where it is, and so is one that has not finished when
+        another of the intermediate has (``not_copied`` says which and why); when none can be
+        copied the intermediate gets fresh starts here, from the relaxed surface.
         """
         from .results import parse_run
         from .topology import topology_check
@@ -495,19 +502,29 @@ class Builder:
         theirs = self.source_nodes.get(key)
         if theirs is None or theirs["id"] != node["id"]:
             return False
-        copied = []
+        copied, unfinished = [], []
         for sid in theirs["state_ids"]:
             origin = self.source / "states" / sid
-            if not (origin / "state.json").is_file() or not parse_run(origin / STAGE_FINAL)["completed"]:
+            if not (origin / "state.json").is_file():
+                continue
+            if not parse_run(origin / STAGE_FINAL)["completed"]:
+                unfinished.append(sid)
                 continue
             relaxed = topology_check(
                 origin, read_json(origin / "state.json"), self.source_config, STAGE_FINAL, self.registry
             )
             if relaxed.get("assigned_node_id") != node["id"]:
-                self.not_copied.append({"state_id": sid, "relaxed_into": relaxed.get("assigned_node_id")})
+                self.not_copied.append(
+                    {
+                        "state_id": sid,
+                        "reason": "its relaxed structure is no longer the intermediate it was built as",
+                        "relaxed_into": relaxed.get("assigned_node_id"),
+                    }
+                )
                 continue
             target = self.out / "states" / sid
-            shutil.copytree(origin, target)
+            # The job script names the folder it was written for: this campaign writes its own.
+            shutil.copytree(origin, target, ignore=shutil.ignore_patterns("run_job.sh"))
             # state.json stays as it was run (its hash is part of the plan the calculation was
             # prepared under); where the state comes from is written next to it.
             origin_record = {"campaign": str(self.source), "state_id": sid}
@@ -521,6 +538,12 @@ class Builder:
         if copied:
             node["imported_from"] = {"campaign": str(self.source), "state_ids": copied}
             self.imported.append(node["id"])
+            # The intermediate has results, so it gets no start here; a start of it that the
+            # source has not finished stays there, and that is said.
+            self.not_copied += [
+                {"state_id": sid, "reason": "its relaxation has not finished in the source campaign"}
+                for sid in unfinished
+            ]
         return bool(copied)
 
     # ------------------------------------------------------------------ set-up
@@ -819,11 +842,15 @@ class Builder:
             for aid in sorted(kept & changed_sites):
                 if self.sites[aid]["kind"] == "open_metal" and aid in env["positions"]:
                     records[aid]["position"] = np.array(env["positions"][aid], dtype=float)
+            base_pair = set(self.base_coupling or ())
             for aid in self.sites:
                 # A site that is back in the state of the slab, while the surface has it in another,
                 # is the site as the slab has it: its own H belong to that position of its atom.
                 back = occupancy.get(aid, self.native[aid]) == self.native[aid] != self.surface_state(aid)
-                if back and aid in records and aid in self.seed_index:
+                # The two atoms of the surface's coupled pair relaxed towards each other. Without
+                # that bond (a family changed one of them) each is the site as the slab has it.
+                apart = aid in base_pair and set(coupling or ()) != base_pair
+                if (back or apart) and aid in records and aid in self.seed_index:
                     records[aid]["position"] = self.seed.positions[self.seed_index[aid]].copy()
             oriented = [
                 aid
@@ -1177,6 +1204,7 @@ class Builder:
         pooled before the final diverse selection, so an early greedy choice cannot block a
         later site.
         """
+        self._search_was_limited = False  # set by _placement_orders, which a node with nothing to orient never reaches
         records, bonds, oriented, repositioned, localized = self._base(occupancy, coupling, lift_scale)
         if not oriented:
             return [{"placement": {}, "score": None, "min_clearance_A": None, "hbonds": 0}], None
@@ -1540,9 +1568,15 @@ class Builder:
         In a campaign built on a surface, the sites the map does not name keep the state they
         have on that surface, and so does its coupled pair unless the map names one of its sites.
         """
+        merged, pair = self.surface_pattern(occupancy, coupling)
+        return self._node(merged, family, site, pair)
+
+    def surface_pattern(self, occupancy, coupling=None):
+        """(occupancy, coupling) of what a family names, completed with the surface as :meth:`node`
+        does: for a structure a family builds itself (a search motif) with :meth:`structure`."""
         if self.base_coupling and coupling is None and not set(self.base_coupling) & set(occupancy):
             coupling = self.base_coupling
-        return self._node(self.on_surface(occupancy), family, site, coupling)
+        return self.on_surface(occupancy), coupling
 
     def _node(self, occupancy, family, site, coupling=None):
         """:meth:`node` for a complete occupancy (the builder's own calls: the reference, the
@@ -1628,7 +1662,20 @@ class Builder:
             return node_id
         self._env_active = self.environment is not None and node_id != "ref"
         try:
-            return self._build_starts(node, node_id, family, site, occupancy, coupling, changes)
+            first = len(self.rejected)
+            self._build_starts(node, node_id, family, site, occupancy, coupling, changes)
+            if self._env_active and not node["state_ids"]:
+                # Nothing fits next to the atoms of the surface as they are (an adsorbate of the
+                # surface leans over the site, say), and those atoms are not turned. The
+                # intermediate is then started as in a campaign without that structure: from
+                # the slab, with every adsorbate placed anew.
+                for entry in self.rejected[first:]:
+                    entry["next_to_the_atoms_of_the_surface"] = True
+                self._env_active = False
+                self._build_starts(node, node_id, family, site, occupancy, coupling, changes)
+                if node["state_ids"]:
+                    self.started_anew.append(node_id)
+            return node_id
         finally:
             self._env_active = False
 
@@ -2330,6 +2377,9 @@ class Builder:
                 "nodes_started_from_the_relaxed_surface": len(self.seeded) if self._relaxed_surface() else 0,
                 "relaxed_surface_state": self._relaxed_surface(),
                 "nodes_started_from_the_slab_as_given": 0 if self._relaxed_surface() else len(self.seeded),
+                # no start fits next to the atoms of the surface: built from the slab, every adsorbate placed anew
+                "started_anew": list(self.started_anew),
+                "equivalent_sites_differ_by_A": self.images_apart,
             }
         if self.limited_searches:
             report["limited_orientation_search"] = {
@@ -2349,6 +2399,33 @@ class Builder:
     def _relaxed_surface(self):
         """State ID of the relaxed surface the starts are made from (None: none, or the slab file as given)."""
         return self.environment["state_id"] if self.environment else None
+
+    def _surface_images_apart(self):
+        """Largest distance (A) between an atom of the relaxed surface and the place where a lattice
+        translation that merges intermediates would put it; None without such a translation or structure.
+
+        The translations are those of the slab that keep the pattern of the surface. The relaxed
+        surface need not keep them atom for atom: its hydrogen bonds can differ between sites the
+        pattern makes equivalent.
+        """
+        # PENDING(relaxed-surface-images): intermediates on such sites are still computed once, on
+        # the first site; whether to compute each beyond some distance is open (docs/pending.md).
+        if not self.translations or not self._relaxed_surface():
+            return None
+        positions = self.environment["positions"]
+        worst = 0.0
+        for tr in self.translations:
+            shift = np.asarray(tr["fractional"], dtype=float) @ self.seed.cell
+            apart = [0.0, 0.0]  # the translation and its inverse: the direction of the map is not assumed
+            for aid, position in positions.items():
+                image = positions.get(self._map_label(aid, tr["label_map"]))
+                if image is None:
+                    continue
+                for k, sign in enumerate((1.0, -1.0)):
+                    gap = minimum_image(image - position - sign * shift, self.seed.cell)
+                    apart[k] = max(apart[k], float(np.linalg.norm(gap)))
+            worst = max(worst, min(apart))
+        return round(worst, 3)
 
     def _surface_record(self):
         """What network.json and the build report say about the surface the campaign is built on."""

@@ -264,6 +264,15 @@ def prepare(campaign, selection=None, with_potcars=False, limit=None):
                     f"now says {mode!r}; a prepared state keeps its protocol. Restore the setting, "
                     "or use a new campaign for the other protocol"
                 )
+            if (state_dir / "imported.json").is_file():
+                origin = read_json(state_dir / "imported.json").get("campaign")
+                raise ValueError(
+                    f"{state_dir.name} was copied from {origin}, which was prepared with other settings than "
+                    "this campaign has (vasp, frequency or the stage INCARs of project.yaml changed in between): "
+                    "its energies would not be comparable with new calculations. Restore the settings and build "
+                    "the campaign again, or build it without the finished calculations (`mechanet generate --on "
+                    "SURFACE --from none`)"
+                )
             raise ValueError(
                 f"Prepared protocol changed for {state_dir.name}; use a new campaign to preserve provenance"
             )

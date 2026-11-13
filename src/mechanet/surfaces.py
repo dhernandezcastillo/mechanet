@@ -292,18 +292,18 @@ def level_energies(data):
     ``data`` comes from :func:`mechanet.analysis.energy_inputs`. ``free_energy`` needs a
     frequency calculation of the node; ``screening`` is the relaxed energy plus the tabulated
     ZPE - TS per added atom (``thermodynamics.electronic_mode_corrections``); ``energy`` is
-    the relaxed energy alone.
+    the relaxed energy alone. The relaxed energy is that of 02_final under either protocol:
+    what a campaign has before any later stage is run.
     """
     from .energies import node_energies
 
     campaign, network, collected = data["campaign"], data["network"], data["collected"]
     central = data.get("central")
-    source = data["energy_source"]
     tabulated = data["thermo_cfg"].get("electronic_mode_corrections", {"per_H_eV": 0.30, "per_O_eV": 0.05})
     wanted = {
         "free_energy": (True, "final" if central == "final" else "static", None),
-        "screening": (False, source, tabulated),
-        "energy": (False, source, {}),
+        "screening": (False, "final", tabulated),
+        "energy": (False, "final", {}),
     }
     out = {}
     for level, (vibrations, energy_source, corrections) in wanted.items():
@@ -628,16 +628,25 @@ def pick(project, config, registry, on, source=None):
         declared[carried["name"]] = dict(carried["occupancy"])  # the slab as it was given
     if BARE_SLAB not in declared:
         declared[BARE_SLAB] = {}  # the slab file of the project, without any pattern
-    source_dir = None
+    source_dir, notes = None, []
+    default = project_dir / "coverage"
     if source is None:
-        if (project_dir / "coverage" / "network.json").is_file():
-            source_dir = project_dir / "coverage"
+        if (default / "network.json").is_file():
+            source_dir = default
     elif str(source).lower() != NO_SOURCE:
         source_dir = Path(source)
         if not (source_dir / "network.json").is_file():
             raise FileNotFoundError(f"{source_dir} is not a campaign (no network.json)")
-    nodes = {n["id"]: n for n in read_json(source_dir / "network.json")["nodes"]} if source_dir else {}
-    notes, node = [], None
+    # Without a source (--from none) an ID is still read from the coverage campaign of the
+    # project: the pattern of its sites only, no calculation and no structure.
+    listed_in = source_dir or (default if (default / "network.json").is_file() and on not in declared else None)
+    nodes = {n["id"]: n for n in read_json(listed_in / "network.json")["nodes"]} if listed_in else {}
+    if source_dir is None and on in nodes:
+        notes.append(
+            f"The pattern of {on} is read from {listed_in}; none of its calculations is reused and no relaxed "
+            "structure is taken from it (--from none)."
+        )
+    node = None
     if on in declared:
         pattern = {str(k): v for k, v in declared[on].items()}
         coupling = pattern.pop("coupling", None)
@@ -653,9 +662,7 @@ def pick(project, config, registry, on, source=None):
             node = nodes[node["computed_by"]]
         occupancy, coupling, name = dict(node.get("occupancy") or {}), node.get("coupling"), node["id"]
     else:
-        where = (
-            f"an intermediate of {source_dir}" if source_dir else "a campaign to take it from (no coverage campaign)"
-        )
+        where = f"an intermediate of {listed_in}" if listed_in else "a campaign to take it from (no coverage campaign)"
         known = f" (surfaces: {', '.join(sorted(declared))})" if declared else ""
         raise ValueError(
             f"No surface {on!r}: it is neither a name of `surfaces` in project.yaml{known} nor {where}. The IDs of "

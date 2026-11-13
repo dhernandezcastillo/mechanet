@@ -342,6 +342,28 @@ class InitTests(TempCase):
         self.assertEqual(again["surface"]["occupancy"], {site: "OOH"})
         self.assertGreater(again["surface"]["nodes_started_from_the_slab_as_given"], 3)
 
+    def test_a_frequency_mask_loses_the_same_atoms(self):
+        given_file = self.slab_with({"m0038": "OOH"})
+        mask = read_poscar(given_file)
+        mask.mobile[:] = (mask.positions[:, 2] > mask.positions[:, 2].max() - 3.0)[:, None]
+        (self.root / "other").mkdir()
+        for name in ("mask.vasp", "other/given.vasp"):  # a mask of its own name, and one named like the slab
+            write_poscar(self.root / name, mask)
+            project = self.root / name.replace("/", "_").replace(".vasp", "")
+            init_project(given_file, project, interactive=False, output=quiet, frequency_mask=self.root / name)
+            data = yaml.safe_load((project / "project.yaml").read_text())
+            expected = "slab/mask_bare.vasp" if name == "mask.vasp" else "slab/given_mask_bare.vasp"
+            self.assertEqual(data["slab"]["frequency_mask"], expected)
+            self.assertEqual(data["slab"]["file"], "slab/given_bare.vasp")
+            bare, bare_mask = read_poscar(project / data["slab"]["file"]), read_poscar(project / expected)
+            self.assertEqual((len(bare), len(bare_mask)), (49, 49))
+            self.assertEqual(bare.symbols, bare_mask.symbols)
+            self.assertTrue(np.allclose(bare.positions, bare_mask.positions))
+            self.assertTrue(bare_mask.mobile.any() and not bare_mask.mobile.all())  # the region of the mask, kept
+            report = generate(project / "project.yaml", families=["aem"])
+            self.assertEqual(report["surface"]["name"], "as-given")
+            self.assertEqual(report["nodes_without_viable_start"], [])
+
     def test_a_damaged_carried_entry_says_what_to_do(self):
         self.init(self.slab_with({"m0038": "OOH"}))
         project = self.root / "p"
@@ -441,6 +463,30 @@ class InitTests(TempCase):
         self.assertNotIn("carried", data["slab"])
         self.assertEqual(len(read_structure(self.root / "p" / data["slab"]["file"])), 51)
         self.assertEqual(len(data["sites"]), 3)
+
+    def test_the_site_of_a_carried_adsorbate_cannot_be_dropped_at_init(self):
+        """The OOH left the slab; only its site can put it back. Leaving that site out of the list
+        of sites to keep would silently turn M-OOH into a fixed M-O: the site stays, and init says so."""
+        given_file = self.slab_with({"m0038": "OOH"})
+        lines = []
+
+        def answer(prompt):
+            if "proposed reactive site" in prompt:
+                return "n"
+            if "Site IDs to keep" in prompt:
+                return "a0016,a0019"
+            return ""
+
+        init_project(given_file, self.root / "p", interactive=True, input_func=answer, output=lines.append)
+        said = "\n".join(map(str, lines))
+        carried = read_json(self.root / "p" / "slab" / "as_given.json")
+        ((site, state),) = carried["occupancy"].items()
+        self.assertEqual(state, "OOH")
+        self.assertIn(f"{site} stays a site: it holds the OOH the slab carried", said)
+        data = yaml.safe_load((self.root / "p" / "project.yaml").read_text())
+        self.assertEqual(sorted(s["id"] for s in data["sites"]), sorted(["a0016", "a0019", site]))
+        report = generate(self.root / "p" / "project.yaml", families=["aem"])
+        self.assertEqual(report["surface"]["occupancy"], {site: "OOH"})
 
     def test_a_file_with_the_adsorbate_in_blocks_of_its_own(self):
         oxygen = self.above(height=1.95)

@@ -158,7 +158,8 @@ def select_for_thermo(
     selection to the nodes of those cycles, or of the cycles of those families (every
     structure is still evaluated, so one that relaxed into such a node competes there).
     ``nodes`` restricts it to these node IDs as well (the candidates of a surface Pourbaix
-    diagram, so that frequencies are run for them only).
+    diagram, so that frequencies are run for them only), together with the reference
+    surface: every formation energy is counted from it, so no diagram can be drawn without.
     """
     campaign = Path(campaign).resolve()
     config = _load(campaign / "config.json")
@@ -192,6 +193,7 @@ def select_for_thermo(
             raise ValueError(f"No intermediates {unknown[:5]} in this campaign")
         images = {n["id"]: n["computed_by"] for n in network.get("nodes", []) if n.get("computed_by")}
         wanted = (wanted or set()) | {images.get(node_id, node_id) for node_id in nodes}
+        wanted.add(network.get("reference", "ref"))  # the zero of the formation energies, as for cycles
     selected, per_node, waiting, unresolved = [], [], [], []
     evaluated, own_variants, moment_rows, magmoms = {}, {}, [], {}
     merged_total, tautomer_rows = [], []
@@ -365,7 +367,7 @@ def select_for_thermo(
             "include_partial": bool(include_partial),
             "cycles": sorted(cycles) if cycles else None,
             "families": sorted(families) if families else None,
-            **({"nodes": sorted(nodes)} if nodes else {}),
+            **({"nodes": sorted(nodes), "reference_surface": network.get("reference", "ref")} if nodes else {}),
             "duplicates": (
                 "kept (--keep-duplicates)"
                 if keep_duplicates

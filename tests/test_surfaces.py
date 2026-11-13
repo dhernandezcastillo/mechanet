@@ -103,6 +103,20 @@ class CandidateTests(unittest.TestCase):
         self.assertEqual(len(candidates(lines, a, b, (1.0, 1.8), 5.0)), 4)
         self.assertEqual(DEFAULT_MARGIN_EV, 0.2)
 
+    def test_two_lines_that_cross_at_the_start_of_the_window(self):
+        """A flat line and a falling one meet 2e-13 V inside the window: the falling one is the
+        stable surface of the window, not the one that is lower by 1e-13 eV at its first point."""
+        lo, hi = 1.0, 1.8
+        a = np.array([0.5000000000005, 1.5000000000007])
+        b = np.array([0.0, -1.0])
+        at_start = a + b * lo
+        self.assertLess(at_start[0], at_start[1])
+        self.assertEqual([index for _, _, index in lower_envelope(a, b, lo, hi)], [1])
+        lines = [{"node_id": f"s{index}", "label": f"s{index}", "electrons": -b[index]} for index in range(2)]
+        rows = {row["node_id"]: row for row in candidates(lines, a, b, (lo, hi), 0.2)}
+        self.assertTrue(rows["s1"]["stable_in_window"])
+        self.assertFalse(rows["s0"]["stable_in_window"])
+
     def test_a_window_inside_one_stable_range(self):
         lines, a, b = designed()
         rows = candidates(lines, a, b, (0.9, 1.1), 0.05)
