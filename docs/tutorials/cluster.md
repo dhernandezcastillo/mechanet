@@ -12,7 +12,7 @@ pip install mechanet
 
 Each job runs mechanet with the Python that ran `mechanet submit`, by its absolute path, so always submit from this environment. Copy the project folder over, or run `mechanet init` on the cluster.
 
-To pre-screen with an ML potential on the cluster, put its model file in mechanet's models folder first, so that jobs need no internet: see [Model files on a cluster](../model-files.md).
+To pre-screen with an ML potential on the cluster, put its model file in mechanet's models folder first, so that jobs need no internet: `mechanet models NAME --download` on the login node does it (UMA with your Hugging Face token), and [Model files on a cluster](../model-files.md) gives the other ways.
 
 ## 2. Describe the cluster once
 

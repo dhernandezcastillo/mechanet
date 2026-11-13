@@ -38,6 +38,18 @@
   group) and the licences. A UMA checkpoint loaded by path gives the same energies and forces as
   fairchem's own download: the two reference files fairchem also fetches serve only isolated
   single atoms and its formation-energy wrapper (the docs had said that energies would differ).
+- **`mechanet models NAME --download`, and UMA with a Hugging Face token as UMA's documentation
+  sets it up.** `--download` puts the named models in the models folder from their official
+  pages. MACE-MH-1 and SevenNet-Omni need no account, and come through a temporary file renamed
+  only once the download is complete and is a model file. UMA comes from Hugging Face through
+  huggingface_hub, with the token it finds (`HF_TOKEN`, or the file `hf auth login` saved), and
+  with UMA's `LICENSE` and `USE_POLICY.md` next to it, as its licence asks of copies passed on.
+  Nothing is downloaded unless named, and a copy already in the folder is kept. `mechanet models`
+  says whether a Hugging Face token is found, and where; mechanet never shows, stores or records
+  the token. When Hugging Face refuses UMA, the `uma` calculator and `--download` say which case
+  it is: no token here, a token Hugging Face did not accept (401), or no access yet or a
+  fine-grained token without the permission UMA's documentation names (403).
+  docs/model-files.md gains a section on the token, from creating it to keeping it safe.
 - **Designed, not built: a coverage shortlist from an ML potential.** docs/coverage-shortlist.md
   specifies how a potential could choose which coverages of a surface Pourbaix diagram need DFT
   (its window hull, then a verify loop that stops when the next candidate cannot be stable within

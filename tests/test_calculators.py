@@ -276,9 +276,32 @@ class PresetTests(unittest.TestCase):
             load_calculator("uma", {"device": "cpu", "model": "uma-s-1p1"})
 
     def test_uma_says_how_to_get_the_gated_weights(self):
-        gated, _ = fake_fairchem(self.tmp / "none.pt", fail=OSError("401 Client Error: gated repo facebook/UMA"))
-        with patch.dict(sys.modules, gated), self.assertRaisesRegex(RuntimeError, "request access at"):
-            load_calculator("uma", {"device": "cpu"})
+        def refused(status, message):  # as huggingface_hub raises it: an OSError carrying the response
+            error = OSError(message)
+            error.response = SimpleNamespace(status_code=status)
+            return error
+
+        anonymous = refused(401, "401 Client Error. Cannot access gated repo for url https://huggingface.co/...")
+        gated, _ = fake_fairchem(self.tmp / "none.pt", fail=anonymous)
+        with patch.dict(sys.modules, gated), patch.dict(os.environ, {"HF_TOKEN_PATH": str(self.tmp / "no-token")}):
+            for name in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+                os.environ.pop(name, None)
+            with self.assertRaisesRegex(
+                RuntimeError,
+                r"No Hugging Face token was found .* request access at https://huggingface.co/facebook/UMA, create a "
+                r'token .* "Read access to contents of all public gated repos you can access" .* Or put '
+                r"uma-s-1p2p1.pt in mechanet's models folder",
+            ):
+                load_calculator("uma", {"device": "cpu"})
+        waiting, _ = fake_fairchem(
+            self.tmp / "none.pt", fail=refused(403, "403 Client Error. Cannot access gated repo")
+        )
+        with patch.dict(sys.modules, waiting), patch.dict(os.environ, {"HF_TOKEN": "hf_StandInToken"}):
+            with self.assertRaisesRegex(
+                RuntimeError, "The token in HF_TOKEN gives no access to facebook/UMA yet"
+            ) as caught:
+                load_calculator("uma", {"device": "cpu"})
+        self.assertNotIn("hf_StandInToken", str(caught.exception))
         other, _ = fake_fairchem(self.tmp / "none.pt", fail=KeyError("uma-x"))
         with patch.dict(sys.modules, other), self.assertRaises(KeyError):  # anything else passes unchanged
             load_calculator("uma", {"device": "cpu", "model": "uma-x"})

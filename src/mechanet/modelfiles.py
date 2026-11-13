@@ -8,28 +8,36 @@ Each preset needs one model file: ``mace-mh1`` MACE-MH-1, ``uma`` UMA ``uma-s-1p
    ``$XDG_DATA_HOME/mechanet/models`` (``~/.local/share/mechanet/models``), where the file sits
    under its official name, directly or in a folder up to two levels down;
 3. the copy that the package running the model downloads on the first run and keeps
-   (mace-torch, fairchem, sevenn): this needs the internet, and for UMA a Hugging Face login
-   with access to the weights.
+   (mace-torch, fairchem, sevenn): this needs the internet, and for UMA a Hugging Face token
+   with access to the weights, set up as UMA's documentation says (:func:`hugging_face_token`).
 
 A file found in 1 or 2 is read from disk and nothing is downloaded. On a cluster whose compute
-nodes have no internet, fill the models folder once, for instance from a browser on any
-computer (docs/model-files.md), and every job finds the files there.
+nodes have no internet, fill the models folder once, from a browser on any computer or with
+``mechanet models NAME --download`` on the login node (docs/model-files.md), and every job
+finds the files there.
 
 ``mechanet models`` reports, for each preset, the file it would use, whether that file is
-complete, whether its package is installed, and so whether a job can run without internet; it
-loads and downloads nothing. ``--load`` also loads each model found on this computer, as a job
-would, and computes one small structure. mechanet never ships or mirrors model files: each
-comes from its official page, under its own licence (:data:`MODEL_FILES`).
+complete, whether its package is installed, and so whether a job can run without internet.
+``--load`` also loads each model found on this computer, as a job would, and computes one
+small structure. ``--download`` first downloads the named models into the models folder
+(:func:`download`): UMA from Hugging Face with the token huggingface_hub finds, the others with
+no account. mechanet never ships or mirrors model files: each comes from its official page,
+under its own licence (:data:`MODEL_FILES`). Of a token, mechanet only checks where it is set
+up: it never shows, stores or records one.
 """
 
 from __future__ import annotations
 
 import contextlib
+import http.client
 import importlib.util
 import os
 import re
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,6 +108,13 @@ OTHER_FILENAMES = {("mace-mh1", "mh-0"): "mace-mh-0.model"}
 # Where sevenn keeps a downloaded checkpoint, below its package folder or ~/.cache/sevennet.
 _SEVENN_FOLDERS = {"7net-omni": "SevenNet_omni"}
 SMOKE_STRUCTURE = "Pt(111) 2x2x3 with O"
+# A Hugging Face token as UMA's documentation asks for it: made on TOKEN_PAGE, with the permission
+# TOKEN_PERMISSION (a token of type Read has it; a fine-grained one needs it ticked).
+TOKEN_PAGE = "https://huggingface.co/settings/tokens"
+TOKEN_PERMISSION = "Read access to contents of all public gated repos you can access"
+# Files of the model's page that --download saves next to the model: UMA's licence lets copies be
+# passed on only together with it, and its acceptable-use policy is part of the licence.
+LICENCE_FILES = {"uma": ("LICENSE", "USE_POLICY.md")}
 
 
 def models_folder(environ=None):
@@ -193,6 +208,200 @@ def _cache_home(env):
     return Path(env["XDG_CACHE_HOME"]).expanduser() if env.get("XDG_CACHE_HOME") else Path.home() / ".cache"
 
 
+def _is_true(value):
+    """On, as huggingface_hub reads its switches: 1, ON, YES or TRUE."""
+    return str(value or "").strip().upper() in {"1", "ON", "YES", "TRUE"}
+
+
+def _token_file(env):
+    """Where ``hf auth login`` saves the token: ``$HF_TOKEN_PATH``, else ``$HF_HOME/token``, else
+    ``~/.cache/huggingface/token`` (``$XDG_CACHE_HOME/huggingface/token``)."""
+    if env.get("HF_TOKEN_PATH"):
+        return Path(os.path.expandvars(env["HF_TOKEN_PATH"])).expanduser()
+    if env.get("HF_HOME"):
+        return Path(os.path.expandvars(env["HF_HOME"])).expanduser() / "token"
+    return _cache_home(env) / "huggingface" / "token"
+
+
+def hugging_face_token(environ=None):
+    """Where huggingface_hub finds a Hugging Face token, set up as UMA's documentation says:
+    ``"HF_TOKEN"`` (or the older ``"HUGGING_FACE_HUB_TOKEN"``) when that variable is set, else the
+    path of the file ``hf auth login`` saved it in, else None. Only where it is: the token is
+    never shown or recorded, and whether it gives access to UMA only Hugging Face can tell."""
+    env = os.environ if environ is None else environ
+    for name in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        if env.get(name, "").strip():
+            return name
+    path = _token_file(env)
+    try:
+        return str(path) if path.is_file() and path.stat().st_size > 0 else None
+    except OSError:
+        return None
+
+
+def _token_words(where):
+    if where in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        return f"the token in {where}"
+    return f"the token that `hf auth login` saved ({where})"
+
+
+def hub_access_hint(exc, environ=None):
+    """What to do when Hugging Face refused UMA's weights, for an error from huggingface_hub: no
+    token here, a token it did not accept (401), or no access yet (403). None for other errors."""
+    text = " ".join(f"{type(exc).__name__}: {exc}".split())
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status not in (401, 403):
+        number = re.search(r"\b(401|403)\b", text)
+        status = int(number.group(1)) if number else None
+    if status is None and not re.search(r"gated|authenticat", text, re.IGNORECASE):
+        return None
+    page = model_file("uma").page
+    where = hugging_face_token(environ)
+    if where is None:
+        return (
+            "No Hugging Face token was found on this computer. As UMA's documentation says: request access at "
+            f'{page}, create a token at {TOKEN_PAGE} with "{TOKEN_PERMISSION}" (a token of type Read has it), '
+            "then run `hf auth login` or set HF_TOKEN"
+        )
+    who = _token_words(where)
+    if status == 401:
+        return (
+            f"Hugging Face did not accept {who}: mistyped, expired or deleted? Create a new one at {TOKEN_PAGE}, "
+            "then log in again with it (`hf auth login`; recent versions need --force to replace a saved token) "
+            "or set HF_TOKEN"
+        )
+    return (
+        f"{who[:1].upper()}{who[1:]} gives no access to facebook/UMA yet: access is granted after a review "
+        f'(request access at {page}, then wait for the e-mail), and a fine-grained token needs "{TOKEN_PERMISSION}"'
+    )
+
+
+def _size_text(size):
+    return f"{size / 1e9:.1f} GB" if size >= 1e9 else f"{size / 1e6:.0f} MB"
+
+
+def _hub_location(url):
+    """(repository, revision, file in the repository) of a Hugging Face download link, else None."""
+    found = re.fullmatch(r"https://huggingface\.co/([\w.-]+/[\w.-]+)/resolve/([\w.-]+)/(.+)", url)
+    return found.groups() if found else None
+
+
+def download(calculator, environ=None, log=None):
+    """Download a preset's model file into the models folder, from its official page.
+
+    UMA comes from Hugging Face through huggingface_hub (installed with fairchem), with the token
+    it finds (:func:`hugging_face_token`), as UMA's documentation describes; its licence files are
+    saved next to it (:data:`LICENCE_FILES`). MACE-MH-1 and SevenNet-Omni need no account. A
+    complete copy already in the folder is kept, and a broken one is left for you to delete.
+    Progress goes to ``log`` (stderr by default). Returns path, status (``"downloaded"`` or
+    ``"already in the models folder"``) and licence_files; raises RuntimeError saying what to do.
+    """
+    env = os.environ if environ is None else environ
+    log = log or (lambda message: print(message, file=sys.stderr, flush=True))
+    entry = model_file(calculator)
+    folder = models_folder(env)
+    existing = find_model_file(entry.filename, folder)
+    if existing is not None:
+        problem = check_file(existing)["problem"]
+        if problem:
+            raise RuntimeError(
+                f"{existing}, in the models folder, is not usable ({problem}): delete it, then try again"
+            )
+        return {"path": str(existing), "status": "already in the models folder", "licence_files": []}
+    hub = _hub_location(entry.url)
+    if hub:
+        path, licence_files = _download_from_hub(entry, hub, folder, env, log)
+    else:
+        path, licence_files = _download_link(entry, folder, log), []
+    return {"path": str(path), "status": "downloaded", "licence_files": [str(p) for p in licence_files]}
+
+
+def _download_from_hub(entry, hub, folder, env, log):
+    repo, revision, name = hub
+    if _is_true(env.get("HF_HUB_OFFLINE")):
+        raise RuntimeError(
+            "HF_HUB_OFFLINE is set in this shell, so nothing can come from Hugging Face: run `unset HF_HUB_OFFLINE` "
+            "for the download (jobs may keep it)"
+        )
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError as exc:
+        raise RuntimeError(
+            f"downloading {entry.title} needs huggingface_hub, which comes with {entry.package}: run this in the "
+            f"environment where {entry.requirement} is installed"
+        ) from exc
+    where = hugging_face_token(env)
+    target = folder / repo.split("/")[-1]
+    target.mkdir(parents=True, exist_ok=True)
+    log(
+        f"{entry.calculator}: downloading {entry.filename} ({_size_text(entry.size)}) from huggingface.co/{repo} "
+        f"with {_token_words(where) if where else 'no Hugging Face token (none found here)'}; "
+        f"licence: {entry.licence}"
+    )
+    try:
+        path = Path(hf_hub_download(repo_id=repo, filename=name, revision=revision, local_dir=str(target)))
+    except Exception as exc:  # noqa: BLE001 - every failure is told in words, with what to do
+        hint = hub_access_hint(exc, env)
+        detail = " ".join(f"{type(exc).__name__}: {exc}".split())
+        reason = f"{hint} ({type(exc).__name__})" if hint else detail
+        raise RuntimeError(f"{entry.title} could not be downloaded: {reason}") from exc
+    licence_files = []
+    for extra in LICENCE_FILES.get(entry.calculator, ()):
+        try:
+            licence_files.append(
+                Path(hf_hub_download(repo_id=repo, filename=extra, revision=revision, local_dir=str(target)))
+            )
+        except Exception as exc:  # noqa: BLE001 - the model is here: say what is missing
+            log(f"{entry.calculator}: {extra} could not be downloaded ({type(exc).__name__}); it is on {entry.page}")
+    return path, licence_files
+
+
+def _download_link(entry, folder, log):
+    """Download a file anyone may download into ``folder``, through a .part file that is renamed
+    only once the download is complete and is a model file."""
+    target = folder / entry.filename
+    part = target.with_name(target.name + ".part")
+    host = urllib.parse.urlsplit(entry.url).netloc
+    log(
+        f"{entry.calculator}: downloading {entry.filename} ({_size_text(entry.size)}) from {host}; "
+        f"licence: {entry.licence}"
+    )
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(entry.url, timeout=60) as response, open(part, "wb") as handle:
+            total = int(response.headers.get("Content-Length") or 0)
+            done = shown = 0
+            while chunk := response.read(1 << 20):
+                handle.write(chunk)
+                done += len(chunk)
+                if total and done * 10 // total > shown:
+                    shown = done * 10 // total
+                    log(f"{entry.calculator}: {done / 1e6:.0f} of {total / 1e6:.0f} MB")
+        if total and done != total:
+            raise RuntimeError(f"the download from {host} stopped after {done:,} of {total:,} bytes: try again")
+        problem = check_file(part)["problem"]
+        if problem:
+            raise RuntimeError(f"what {host} sent is not usable: {problem}")
+        os.replace(part, target)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"{entry.url} answered {exc.code} {exc.reason}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"no connection to {host} ({exc.reason}): on a computer without internet, download it on one that "
+            "has it and copy it into the models folder"
+        ) from exc
+    except (http.client.HTTPException, TimeoutError, ConnectionError) as exc:
+        raise RuntimeError(f"the download from {host} broke off ({type(exc).__name__}): try again") from exc
+    except OSError as exc:
+        raise RuntimeError(
+            f"{entry.filename} could not be saved in {folder} ({exc}); with too little room there, set "
+            f"{MODELS_ENV} to a folder with more, such as project storage"
+        ) from exc
+    finally:
+        part.unlink(missing_ok=True)
+    return target
+
+
 def package_copy(entry, environ=None):
     """The copy of ``entry``'s file that its package downloaded earlier, or None. Looked up where
     mace-torch, fairchem and sevenn keep their downloads, without importing them; only for the
@@ -267,26 +476,43 @@ def _version_tuple(text):
     return tuple(int(n) for n in re.findall(r"\d+", str(text))[:3])
 
 
-def check(calculators=None, load=False, device="auto", environ=None):
+def check(calculators=None, load=False, device="auto", environ=None, download=False):
     """A report for each preset (every one in :data:`MODEL_FILES` when ``calculators`` is None):
     the file it would use and where it is, whether the file is complete, whether its package is
-    installed, and whether a job can run without internet (``ready``).
+    installed, and whether a job can run without internet (``ready``); and where a Hugging Face
+    token is set up (``hugging_face_token``, never the token).
 
-    Nothing is downloaded. With ``load``, each preset whose file and package are here is loaded
-    as a job would load it and computes one small structure; this sets ``HF_HUB_OFFLINE=1`` for
-    the process (unless it is set), so that fairchem has to find everything on this computer.
+    Nothing is downloaded unless ``download``: each preset is then first downloaded into the
+    models folder (:func:`download`), and what happened is in its report under ``download``.
+    With ``load``, each preset whose file and package are here is loaded as a job would load it
+    and computes one small structure; this sets ``HF_HUB_OFFLINE=1`` for the process (unless it
+    is set), after any download, so that fairchem has to find everything on this computer.
     """
     env = os.environ if environ is None else environ
     entries = [model_file(name) for name in calculators] if calculators else list(MODEL_FILES)
+    fetched = {entry.calculator: _download_report(entry, env) for entry in entries} if download else {}
     folder = models_folder(env)
     if load:
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    reports = [_report(entry, folder, env, load, device) for entry in entries]
+    for report in reports:
+        if report["calculator"] in fetched:
+            report["download"] = fetched[report["calculator"]]
     return {
         "folder": str(folder),
         "folder_set_by": _folder_origin(env),
         "folder_exists": folder.is_dir(),
-        "models": [_report(entry, folder, env, load, device) for entry in entries],
+        "hugging_face_token": hugging_face_token(env),
+        "models": reports,
     }
+
+
+def _download_report(entry, env):
+    try:
+        return {**download(entry.calculator, env), "error": None}
+    except Exception as exc:  # noqa: BLE001 - one model failing leaves the others to download
+        message = str(exc) if isinstance(exc, (RuntimeError, ValueError)) else f"{type(exc).__name__}: {exc}"
+        return {"path": None, "status": "failed", "licence_files": [], "error": message}
 
 
 def _report(entry, folder, env, load, device):
@@ -382,21 +608,28 @@ def check_text(result):
     lines = [f"Models folder: {result['folder']} ({origin})"]
     if not result["folder_exists"]:
         lines.append("  (it does not exist yet)")
+    downloaded = False
     for r in result["models"]:
         lines += ["", f"{r['calculator']}: {r['title']}, file {r['filename']}"]
+        if "download" in r:
+            downloaded = True
+            lines.append(f"  download {_download_words(r['download'])}")
         if r["file"]:
             state = "complete" if r["complete"] else f"NOT USABLE: {r['problem']}"
             lines += [f"  file     {r['file']} ({r['found_in']})", f"           {r['size']:,} bytes, {state}"]
         elif r["problem"]:
             lines.append(f"  file     {r['problem']}")
         else:
-            needs = "the internet and a Hugging Face login with access" if r["access"] else "the internet"
+            needs = "the internet and a Hugging Face token with access" if r["access"] else "the internet"
             lines.append(f"  file     not on this computer: the first run downloads it, which needs {needs}")
-        if not r["file"] or not r["complete"]:
-            lines.append(f"  get it   {r['url']}")
+        if (r["file"] and not r["complete"]) or not (r["file"] or r["problem"]):
+            first = "delete it, then: " if r["found_in"] == "models folder" else ""
+            token = " (with your Hugging Face token)" if r["access"] else ""
+            lines.append(f"  get it   {first}mechanet models {r['calculator']} --download{token}")
+            lines.append(f"           or in a browser: {r['url']}, then put it in the models folder above")
             if r["access"]:
                 lines.append(f"           needs {r['access']}; ask on {r['page']}")
-            lines.append("           then put it in the models folder above")
+                lines.append(f"  token    {_token_line(result.get('hugging_face_token'))}")
         if r["package_version"] is None:
             lines.append(f'  package  {r["package"]} is not installed here (pip install "{r["requirement"]}")')
         elif not r["package_ok"]:
@@ -418,8 +651,32 @@ def check_text(result):
                     f"{test['energy_eV']} eV, largest force {test['max_force_eVA']} eV/A ({test['compute_s']} s)"
                 )
         lines.append(f"  ready    {'yes, without internet' if r['ready'] else 'no: ' + '; '.join(_missing(r))}")
-    lines += ["", "Nothing was downloaded. Filling the models folder: 'Model files on a cluster' in the documentation."]
+    done = "" if downloaded else "Nothing was downloaded. "
+    lines += ["", f"{done}Filling the models folder: 'Model files on a cluster' in the documentation."]
     return "\n".join(lines)
+
+
+def _download_words(outcome):
+    if outcome["status"] == "failed":
+        return f"FAILED: {outcome['error']}"
+    if outcome["status"] != "downloaded":
+        return f"{outcome['status']}: nothing downloaded"
+    beside = [Path(p).name for p in outcome["licence_files"]]
+    return f"saved {outcome['path']}" + (f", with {' and '.join(beside)} next to it" if beside else "")
+
+
+def _token_line(where):
+    if where is None:
+        return (
+            "none found here (no HF_TOKEN, no `hf auth login`): set one up as UMA's documentation says "
+            "('Model files on a cluster' in the documentation)"
+        )
+    found = (
+        f"found in {where}"
+        if where in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN")
+        else f"found: saved by `hf auth login` in {where}"
+    )
+    return f"{found}; whether it gives access, Hugging Face tells when downloading"
 
 
 def _missing(report):
@@ -460,10 +717,21 @@ def register_command(subparsers, registry):
         "(nothing is downloaded)",
     )
     p.add_argument("--device", default="auto", help="Device for --load: auto (default), cpu or cuda")
+    p.add_argument(
+        "--download",
+        action="store_true",
+        help="First download the named models into the models folder, from their official pages: UMA from "
+        "Hugging Face with your token (HF_TOKEN, or hf auth login, as UMA's documentation says), the others "
+        "with no account. Each comes under its own licence, shown as it downloads",
+    )
     p.set_defaults(handler=_cli)
 
 
 def _cli(args, registry):
-    result = check(args.calculators or None, load=args.load, device=args.device)
+    if args.download and not args.calculators:
+        raise ValueError(
+            "name the models to download, e.g. `mechanet models uma --download`: each comes under its own licence"
+        )
+    result = check(args.calculators or None, load=args.load, device=args.device, download=args.download)
     failed = bool(args.calculators) and not all(r["ready"] for r in result["models"])
     return result, check_text(result), 1 if failed else 0

@@ -175,14 +175,17 @@ pip install -e ".[mace]"           # from a clone; or [uma], [sevennet]; add [d3
 
 Each calculator loads its model file from the path given as `--option model=PATH`, else from
 mechanet's models folder (`$MECHANET_MODELS`, else `~/.local/share/mechanet/models`), else from
-its package, which downloads it on the first run. UMA's weights are gated: request access at
-<https://huggingface.co/facebook/UMA>, then either log in with `hf auth login`
-(`huggingface-cli login` in older versions) before the first prescreen, or download the file in
-your browser and put it in the models folder.
+its package, which downloads it on the first run. UMA's weights are gated. As UMA's
+documentation says, request access at <https://huggingface.co/facebook/UMA>, create a Hugging
+Face token with "Read access to contents of all public gated repos you can access" (a token of
+type Read has it), and give it to huggingface_hub with `hf auth login` (`huggingface-cli login`
+in older versions) or the `HF_TOKEN` variable: the first prescreen then downloads the model.
+Or download the file in your browser and put it in the models folder.
 
 On a cluster whose compute nodes have no internet, or where you would rather not log in to
-Hugging Face, fill the models folder once: [Model files on a cluster](model-files.md) gives
-three ways, and `mechanet models` checks what a job would find before you submit.
+Hugging Face there, fill the models folder once: [Model files on a cluster](model-files.md)
+gives three ways, among them `mechanet models uma --download` with your token, and
+`mechanet models` checks what a job would find before you submit.
 
 ### Which model file was used
 

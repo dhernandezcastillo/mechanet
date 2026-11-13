@@ -44,7 +44,7 @@ from typing import Callable, Protocol, runtime_checkable
 
 import numpy as np
 
-from .modelfiles import model_path, not_on_this_computer, official_filename
+from .modelfiles import hub_access_hint, model_path, models_folder, not_on_this_computer, official_filename
 
 OPTIMIZERS = ("BFGS", "LBFGS", "FIRE")
 DEFAULT_OPTIMIZER = "BFGS"
@@ -422,9 +422,11 @@ def make_uma(
     (PBE/PBE+U, Materials Project settings), ``oc25`` slabs with explicit water (RPBE+D3).
     ``inference_settings``: ``high-precision`` (TF32 off), not fairchem's default, which trades
     accuracy for speed. Neither OC22 nor OMat24 has dispersion: ``dispersion=true`` adds D3(BJ).
-    The weights are gated on Hugging Face: request access to facebook/UMA and log in first, or
-    put the file in mechanet's models folder (:mod:`mechanet.modelfiles`), which is read without
-    the internet, as is the file ``model`` names when it is a path. Otherwise fairchem downloads
+    The weights are gated on Hugging Face: set up a token as UMA's documentation says (request
+    access to facebook/UMA; a token with read access to gated repositories, in HF_TOKEN or saved
+    by ``hf auth login``), or put the file in mechanet's models folder
+    (:mod:`mechanet.modelfiles`), which is read without the internet, as is the file ``model``
+    names when it is a path; a refusal says which is missing. Otherwise fairchem downloads
     the model on the first run into its cache, ``~/.cache/fairchem`` or the folder in
     ``FAIRCHEM_CACHE_DIR`` (``get_predict_unit``'s ``cache_dir`` moves only two small
     reference-energy files). A file loaded by path goes without those two files: fairchem uses
@@ -446,13 +448,14 @@ def make_uma(
         unit = pretrained_mlip.get_predict_unit(
             str(model if path is None else path), inference_settings=inference_settings, device=dev, **options
         )
-    except Exception as exc:  # noqa: BLE001 - a failed download gets a hint, anything else passes unchanged
-        text = f"{type(exc).__name__}: {exc}"
-        if any(word in text for word in ("401", "403", "gated", "Gated", "authenticat", "Authenticat")):
+    except Exception as exc:  # noqa: BLE001 - a refused download gets a hint, anything else passes unchanged
+        hint = hub_access_hint(exc)
+        if hint is not None:
+            text = " ".join(f"{type(exc).__name__}: {exc}".split())
+            filename = official_filename("uma", model) or "the model file"
             raise RuntimeError(
-                f"UMA {model!r} could not be loaded ({text}). The UMA weights are gated: request access at "
-                "https://huggingface.co/facebook/UMA, then log in (hf auth login), or put the model file in "
-                "mechanet's models folder (`mechanet models` says where)"
+                f"UMA {model!r} could not be loaded ({text}). {hint}. Or put {filename} in mechanet's models "
+                f"folder ({models_folder()}): `mechanet models uma` says what is where"
             ) from exc
         if path is None and isinstance(exc, OSError):  # no internet here: say where a copy would be found
             raise not_on_this_computer("uma", model, exc) from exc
