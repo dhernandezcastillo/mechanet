@@ -7,6 +7,10 @@
   260 options and the 677 public names that its 45 modules define, with their parameters,
   members and fields. A version without a list of its own fails the test, so the next one
   cannot be made without it.
+- **A number in the entry of 0.1.5 is corrected.** The check that nothing of 0.1.4 is lost
+  covers 572 public names, the ones in its list, and not 1,150 as the entry said. The larger
+  figure also counted private names and names that a module imports from another, which the
+  test does not check.
 
 ## 0.1.5 (2026-11-13)
 
@@ -230,7 +234,7 @@ thermodynamics. Everything 0.1.4 offered is still there, and a test now checks i
   through=STAGE, execute=True)` runs what is not finished up to that stage and nothing twice
   (docs/execution.md §11; now covered by a test).
 - **Nothing of 0.1.4 is lost**: every command, option and public name of 0.1.4 is still there
-  (27 commands, 233 options, 1,150 names checked); the tables `analysis.RESERVOIR_MOLECULES`,
+  (27 commands, 233 options, 572 public names checked); the tables `analysis.RESERVOIR_MOLECULES`,
   `families.coverage.DEFAULT_STATES` and `CER_EXTRA`, replaced by declarations, are importable
   again.
 - **Starts on other processors.** Orientations with exactly equal scores are told apart by
