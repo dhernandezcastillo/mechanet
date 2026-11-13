@@ -75,8 +75,9 @@ list in that test, and move its section from this page to the changelog.
   (it differs between processors, see `tie-break` in [open design questions](pending.md)),
   nor on how many starts an intermediate gets (with and without symmetry merging), and must
   compare folders as resolved paths (`Path.resolve()`).
-* Say in `CHANGELOG.md`, under "Unreleased", what changed for the user, and describe a new
-  behaviour in the guide it belongs to.
+* Say in `CHANGELOG.md`, under "Unreleased", what changed for the user (add that heading above
+  the newest version if it is not there), and describe a new behaviour in the guide it belongs
+  to.
 
 ## `copied-intermediates`
 

@@ -1,12 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.1.5 (2026-11-13)
 
-Chemistry beyond oxygen and chlorine without changes to the core (carbon, nitrogen, hydrogen on
-metals, bonds between two sites), pre-screening with ML potentials, no repeated starts on
-symmetric sites, Windows and macOS support, a smaller `analysis.py`, and three corrections from
-an independent review of the thermodynamics. Everything 0.1.4 offered is still there, and a
-test now checks it.
+The surface before the mechanism: a coverage campaign of its own, candidates for the mechanism
+from the surface Pourbaix diagram, the mechanism on a surface you pick, and slabs that already
+carry adsorbates. Also chemistry beyond oxygen and chlorine without changes to the core
+(carbon, nitrogen, hydrogen on metals, bonds between two sites), Walden steps for the OER,
+pre-screening with ML potentials, no repeated starts on symmetric sites, Windows and macOS
+support, a smaller `analysis.py`, and three corrections from an independent review of the
+thermodynamics. Everything 0.1.4 offered is still there, and a test now checks it.
 
 - **A coverage campaign of its own.** `mechanet generate --coverage` builds the surfaces of
   `scope.coverage` (the adsorbates you list per kind of site or per site, in every combination
@@ -238,6 +240,8 @@ test now checks it.
   the process table is asked instead. Tests that need POSIX signals or shell-script SLURM fakes
   skip on Windows, as do those that run job scripts when `bash` cannot run them; CI runs the
   tests on Windows and macOS as well.
+- Installation from the repository, until mechanet is on PyPI:
+  `pip install "mechanet[plots] @ git+https://github.com/dhernandezcastillo/mechanet.git@v0.1.5"`.
 
 Three corrections from an independent review of the thermodynamics:
 

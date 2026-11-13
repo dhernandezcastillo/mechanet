@@ -66,7 +66,7 @@ and VASP.
 
 - Python 3.10 or newer. Install with `pip install "mechanet[plots]"`; the `plots` extra adds
   matplotlib for figures. Until the first release is on PyPI, install it from the repository:
-  `pip install "mechanet[plots] @ git+https://github.com/dhernandezcastillo/mechanet.git@v0.1.4"`.
+  `pip install "mechanet[plots] @ git+https://github.com/dhernandezcastillo/mechanet.git@v0.1.5"`.
 - Every command prints a readable summary; add `--json` for scripts. `mechanet COMMAND --help`
   lists the options of a command, and the [command reference](../commands.md) lists them all.
 - Nothing is ever submitted to SLURM without `--execute`. Every other command is safe to try.
