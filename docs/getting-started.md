@@ -8,7 +8,7 @@ pip install "mechanet[plots]"
 
 mechanet needs Python 3.10 or newer and brings numpy, ase, spglib, networkx and pyyaml; the
 `plots` extra adds matplotlib for the figures. Until the first release is on PyPI, install it
-from the repository: `pip install "mechanet[plots] @ git+https://github.com/dhernandezcastillo/mechanet.git@v0.1.5"`.
+from the repository: `pip install "mechanet[plots] @ git+https://github.com/dhernandezcastillo/mechanet.git@v0.1.6"`.
 `mechanet --version` checks the installation.
 
 On the cluster, install it in an environment the compute nodes can see, for example a virtual

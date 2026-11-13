@@ -34,7 +34,7 @@ from pathlib import Path
 DATA = Path(__file__).with_name("data")
 PREFIX = "public_surface_"
 # Every version made since the first list, with the number of its commands.
-VERSIONS = {"0.1.4": 27, "0.1.5": 28}
+VERSIONS = {"0.1.4": 27, "0.1.5": 28, "0.1.6": 28}
 PLAIN = (str, int, float, bool, tuple, list, dict, set, frozenset, type(None))
 
 

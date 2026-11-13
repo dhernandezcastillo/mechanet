@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.1.6 (2026-11-13)
+
+Nothing changes in what mechanet computes or in its commands. The check that nothing is lost
+now covers 0.1.5, and a number in the changelog of 0.1.5 is corrected, so that the tagged
+version and the documentation say the same.
 
 - **Nothing of 0.1.5 is lost either.** The test that keeps every command, option and public name
   of 0.1.4 now checks one list per version. The list of 0.1.5 holds its 28 commands with their
@@ -11,6 +15,8 @@
   covers 572 public names, the ones in its list, and not 1,150 as the entry said. The larger
   figure also counted private names and names that a module imports from another, which the
   test does not check.
+- Installation from the repository, until mechanet is on PyPI:
+  `pip install "mechanet[plots] @ git+https://github.com/dhernandezcastillo/mechanet.git@v0.1.6"`.
 
 ## 0.1.5 (2026-11-13)
 

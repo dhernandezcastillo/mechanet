@@ -16,6 +16,6 @@ functions are importable for notebooks and scripts, for example::
     main(["--json", "thermo", "my_project/campaign"])  # any command, as on the command line
 """
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
 
 __all__ = ["__version__"]
