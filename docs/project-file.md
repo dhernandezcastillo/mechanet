@@ -63,6 +63,15 @@ direction of the missing ligand.
 | `coverage` | Settings of the `coverage` family: `sites`, `max_changed_sites` (2; null for all combinations), `states` per site kind or per site ID. `mechanet generate --coverage` builds these surfaces as a campaign of their own ([surface first](surface-first.md)). |
 | `enumerate` | Settings of the `enumerated` family: `sites` (one to three), `states` per site or kind, `max_length` (8), `max_cycles`. |
 
+`slab.carried` names a file written by `mechanet init` when the slab file carried adsorbates
+(OOH on an oxygen, Cl on a metal): what they were, on which site, and where their atoms sat.
+`slab.file` is then the slab without them, and `mechanet generate` builds the campaign on the
+slab as given ([surface first](surface-first.md#4-a-slab-that-already-carries-adsorbates)).
+The file and the `sites` belong together: the site of a carried adsorbate cannot be deleted
+from `sites` while the file names it, because the slab file no longer holds its atoms.
+`mechanet generate` then says what the choices are (restore the site, take the adsorbate out
+of `occupancy` in the file, or run `init` again and keep the adsorbate as part of the slab).
+
 ## surfaces
 
 Named surfaces a campaign can be built on with `mechanet generate --on NAME`

@@ -163,9 +163,20 @@ def vacancy_direction(structure, metal, ligand_neighbors, normal, min_norm=0.25)
 
 
 def inspect_slab(
-    path_or_structure, mask_path=None, options=None, role_overrides=None, vacuum_axis=None, surface_sign=None
+    path_or_structure,
+    mask_path=None,
+    options=None,
+    role_overrides=None,
+    vacuum_axis=None,
+    surface_sign=None,
+    registry=None,
 ):
-    """Inspect a slab and propose sites, frequency region and fixed region (see module docstring)."""
+    """Inspect a slab and propose sites, frequency region and fixed region (see module docstring).
+
+    ``registry`` supplies the adsorbates a slab may already carry (default: the built-in ones);
+    ``carried_adsorbates`` and ``kept_as_framework`` of the report say what was found
+    (:mod:`mechanet.carried`).
+    """
     opts = {**DEFAULTS, **(options or {})}
     if isinstance(path_or_structure, Structure):
         structure, source = path_or_structure, None
@@ -310,14 +321,28 @@ def inspect_slab(
         bulk_cn[el] = {"cn": int(reference), "from": origin + ("; metal-metal, no ligands" if metallic else "")}
     report["bulk_like_coordination"] = bulk_cn
 
-    def exposed(i):
-        candidates = np.array([j for j in heavy if j != i and hs[j] - hs[i] > opts["exposure_dz_A"]])
+    def exposed(i, ignore=()):
+        """Nothing heavy sits above atom i (``ignore``: atoms that do not count, an adsorbate's own)."""
+        candidates = np.array(
+            [j for j in heavy if j != i and j not in ignore and hs[j] - hs[i] > opts["exposure_dz_A"]]
+        )
         if len(candidates) == 0:
             return True
         lateral = lateral_distances(structure.cell, ufrac, normal, i, candidates, axis)
         return not np.any(lateral < opts["exposure_radius_A"])
 
     exposure = {i: exposed(i) for i in range(n_atoms) if symbols[i] != "H" and not molecular[i]}
+
+    # Adsorbates the slab already carries (OOH on an oxygen, Cl or H on a metal, ...) and surface
+    # groups that stay part of the framework.
+    from . import carried as carried_groups
+    from .plugins import default_registry
+
+    carried, kept = carried_groups.find(
+        structure, role, nbrs, molecular, exposed, registry or default_registry(), opts["molecule_max_atoms"]
+    )
+    report["carried_adsorbates"] = carried_groups.describe(structure, carried)
+    report["kept_as_framework"] = kept
 
     def ids(indices):
         return [structure.ids[j] for j in indices]
@@ -650,11 +675,32 @@ def summary(report):
     for s in sites:
         extra = f" on {s['metal']}" if s.get("metal") else ""
         out.append(f"    {s['id']:>8s}  {s['kind']:<10s} native {s['native']}{extra}")
-    if report["lattice_or_other_ligands"]:
-        reasons = Counter(x["reason"].split(";")[0] for x in report["lattice_or_other_ligands"])
+    carried = report.get("carried_adsorbates") or []
+    kept = report.get("kept_as_framework") or []
+    said = {atom for group in carried + kept for atom in group["atoms"]}
+    others = [x for x in report["lattice_or_other_ligands"] if x["id"] not in said]
+    if others:
+        reasons = Counter(x["reason"].split(";")[0] for x in others)
         out.append(
             "  exposed ligands not proposed: " + ", ".join(f"{n} {reason}" for reason, n in reasons.most_common())
         )
+    if carried:
+        out.append(
+            f"  adsorbates the slab carries ({len(carried)}): "
+            + "; ".join(f"{g['state']} on {' and '.join(g['metals'])} ({', '.join(g['atoms'])})" for g in carried)
+        )
+        out.append(
+            "    `mechanet init` reads them as states of sites: the campaign is built on the slab as given, "
+            "and they can react"
+        )
+    alike = {}  # groups of one kind kept for one reason are said once
+    for group in kept:
+        alike.setdefault((group["formula"], group["reason"]), []).append(group)
+    for (formula, reason), groups in alike.items():
+        atoms = [atom for group in groups for atom in group["atoms"]]
+        shown = ", ".join(atoms[:6]) + (", ..." if len(atoms) > 6 else "")
+        times = f"{len(groups)} x " if len(groups) > 1 else ""
+        out.append(f"  kept as part of the framework, not reactive: {times}{formula} ({shown}): {reason}")
     for s in report.get("open_metal_sites", []):
         if s.get("rule", "").startswith("free axial"):
             out.append(f"    {s['id']}: {s['rule']}")

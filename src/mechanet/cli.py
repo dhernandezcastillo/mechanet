@@ -219,7 +219,13 @@ def cmd_inspect(args, registry):
     from .inspector import inspect_slab, summary
     from .fileio import write_json
 
-    report = inspect_slab(args.slab, mask_path=args.mask, vacuum_axis=args.vacuum_axis, surface_sign=args.surface_sign)
+    report = inspect_slab(
+        args.slab,
+        mask_path=args.mask,
+        vacuum_axis=args.vacuum_axis,
+        surface_sign=args.surface_sign,
+        registry=registry,
+    )
     if args.out:
         write_json(args.out, report)
     if args.site_map:
@@ -310,6 +316,11 @@ def cmd_generate(args, registry):
     if report.get("surface"):
         on_surface = report["surface"]
         text.append(f"  on the surface {on_surface['name']}: {on_surface['description']} ({on_surface['node_id']})")
+        if on_surface.get("nodes_started_from_the_slab_as_given"):
+            text.append(
+                f"  {on_surface['nodes_started_from_the_slab_as_given']} intermediates start from the slab file as "
+                "given: the adsorbates it carried sit where the file had them"
+            )
         if on_surface["source_campaign"]:
             started = (
                 f"{on_surface['nodes_started_from_the_relaxed_surface']} new intermediates start from the relaxed "
@@ -321,6 +332,11 @@ def cmd_generate(args, registry):
                 f"  {on_surface['imported_states']} finished calculations of {on_surface['imported_nodes']} "
                 f"intermediates copied from {on_surface['source_campaign']}; {started}"
             )
+            if on_surface.get("not_copied"):
+                text.append(
+                    f"  {len(on_surface['not_copied'])} finished calculations were not copied: their relaxed "
+                    "structure is no longer the intermediate they were built as (build_report.json: surface.not_copied)"
+                )
     if report.get("coverage"):
         text.append(f"  {report['coverage']['text']}")
     text += [f"  {k.replace('_', ' ')}: {report[k]}" for k in keys]

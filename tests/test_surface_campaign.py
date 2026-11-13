@@ -148,6 +148,39 @@ class SurfaceBuilderTests(TempCase):
         self.assertEqual(sorted(plain.nodes), sorted(same.nodes))
         self.assertEqual(sorted(plain.states), sorted(same.states))
 
+    def test_a_site_back_in_the_state_of_the_slab_sits_where_the_slab_has_it(self):
+        """NiFe LDH: terminal a0065 is OH in the slab and O on the surface, where its oxygen relaxed
+        0.2 A towards the metal. With OH again, the oxygen is back at the place its H belongs to."""
+        loaded = load_project(ROOT / "examples" / "nife_ldh" / "project.yaml")
+        config = resolve_config(loaded, cluster=False)
+        plain = Builder(config, self.root / "plain", base_dir=loaded["_dir"], registry=default_registry())
+        site = "a0065"
+        metal = plain.sites[site]["metal_neighbors"][0]["id"]
+        oxygen = plain.seed.positions[plain.seed_index[site]]
+        towards = minimum_image(plain.seed.positions[plain.seed_index[metal]] - oxygen, plain.seed.cell)
+        relaxed = oxygen + 0.2 * towards / np.linalg.norm(towards)
+        config["scope"]["surface"] = {
+            "name": "oxo",
+            "occupancy": {site: "O"},
+            "coupling": None,
+            "given": {"positions": {site: relaxed.tolist()}},
+        }
+        on = Builder(config, self.root / "on", base_dir=loaded["_dir"], registry=default_registry())
+        surface = on.state_structures[on.nodes[on.surface_node]["state_ids"][0]]
+        self.assertTrue(np.allclose(surface.positions[surface.ids.index(site)], relaxed))  # the surface as given
+        node = on.node({site: "OH"}, "aem", site)  # the slab's own state on that site
+        self.assertEqual(node, "ref")
+        other = on.node({site: "OH", "a0066": "O"}, "aem", "a0066")
+        start = on.state_structures[on.nodes[other]["state_ids"][0]]
+        self.assertTrue(np.allclose(start.positions[start.ids.index(site)], oxygen))
+        hydrogen = plain.sites[site]["hydrogen_neighbors"][0]["id"]
+        bond = start.positions[start.ids.index(hydrogen)] - start.positions[start.ids.index(site)]
+        self.assertAlmostEqual(
+            float(np.linalg.norm(minimum_image(bond, start.cell))),
+            plain.sites[site]["hydrogen_neighbors"][0]["distance_A"],
+            places=6,
+        )
+
     def test_bad_surfaces_are_refused(self):
         project = self.project_copy()
         with self.assertRaisesRegex(ValueError, "unknown site a9999"):
@@ -209,7 +242,7 @@ class PickTests(TempCase):
 
     def test_what_is_not_a_surface(self):
         with self.assertRaisesRegex(
-            ValueError, "No surface 'nothing'.*surfaces: as-given, two-OH.*no coverage campaign"
+            ValueError, "No surface 'nothing'.*surfaces: as-given, slab, two-OH.*no coverage campaign"
         ):
             self.pick("nothing")
         with self.assertRaisesRegex(FileNotFoundError, "is not a campaign"):
@@ -294,20 +327,31 @@ class SurfaceWorkflowTests(unittest.TestCase):
         # The synthetic VASP leaves the atoms where they start. The surface is moved by hand, as a
         # relaxation would: a surface Ru sinks and the H of one OH turns (the bonds stay).
         cls.moved = {"a0038": np.array([0.0, 0.0, -0.06]), "h_m0046": np.array([0.12, 0.10, 0.0])}
-        state = cls.coverage / "states" / f"{cls.surface_id}__v1"
-        ids = read_json(state / "state.json")["atom_ids"]
-        contcar = state / "02_final" / "CONTCAR"
-        relaxed = read_poscar(contcar)
-        for atom, shift in cls.moved.items():
-            relaxed.positions[ids.index(atom)] += shift
-        write_poscar(contcar, relaxed)
-        attempt = read_json(state / "02_final" / "attempt.json")
-        recorded = attempt["output_hashes"]
-        if isinstance(recorded.get("CONTCAR"), dict):
-            recorded["CONTCAR"]["sha256"] = file_hash(contcar)
-        else:
-            recorded["CONTCAR"] = file_hash(contcar)
-        write_json(state / "02_final" / "attempt.json", attempt)
+
+        def relax_to(state_id, shifts):
+            state = cls.coverage / "states" / state_id
+            ids = read_json(state / "state.json")["atom_ids"]
+            contcar = state / "02_final" / "CONTCAR"
+            relaxed = read_poscar(contcar)
+            for atom, shift in shifts.items():
+                relaxed.positions[ids.index(atom)] += shift
+            write_poscar(contcar, relaxed)
+            attempt = read_json(state / "02_final" / "attempt.json")
+            recorded = attempt["output_hashes"]
+            if isinstance(recorded.get("CONTCAR"), dict):
+                recorded["CONTCAR"]["sha256"] = file_hash(contcar)
+            else:
+                recorded["CONTCAR"] = file_hash(contcar)
+            write_json(state / "02_final" / "attempt.json", attempt)
+
+        relax_to(f"{cls.surface_id}__v1", cls.moved)
+        # The surface with OH on one site only loses its H in every start: its relaxed structures
+        # are no longer that surface, so they must not stand for it in another campaign.
+        single = next(n for n in network["nodes"] if len(n["occupancy"]) == 1 and n["state_ids"])
+        cls.single_id, cls.lost = single["id"], sorted(single["state_ids"])
+        (site,) = single["occupancy"]
+        for state_id in cls.lost:
+            relax_to(state_id, {f"h_{site}": np.array([0.0, 0.0, 3.0])})
         cls.before = {
             str(path.relative_to(cls.coverage)): file_hash(path)
             for path in sorted(cls.coverage.rglob("*"))
@@ -337,9 +381,17 @@ class SurfaceWorkflowTests(unittest.TestCase):
         self.assertEqual(Path(surface["source_campaign"]), self.coverage.resolve())
         network = read_json(self.campaign / "network.json")
         imported = [n for n in network["nodes"] if n.get("geometry_status") == "imported"]
-        # the slab as given, OH on one site and OH on both are surfaces of the coverage campaign
-        self.assertEqual(len(imported), 3)
-        self.assertEqual(surface["imported_nodes"], 3)
+        # the slab as given and OH on both sites are surfaces of the coverage campaign that kept
+        # their structure; OH on one site did not, so it is not copied and starts afresh here
+        self.assertEqual(len(imported), 2)
+        self.assertEqual(surface["imported_nodes"], 2)
+        self.assertEqual(sorted(x["state_id"] for x in surface["not_copied"]), self.lost)
+        single = next(n for n in network["nodes"] if n["id"] == self.single_id)
+        self.assertEqual(single["geometry_status"], "generated")
+        self.assertNotIn("imported_from", single)
+        for sid in single["state_ids"]:
+            self.assertIn("seeded_from", read_json(self.campaign / "states" / sid / "state.json"))
+            self.assertFalse((self.campaign / "states" / sid / "02_final").exists())
         self.assertIn(self.surface_id, [n["id"] for n in imported])
         for node in imported:
             self.assertEqual(Path(node["imported_from"]["campaign"]), self.coverage.resolve())
@@ -439,7 +491,8 @@ class SurfaceWorkflowTests(unittest.TestCase):
         code, out, _ = run("generate", self.project, "--on", self.surface_id, "--out", self.tmp / "again")
         self.assertEqual(code, 0)
         self.assertIn(f"on the surface {self.surface_id}: terminal 2 OH | bridge 2 O", out)
-        self.assertIn("finished calculations of 3 intermediates copied from", out)
+        self.assertIn("finished calculations of 2 intermediates copied from", out)
+        self.assertIn(f"{len(self.lost)} finished calculations were not copied", out)
         self.assertIn(f"new intermediates start from the relaxed surface ({self.surface_id}__v1)", out)
         code, out, err = run("generate", self.project, "--on", self.surface_id, "--on", "ref", "--out", self.tmp / "x")
         self.assertEqual(code, 2)

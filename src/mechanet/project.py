@@ -66,6 +66,7 @@ SLAB_KEYS = (
     "roles",
     "species_order",
     "spectator_molecules",
+    "carried",
 )
 INPUT_KEYS = ("incar_loose", "incar_final", "kpoints")
 # Keys each section accepts (a typo is an error, not a silently ignored setting).
@@ -478,6 +479,47 @@ def _path(project, value):
     return path if path.is_absolute() else Path(project["_dir"]) / path
 
 
+def _read_carried(project, registry):
+    """What ``slab.carried`` names (the adsorbates the slab file carried), checked against the project.
+
+    Their atoms are no longer in the slab file of the project, so a carried adsorbate whose
+    site is gone cannot be dropped without a word: the campaign would be built on another surface.
+    """
+    from .fileio import read_json
+
+    entry = project["slab"]["carried"]
+    path = _path(project, entry)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"slab.carried names {entry}, which does not exist. `mechanet init` writes it for a slab file that "
+            "carries adsorbates; without it the campaign cannot put them back. Restore the file, or remove the "
+            "entry to build on the slab without them."
+        )
+    try:
+        carried = read_json(path)
+    except ValueError as error:
+        raise ValueError(f"{entry} (slab.carried) cannot be read as JSON: {error}") from None
+    ok = isinstance(carried, dict) and isinstance(carried.get("name"), str)
+    if not ok or not isinstance(carried.get("occupancy"), dict) or not isinstance(carried.get("positions"), dict):
+        raise ValueError(
+            f"{entry} (slab.carried) must hold `name`, `occupancy` {{site: state}} and `positions` "
+            "{atom: [x, y, z]}, as `mechanet init` writes them"
+        )
+    sites = {str(site["id"]) for site in project["sites"]}
+    gone = sorted(set(carried["occupancy"]) - sites)
+    if gone:
+        held = ", ".join(f"{carried['occupancy'][site]} on {site}" for site in gone)
+        raise ValueError(
+            f"{entry} (slab.carried) has {held}, and `sites` of project.yaml has no such site. The slab file of the "
+            "project no longer holds the atoms of that adsorbate, so its site is needed to put them back. Restore "
+            "the site; or delete it from `occupancy` in that file to study the slab without the adsorbate; or run "
+            "`mechanet init` again and answer n to keep the adsorbate as a fixed part of the slab."
+        )
+    for state in carried["occupancy"].values():
+        registry.adsorbate(str(state))
+    return carried
+
+
 def _merge(defaults, given):
     out = copy.deepcopy(defaults)
     for key, value in (given or {}).items():
@@ -518,6 +560,10 @@ def resolve_config(project, registry=None, cluster=True):
         "scope": copy.deepcopy(project["scope"]),
         "plugins": plugins,
     }
+    if slab.get("carried"):
+        # The adsorbates the slab file carried (mechanet init took them out of the slab): the
+        # campaign keeps what they were and where, so it does not depend on the project folder.
+        config["slab"]["carried"] = _read_carried(project, registry)
     for section, defaults in DEFAULT_SECTIONS.items():
         config[section] = _merge(defaults, project.get(section))
     if config["vasp"].get("command") is not None:
@@ -591,12 +637,18 @@ def coverage_count(project_path=None, on=None, source=None):
         surface = pick(project, config, registry, on, source)
         # Counting needs the pattern only: no calculation is copied and no start is made.
         config["scope"]["surface"] = {k: surface[k] for k in ("name", "occupancy", "coupling")}
+    elif config["slab"].get("carried"):
+        # As `generate` does: a slab that carried adsorbates is probed around the slab as given.
+        from .surfaces import given_surface
+
+        surface = given_surface(config["slab"]["carried"])
+        config["scope"]["surface"] = {k: surface[k] for k in ("name", "occupancy", "coupling")}
     with tempfile.TemporaryDirectory() as scratch:
         builder = Builder(config, Path(scratch) / "count", base_dir=project["_dir"], registry=registry)
         found = count(builder)
         kinds = {aid: site["kind"] for aid, site in builder.sites.items()}
     found["text"] = _coverage_text(found, kinds)
-    if on is not None:
+    if config["scope"].get("surface"):
         found["text"] = found["text"].replace("coverage:", f"coverage around {config['scope']['surface']['name']}:", 1)
     return found
 
@@ -653,6 +705,12 @@ def generate(project_path=None, out=None, families=None, coverage=False, on=None
         default_folder = f"{COVERAGE_FOLDER}_on_{surface['name']}" if coverage else f"on_{surface['name']}"
     elif source is not None:
         raise ValueError("--from names the campaign a surface is taken from: give the surface with --on")
+    elif config["slab"].get("carried"):
+        # The slab file carried adsorbates: the campaign is built on the slab as it was given.
+        from .surfaces import given_surface
+
+        surface, surface_notes = given_surface(config["slab"]["carried"]), []
+        config["scope"]["surface"] = surface
     out = Path(out) if out else Path(project["_dir"]) / default_folder
     report = build(config, out, base_dir=project["_dir"], families=families, registry=registry)
     shutil.copy2(project["_path"], out / "project.snapshot.yaml")
@@ -987,7 +1045,7 @@ def init_project(
             f"  [note] {slab.name} lists an element in more than one block; the project's copy groups the "
             "atoms by element (a POSCAR needs one block per element), and atom IDs follow the new order"
         )
-    report = inspect_slab(slab_source, mask_path=mask_source)
+    report = inspect_slab(slab_source, mask_path=mask_source, registry=registry)
     if regrouped:
         report["file"] = str(slab)
     output(summary(report))
@@ -998,10 +1056,58 @@ def init_project(
         keep = ask.yes_no("slab.surface_sign", f"No constraints in the file. Is the active side +{axis}?", True)
         proposal["surface_sign"] = 1 if keep else -1
         if not keep:  # re-inspect from the other side so sites and the fixed region follow
-            report = inspect_slab(slab_source, mask_path=mask_source, surface_sign=-1)
+            report = inspect_slab(slab_source, mask_path=mask_source, surface_sign=-1, registry=registry)
             if regrouped:
                 report["file"] = str(slab)
             proposal = report["proposal"]
+    # Adsorbates the slab already carries become states of sites: their atoms leave the slab
+    # the campaign is referenced to, and the slab as given becomes the surface it is built on.
+    given = None
+    if report["carried_adsorbates"]:
+        from . import carried as carried_groups
+
+        listed = ", ".join(f"{g['state']} on {' and '.join(g['metals'])}" for g in report["carried_adsorbates"])
+        if ask.yes_no(
+            "slab.carried",
+            f"The slab carries {listed}. Read them as states of sites, so that the campaign is built on the slab "
+            "as given and they can react?",
+            True,
+        ):
+            groups = carried_groups.from_report(structure, report["carried_adsorbates"])
+            bare, index_map = carried_groups.strip(structure, groups)
+            if frequency_mask:
+                mask = mask_source if not isinstance(mask_source, (str, Path)) else read_structure(mask_source)
+                mask_source = carried_groups.strip(mask, groups)[0]
+            given = carried_groups.as_given(structure, groups, index_map, bare)
+            structure = slab_source = bare
+            report = inspect_slab(
+                bare,
+                mask_path=mask_source,
+                vacuum_axis=proposal["vacuum_axis"],
+                surface_sign=proposal["surface_sign"],
+                registry=registry,
+            )
+            report["file"] = str(slab)
+            proposal = report["proposal"]
+            proposed = {s["id"]: s for s in proposal["sites"]}
+            for entry in given["sites"]:
+                if entry["id"] in proposed:
+                    if "direction" in entry:  # where the file has the adsorbate, not a guess
+                        proposed[entry["id"]]["direction"] = entry["direction"]
+                    continue
+                proposal["sites"].append(entry)
+                if entry["kind"] != "open_metal":
+                    proposal["frequency_atoms"] = sorted({*proposal["frequency_atoms"], entry["id"]})
+            output(
+                f"  the slab without them ({len(bare)} atoms) is the reference of the campaign; on it the slab as "
+                "given is the surface "
+                + ", ".join(f"{site}: {state}" for site, state in sorted(given["occupancy"].items()))
+            )
+            for s in proposal["sites"]:
+                extra = f" on {s['metal']}" if s.get("metal") else ""
+                output(f"    {s['id']:>8s}  {s['kind']:<10s} native {s['native']}{extra}")
+        else:
+            output("        kept as part of the framework: these atoms stay where they are and do not react")
     if report["fixed_region"]["source"] == "proposal":
         fr = report["fixed_region"]
         if ask.yes_no(
@@ -1048,10 +1154,31 @@ def init_project(
         sites = [s for s in sites if s["id"] in wanted]
         if not sites:
             output("  [warn] no site kept; add sites to project.yaml by hand")
+        if given:
+            dropped = sorted(set(given["occupancy"]) - wanted)
+            for site in dropped:  # its adsorbate is no longer in the slab: it leaves the model, and that is said
+                state = given["occupancy"].pop(site)
+                given["positions"] = {k: v for k, v in given["positions"].items() if not k.endswith(site)}
+                output(f"  [warn] the {state} the slab carried on {site} is left out with its site")
     reactions = sorted(registry.reactions)
     reaction = reaction or ask.choose(
         "reaction", "Reaction", [(r, registry.reaction(r).title) for r in reactions], "oer"
     )
+    if given:
+        # A reaction can only place a surface whose elements its formation species supply (the
+        # OER has water and protons, no chloride): said now, not at the Pourbaix diagram.
+        for site, state in sorted(given["occupancy"].items()):
+            composition = dict(registry.adsorbate(state).composition)
+            if not site.startswith("m"):
+                composition["O"] = composition.get("O", 0) - 1  # the oxygen of the site stays in the slab
+            try:
+                registry.reaction(reaction).formation_vector({k: v for k, v in composition.items() if v})
+            except ValueError:
+                output(
+                    f"  [warn] the reaction {reaction} has no reservoir for the {state} the slab carries on {site}: "
+                    "mechanisms next to it can be studied, but `mechanet pourbaix` cannot place surfaces that hold "
+                    "it. A reaction with that reservoir (cer for chlorine, or a plugin) can."
+                )
     presets = _scope_presets(reaction, registry)
     if scope is None:
         options = [(k, SCOPE_HELP.get(k, "") + f" [{', '.join(v)}]") for k, v in presets.items()]
@@ -1185,7 +1312,35 @@ def init_project(
     (root / "inputs").mkdir(parents=True, exist_ok=True)
     slab_copy = root / "slab" / slab.name
     mask_copy = None
-    if regrouped:
+    carried_file = None
+    if given:
+        # The slab without the adsorbates it carried, next to the file as given and to what was read from it.
+        slab_copy = root / "slab" / f"{slab.stem}_bare.vasp"
+        write_poscar(slab_copy, structure, comment=f"{slab.name} without the adsorbates it carried (mechanet init)")
+        origins["slab.file"] = f"{slab.name} without the adsorbates it carried"
+        as_given_copy = root / "slab" / slab.name
+        if slab.resolve() != as_given_copy.resolve():
+            shutil.copy2(slab, as_given_copy)
+        if frequency_mask:
+            mask_copy = root / "slab" / f"{Path(frequency_mask).stem}_bare.vasp"
+            write_poscar(mask_copy, mask_source, comment=f"{Path(frequency_mask).name} without the carried adsorbates")
+        carried_file = root / "slab" / "as_given.json"
+        write_json(
+            carried_file,
+            {
+                "schema_version": 1,
+                "name": carried_groups.SURFACE_NAME,
+                "slab_as_given": f"slab/{slab.name}",
+                "occupancy": dict(sorted(given["occupancy"].items())),
+                "positions": given["positions"],
+                "groups": given["groups"],
+                "note": "Adsorbates the slab file carried. mechanet init took their atoms out of the slab the "
+                "campaign is referenced to; `mechanet generate` builds the campaign on this surface, with these "
+                "atoms where the file had them.",
+            },
+        )
+        origins["slab.carried"] = "auto"
+    elif regrouped:
         poscar_like = slab.name.upper().startswith(("POSCAR", "CONTCAR")) or slab.suffix.lower() in (
             ".vasp",
             ".poscar",
@@ -1260,6 +1415,7 @@ def init_project(
         "name": name,
         "reaction": reaction,
         "slab_file": f"slab/{slab_copy.name}",
+        "carried": f"slab/{carried_file.name}" if carried_file else None,
         "frequency_mask": f"slab/{mask_copy.name}" if mask_copy else None,
         "vacuum_axis": axis,
         "surface_sign": int(proposal["surface_sign"]),
@@ -1412,6 +1568,14 @@ def render_project(d):
         c(f"  vacuum_axis: {d['vacuum_axis']}", f"{tag('slab.vacuum_axis')} lattice vector across the vacuum"),
         c(f"  surface_sign: {d['surface_sign']}", f"{tag('slab.surface_sign')} +1: the active side faces +normal"),
     ]
+    if d.get("carried"):
+        lines.insert(
+            len(lines) - 2,
+            c(
+                f"  carried: {_flow(d['carried'])}",
+                "[auto] adsorbates the slab file carried: the surface the campaign is built on",
+            ),
+        )
     if fixed.get("source") == "file":
         lines.append(c("  fixed: {source: file}", "[file] selective dynamics of the slab file"))
     else:

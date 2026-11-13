@@ -200,7 +200,8 @@ What the campaign contains:
   has: the picked surface itself, the slab as given, and any other surface of the coverage
   campaign that the mechanism passes through. Their folders are copied as they are, with a
   note of where they come from (`imported.json`); nothing is computed twice, and the coverage
-  campaign is only read.
+  campaign is only read. A calculation whose relaxed structure is no longer the surface it
+  was built as is not copied: that intermediate gets a fresh start here.
 * **New intermediates that start from the relaxed surface.** Their atoms sit where the
   surface relaxed; only the sites that differ from the surface are rebuilt and oriented, in
   that environment. This is what one does by hand when editing the CONTCAR of a surface, and
@@ -230,7 +231,8 @@ mechanet generate --on oxidised
 ```
 
 Without a coverage campaign there is nothing to copy and no relaxed surface, so every start
-is built from the slab with all adsorbates placed anew. To get the starts from the relaxed
+is built from the slab with all adsorbates placed anew. (If you have the relaxed structure of
+the surface itself, give that file to `mechanet init` instead: section 4.) To get the starts from the relaxed
 surface, relax it first in a campaign of its own and name that campaign with `--from`:
 `mechanet generate --on oxidised --from DIR` takes the surface, its relaxed structure and
 the finished calculations from any campaign of the same project (`--from none` uses none).
@@ -244,3 +246,62 @@ of around the slab: the combinations of `scope.coverage` are counted from the su
 `max_changed_sites: 2` this probes, for example, OOH, OO and water next to a surface that a
 first pass with O and OH brought out, at a fraction of the cost of every combination. The
 campaign goes to `<project>/coverage_on_NAME`; surfaces the first pass has relaxed are copied.
+
+## 4. A slab that already carries adsorbates
+
+The slab file you start from may be a surface with adsorbates on it: the relaxed structure of
+a termination from an earlier study, with an OOH on a metal or a chloride next to the active
+site. `mechanet init` reads such a group as what it is, the state of a site:
+
+```text
+  adsorbates the slab carries (1): OOH on a0040 (a0033, a0034, a0051)
+    `mechanet init` reads them as states of sites: the campaign is built on the slab as given, and they can react
+  the slab without them (49 atoms) is the reference of the campaign; on it the slab as given is the surface a0033: OOH
+       a0016  bridge     native O
+       a0019  bridge     native O
+       a0033  terminal   native O
+       m0047  open_metal native empty on a0047
+```
+
+Three things happen:
+
+1. **The atoms of the group leave the slab the campaign is referenced to.** For a group on an
+   oxygen (OOH, O2, OCl) the oxygen stays and is a terminal or bridging site in the state O;
+   the atoms beyond it go. A group bound to one metal through another element (Cl, H, CO) goes
+   whole, and the metal is an open metal site. The project keeps three files: the slab as you
+   gave it, the slab without the groups (`slab/NAME_bare.vasp`, the one `project.yaml` names)
+   and `slab/as_given.json`, which says what was read: the site, its state and where the atoms
+   were.
+2. **The slab as given becomes a surface**, named `as-given`, and `mechanet generate` builds
+   the campaign on it without any option. Its start is the file as you gave it, atom for atom,
+   and every other intermediate starts from it with only the sites that differ rebuilt, as in
+   section 3. The adsorbate is a state like any other: the families write the mechanism on its
+   site and next to it.
+3. **Nothing else changes.** An oxygen with zero to two H is a site in the state O, OH or H2O
+   as before, and a slab without such groups is read exactly as before.
+
+`mechanet generate --on slab` builds a campaign on the slab without the groups, and `--on
+as-given --from DIR` takes finished calculations and the relaxed surface from another campaign
+of the project.
+
+A group that cannot be read this way is kept as part of the framework, where it stays
+unchanged and does not react, and the inspection says so with the atoms and the reason:
+
+| Group | What `inspect` and `init` say |
+|---|---|
+| Not a registered adsorbate (a carbonate, an amide without the plugin that defines NH2) | `no registered adsorbate is H2N bound through N ...; a plugin can register it` |
+| Bound through several atoms: O2 side-on, a peroxo pair between two sites | `it binds the surface through 2 atoms ...: a pair between two sites or a molecule bound side-on is not the state of one site` |
+| Between two or more metals through an element other than oxygen: CO on a bridge, H in a hollow | `H binds 3 metals: an adsorbate bound through an element other than oxygen is written on top of one metal only` |
+| Two such adsorbates on one metal | `... holds 2 adsorbates ..., and a metal has one open site` |
+
+Answer `n` to the question of `init` to keep a recognised group in the framework as well.
+Groups of one kind kept for one reason are said in one line. What belongs to the material is
+not listed here: a covalent sheet (the nitrogen of an Fe–N4 site leads into the carbon of the
+sheet) is the slab itself, and a lone anion between two or more metals (the sulfur of a
+sulfide, the fluorine of a fluoride, a bridging chloride) is a ligand of the slab, reported
+with the other ligands as before (`exposed ligands not proposed`).
+
+If the reaction has no reservoir for an element the slab carries (the oxygen evolution has
+water and protons, no chloride), `init` says so: the mechanism next to the adsorbate can be
+studied, but `mechanet pourbaix` cannot place surfaces that hold it. Choose the reaction with
+that reservoir (`--reaction cer` for chlorine) or a plugin.

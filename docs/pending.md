@@ -51,3 +51,40 @@ O–O pair.
   Rings cannot be written as templates either.
 - Not needed for oxygen and chlorine evolution on oxides; needed for CO2 reduction to formate
   and for most C2 chemistry.
+- The same limit decides what a slab file may carry (`carried.py`): O2 bound side-on, a
+  peroxo pair between two sites, CO on a bridge and H in a hollow are kept as part of the
+  framework, with the reason said, instead of being read as states of sites.
+
+## `many-site-placement`
+
+**A surface with more than three adsorbates to orient is placed with two orders, not all.**
+
+The orientation search places the sites of an intermediate one after another and tries every
+order, so that an early choice cannot block a later site. The orders grow as a factorial: 24
+for four sites, 40,320 for eight, at seconds each. Up to three sites nothing changed. Beyond
+that two orders are tried (the sites in their order and in reverse) with two partial
+structures kept, which builds a coverage state with OOH on four sites in 10 s instead of 190 s.
+
+- Every start still passes the clash and bond checks, and DFT relaxes it; what the shorter
+  search may miss is a better hydrogen-bond arrangement among many adsorbates.
+- Not measured: how often the two-order start differs from the best of all orders for four
+  and five sites, and whether the relaxed energies differ. Four sites can be compared directly
+  (`geometry.orientation_search.all_orders_up_to: 4`).
+- A coverage campaign is the case that needs it. Mechanism campaigns on a picked surface start
+  from the relaxed surface and orient only the sites that differ, so they do not depend on it.
+
+## `surface-from-discovered`
+
+**A surface that exists only as a structure another start relaxed into cannot be reused yet.**
+
+`mechanet generate --on ID` copies finished calculations and takes the relaxed surface from
+the states of that intermediate in the source campaign. A surface added by `review
+--discover` (a pattern the coverage scope did not list, found because a start relaxed into
+it) has no state of its own with that atom order: its structure belongs to the start it was
+found in.
+
+- Such a surface can be picked: the campaign is built on its pattern. Nothing is copied for
+  it and its intermediates start from the slab with every adsorbate placed anew; `generate`
+  says so.
+- A fix writes the found structure as a start of the discovered surface with the builder's
+  atom order, as `review --discover` already does for a surface left behind by a release.

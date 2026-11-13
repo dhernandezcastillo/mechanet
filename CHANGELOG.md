@@ -17,6 +17,20 @@ test now checks it.
   it and builds nothing. `families.coverage.patterns` and `count` give the same to a script,
   and `notation.surface_name` names a surface by its counts (`terminal 4 OH | bridge 2 O, 2
   OH`). See `docs/surface-first.md`.
+- **A slab may carry adsorbates.** A slab file with an OOH, an O2 or an OCl on an oxygen, or
+  with Cl, H or another registered adsorbate on top of a metal, used to be built with that group
+  as rigid scenery: no site there, no chemistry, and no word about it. `mechanet inspect` now
+  names such a group, and `mechanet init` reads it as the state of a site: the atoms beyond the
+  site leave the slab the campaign is referenced to (`slab/NAME_bare.vasp`), what was read is
+  kept in `slab/as_given.json` (`slab.carried` in project.yaml), and `mechanet generate` builds
+  the campaign on the slab as given, whose start is the file atom for atom. The adsorbate can
+  then react, and the mechanism next to it starts from the given structure. A group that is no
+  registered adsorbate, binds through several atoms, or sits between metals through an element
+  other than oxygen (CO on a bridge, H in a hollow) stays part of the framework, and the
+  inspection says so with the atoms and the reason; answering `n` at `init` keeps a recognised group there too. `init` warns when the
+  reaction has no reservoir for an element the slab carries. Slabs without such groups are read
+  as before. New module `carried`; `inspect_slab` takes the registry, so adsorbates of a
+  plugin are recognised.
 - **The mechanism on a surface you pick.** `mechanet generate --on SURFACE` builds a campaign on
   a surface: a candidate of the coverage campaign, by its ID, or a pattern written in the new
   `surfaces` block of project.yaml. Every family writes its usual intermediates, and each

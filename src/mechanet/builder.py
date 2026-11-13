@@ -362,8 +362,8 @@ class Builder:
         """
         self.surface_name = surface.get("name")
         self.base, self.base_coupling = {}, None
-        self.source, self.source_nodes, self.environment = None, {}, None
-        self.imported, self.seeded = [], []
+        self.source, self.source_nodes, self.source_config, self.environment = None, {}, {}, None
+        self.imported, self.seeded, self.not_copied = [], [], []
         self._env_active = False
         for aid, status in (surface.get("occupancy") or {}).items():
             if aid not in self.sites:
@@ -376,6 +376,16 @@ class Builder:
             if len(pair) != 2 or any(aid not in self.sites for aid in pair):
                 raise ValueError(f"The coupling of the surface must name two sites, not {list(pair)}")
             self.base_coupling = pair
+        given = surface.get("given") or {}
+        if given.get("positions"):
+            # The slab file carried these adsorbates: the surface and what is built on it start
+            # with their atoms where the file had them.
+            self.environment = {
+                "state_id": None,
+                "campaign": None,
+                "positions": {aid: np.array(xyz, dtype=float) for aid, xyz in given["positions"].items()},
+                "binding_modes": dict(given.get("binding_modes") or {}),
+            }
 
     def surface_state(self, aid):
         """State of a site on the surface the campaign is built on (the slab as given without one)."""
@@ -411,6 +421,7 @@ class Builder:
             changes = {k: v for k, v in (node.get("occupancy") or {}).items() if v != self.native[k]}
             self.source_nodes[self._node_key(changes, node.get("coupling"))] = node
         self.source = path
+        self.source_config = read_json(path / "config.json")
         relaxed = surface.get("relaxed") or {}
         if not relaxed.get("state_id"):
             return
@@ -471,10 +482,14 @@ class Builder:
     def _import_states(self, node, key):
         """Copy the finished calculations of this intermediate from the source campaign.
 
-        True when at least one state with a completed 02_final was copied: the intermediate
-        then has no start of its own, it has results.
+        A state is copied when its 02_final relaxation finished and the relaxed structure still
+        is this intermediate (or was accepted as it in review). True when at least one was
+        copied: the intermediate then has no start of its own, it has results. A state that
+        became something else is left where it is (``not_copied``), and when none is left the
+        intermediate gets fresh starts here, from the relaxed surface.
         """
         from .results import parse_run
+        from .topology import topology_check
         from .vasp import STAGE_FINAL
 
         theirs = self.source_nodes.get(key)
@@ -484,6 +499,12 @@ class Builder:
         for sid in theirs["state_ids"]:
             origin = self.source / "states" / sid
             if not (origin / "state.json").is_file() or not parse_run(origin / STAGE_FINAL)["completed"]:
+                continue
+            relaxed = topology_check(
+                origin, read_json(origin / "state.json"), self.source_config, STAGE_FINAL, self.registry
+            )
+            if relaxed.get("assigned_node_id") != node["id"]:
+                self.not_copied.append({"state_id": sid, "relaxed_into": relaxed.get("assigned_node_id")})
                 continue
             target = self.out / "states" / sid
             shutil.copytree(origin, target)
@@ -796,9 +817,14 @@ class Builder:
             # others are oriented, and only they count as changed below.
             kept = self._kept_sites(occupancy, coupling)
             for aid in sorted(kept & changed_sites):
-                site, status = self.sites[aid], occupancy.get(aid, self.native[aid])
-                if site["kind"] == "open_metal" and aid in env["positions"]:
+                if self.sites[aid]["kind"] == "open_metal" and aid in env["positions"]:
                     records[aid]["position"] = np.array(env["positions"][aid], dtype=float)
+            for aid in self.sites:
+                # A site that is back in the state of the slab, while the surface has it in another,
+                # is the site as the slab has it: its own H belong to that position of its atom.
+                back = occupancy.get(aid, self.native[aid]) == self.native[aid] != self.surface_state(aid)
+                if back and aid in records and aid in self.seed_index:
+                    records[aid]["position"] = self.seed.positions[self.seed_index[aid]].copy()
             oriented = [
                 aid
                 for aid in oriented
@@ -1198,6 +1224,8 @@ class Builder:
         would need 24 orders for four sites and 40,320 for eight, so two are tried: the sites
         in their order and in reverse, keeping MANY_SITES_BEAM partial structures per site.
         """
+        # PENDING(many-site-placement): how often two orders miss the start that all orders find
+        # is not measured (docs/pending.md).
         beam = int(self.search_cfg["beam_width"])
         self._search_was_limited = len(oriented) > self.all_orders_up_to
         if not self._search_was_limited:
@@ -1356,6 +1384,17 @@ class Builder:
                 cutoff = self._construction_cutoff(sym, st.symbols[j])
                 if cutoff and distances[i, j] <= cutoff:
                     observed.add(tuple(sorted((st.ids[i], st.ids[j]))))
+        if self._env_active:
+            # The start is made from a structure that was accepted as the surface: a relaxed O-H
+            # may be longer than the cutoff of a start (1.25 A, lost only beyond 1.35 A) and a
+            # hydrogen bond shorter. Only bonds of an atom the start adds or moves are judged.
+            moved = set()
+            for aid, position in zip(st.ids, st.positions):
+                rest = self._rest_position(aid)
+                if rest is None or np.linalg.norm(minimum_image(position - rest, st.cell)) > 1e-6:
+                    moved.add(aid)
+            intended = {bond for bond in intended if moved & set(bond)}
+            observed = {bond for bond in observed if moved & set(bond)}
         if observed != intended:
             return {
                 "missing_expected_bonds": [list(b) for b in sorted(intended - observed)],
@@ -1806,8 +1845,9 @@ class Builder:
             meta["seeded_from"] = {
                 "campaign": self.environment["campaign"],
                 "state_id": self.environment["state_id"],
-                "note": "Sites in the state they have on the surface keep the atoms of its relaxed structure; "
-                "only the other sites were built and oriented.",
+                "structure": "the relaxed surface" if self.environment["state_id"] else "the slab file as given",
+                "note": "Sites in the state they have on the surface keep the atoms of that structure; only the "
+                "other sites were built and oriented.",
             }
             if node["id"] not in self.seeded:
                 self.seeded.append(node["id"])
@@ -2286,8 +2326,10 @@ class Builder:
                 **self._surface_record(),
                 "imported_nodes": len(self.imported),
                 "imported_states": sum(1 for s in self.states.values() if s.get("imported_from")),
-                "nodes_started_from_the_relaxed_surface": len(self.seeded),
-                "relaxed_surface_state": self.environment["state_id"] if self.environment else None,
+                "not_copied": self.not_copied,
+                "nodes_started_from_the_relaxed_surface": len(self.seeded) if self._relaxed_surface() else 0,
+                "relaxed_surface_state": self._relaxed_surface(),
+                "nodes_started_from_the_slab_as_given": 0 if self._relaxed_surface() else len(self.seeded),
             }
         if self.limited_searches:
             report["limited_orientation_search"] = {
@@ -2303,6 +2345,10 @@ class Builder:
         dump_json(self.out / "build_report.json", report)
         dump_json(self.out / "label_duplicates_merged.json", self.duplicates_merged)
         return report
+
+    def _relaxed_surface(self):
+        """State ID of the relaxed surface the starts are made from (None: none, or the slab file as given)."""
+        return self.environment["state_id"] if self.environment else None
 
     def _surface_record(self):
         """What network.json and the build report say about the surface the campaign is built on."""

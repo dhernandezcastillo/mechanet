@@ -531,6 +531,31 @@ def analyse(
 # ---------------------------------------------------------------------------
 
 NO_SOURCE = "none"
+BARE_SLAB = "slab"
+
+
+def given_surface(carried):
+    """``scope.surface`` for the adsorbates a slab file carried (``slab.carried`` of a campaign config):
+    the pattern of the sites, and the atoms where the file had them."""
+    return {
+        "name": carried["name"],
+        "occupancy": dict(carried["occupancy"]),
+        "coupling": None,
+        "given": {"positions": given_positions(carried)},
+    }
+
+
+def given_positions(carried):
+    """Where the slab file had the atoms of the adsorbates it carried, for the sites ``occupancy`` still names.
+
+    An atom is named after its site (``d_a0033`` on a0033, ``m0047`` itself on an open metal).
+    """
+    sites = set(carried["occupancy"])
+    return {
+        atom: xyz
+        for atom, xyz in carried["positions"].items()
+        if any(atom == site or atom.endswith(f"_{site}") for site in sites)
+    }
 
 
 def relaxed_surface(campaign, node_id, registry=None):
@@ -549,6 +574,8 @@ def relaxed_surface(campaign, node_id, registry=None):
     config = read_json(campaign / "config.json")
     registry = registry or campaign_registry(campaign, config=config)
     node = next((n for n in read_json(campaign / "network.json")["nodes"] if n["id"] == node_id), None)
+    # PENDING(surface-from-discovered): a surface added by `review --discover` has no state of its
+    # own, so nothing is found here and nothing is copied for it (docs/pending.md).
     best = None
     for sid in (node or {}).get("state_ids", []):
         state_dir = campaign / "states" / sid
@@ -595,7 +622,12 @@ def pick(project, config, registry, on, source=None):
     """
     project_dir = Path(project["_dir"])
     native = {str(s["id"]): str(s["native"]) for s in project["sites"]}
-    declared = project.get("surfaces") or {}
+    declared = dict(project.get("surfaces") or {})
+    carried = (config.get("slab") or {}).get("carried")
+    if carried and carried["name"] not in declared:
+        declared[carried["name"]] = dict(carried["occupancy"])  # the slab as it was given
+    if BARE_SLAB not in declared:
+        declared[BARE_SLAB] = {}  # the slab file of the project, without any pattern
     source_dir = None
     if source is None:
         if (project_dir / "coverage" / "network.json").is_file():
@@ -649,10 +681,17 @@ def pick(project, config, registry, on, source=None):
         relaxed = relaxed_surface(source_dir, node["id"], registry) if node is not None else None
         if relaxed is not None:
             surface["relaxed"] = {"state_id": relaxed["state_id"], "geometry": relaxed["geometry"]}
+        elif carried and name == carried["name"]:
+            notes.append(
+                f"{source_dir} has no finished relaxation of the surface {name} that kept it: new intermediates "
+                "start from the slab file as it was given."
+            )
         else:
             notes.append(
                 f"{source_dir} has no finished relaxation of the surface {name} that kept it: new intermediates "
                 "start from the slab as given, with every adsorbate placed anew."
             )
+    if carried and name == carried["name"] and "relaxed" not in surface:
+        surface["given"] = {"positions": given_positions(carried)}  # the atoms where the slab file had them
     surface["notes"] = notes
     return surface
