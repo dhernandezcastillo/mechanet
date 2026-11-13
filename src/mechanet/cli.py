@@ -1576,6 +1576,7 @@ COMMAND_ORDER = (
     "show-cycle",
     "list",
     "validate",
+    "models",
     "prescreen",
     "cluster",
     "references",

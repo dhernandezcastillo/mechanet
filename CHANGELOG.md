@@ -24,6 +24,20 @@
   potential (mace-torch pins an e3nn the others do not accept). Reading which package provides a
   calculator's class now scans the installed distributions once per process, not at every
   `describe()`.
+- **Model files from a folder, for clusters without internet.** `mace-mh1`, `uma` and `sevennet`
+  load their model file from mechanet's models folder (`$MECHANET_MODELS`, else
+  `~/.local/share/mechanet/models`) when it is there under its official name, and download
+  nothing; otherwise from the path given or from their package, as before. `mechanet models`
+  reports, for each, the file a job would load and where it is, whether it is complete, whether
+  its package is installed, its licence, and where to get what is missing; `--load` loads each
+  model without internet and computes one small structure. A calculator named there that is not
+  ready gives exit status 1, for job scripts. Results record the model file by its official
+  name, so the copy in the folder and the package's own download of the same file are one model.
+  Without internet, the presets say where a copy would be found. docs/model-files.md gives three
+  ways to fill the folder (in a browser and copied over, on the login node, one folder for a
+  group) and the licences. A UMA checkpoint loaded by path gives the same energies and forces as
+  fairchem's own download: the two reference files fairchem also fetches serve only isolated
+  single atoms and its formation-energy wrapper (the docs had said that energies would differ).
 - **Designed, not built: a coverage shortlist from an ML potential.** docs/coverage-shortlist.md
   specifies how a potential could choose which coverages of a surface Pourbaix diagram need DFT
   (its window hull, then a verify loop that stops when the next candidate cannot be stable within

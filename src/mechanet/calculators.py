@@ -25,7 +25,10 @@ with the settings it is meant to be used with: ``mace-mh1`` (MACE-MH-1, head ``o
 (:data:`RECOMMENDED_ML_RELAXATION` for the three presets): ``prescreen`` uses them unless
 ``--optimizer``, ``--fmax`` or ``--steps`` is given. Every preset records its model file and
 SHA-256 in ``describe()``, so a changed model file is not mistaken for the one an earlier
-result was relaxed with. docs/prescreening.md explains the choice of models and settings.
+result was relaxed with. A preset takes its model file from the path given as ``model``, else
+from mechanet's models folder, else from its package, which downloads it on the first run
+(:mod:`mechanet.modelfiles`; ``mechanet models`` checks what a job would find).
+docs/prescreening.md explains the choice of models and settings.
 """
 
 from __future__ import annotations
@@ -34,11 +37,14 @@ import functools
 import hashlib
 import importlib
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Protocol, runtime_checkable
 
 import numpy as np
+
+from .modelfiles import model_path, not_on_this_computer, official_filename
 
 OPTIMIZERS = ("BFGS", "LBFGS", "FIRE")
 DEFAULT_OPTIMIZER = "BFGS"
@@ -279,13 +285,21 @@ def _version(distribution):
         return None
 
 
-def _file_record(path):
+def _file_record(path, name=None):
     """{"file": name, "sha256"} of a model file, or {} when its path is not known. The name and the
-    digest identify the file; its folder does not, so a moved cache relaxes nothing again."""
+    digest identify the file; its folder does not, so a moved cache relaxes nothing again.
+    ``name``: the file's official name, recorded instead of the name on disk, so that a model
+    mace-torch saved under another name and its copy in the models folder are the same file."""
     if path is None:
         return {}
     path = Path(path)
-    return {"file": path.name, "sha256": file_sha256(path)} if path.is_file() else {"file": path.name}
+    shown = name or path.name
+    return {"file": shown, "sha256": file_sha256(path)} if path.is_file() else {"file": shown}
+
+
+def _announce(calculator, path, where):
+    """One line on stderr: the model file a preset loads and where it was found (job logs show it)."""
+    print(f"{calculator}: model file {path} ({'the path given' if where == 'path' else where})", file=sys.stderr)
 
 
 def _with_d3(calc, device, cutoff_A=None):
@@ -339,12 +353,20 @@ def make_mace_mh1(
             "the mace-mh1 calculator needs mace-torch 0.3.14 or later (pip install 'mace-torch>=0.3.14')"
         ) from exc
     dev = resolve_device(device)
-    path = Path(str(model)).expanduser()
-    if not path.is_file():
+    urls = getattr(foundations_models, "mace_mp_urls", None) or {}
+    official = official_filename("mace-mh1", model) or (
+        str(urls[str(model)]).rsplit("/", 1)[-1] if str(model) in urls else None
+    )
+    path, where = model_path("mace-mh1", model, filename=official)
+    if path is None:
         known = getattr(foundations_models, "mace_mp_names", None)
         if known is not None and str(model) not in known:
             raise ValueError(f"MACE model {model!r} is neither a file nor a name mace-torch knows ({', '.join(known)})")
-        path = Path(foundations_models.download_mace_mp_checkpoint(str(model)))
+        try:
+            path, where = Path(foundations_models.download_mace_mp_checkpoint(str(model))), "mace-torch's copy"
+        except OSError as exc:  # no internet here: say where a copy would be found
+            raise not_on_this_computer("mace-mh1", model, exc) from exc
+    _announce("mace-mh1", path, where)
     calc = mace_mp(model=str(path), device=dev, default_dtype=default_dtype, head=head, **options)
     heads = [str(h) for h in getattr(calc, "available_heads", None) or ()]
     used = getattr(calc, "head", None)
@@ -356,7 +378,7 @@ def make_mace_mh1(
     record = {
         "name": "MACE-MH-1" if str(model) == "mh-1" else str(model),
         "model": str(model),
-        **_file_record(path),
+        **_file_record(path, None if where == "path" else official),
         "head": used,
         "heads": heads,
         "dtype": default_dtype,
@@ -400,13 +422,16 @@ def make_uma(
     (PBE/PBE+U, Materials Project settings), ``oc25`` slabs with explicit water (RPBE+D3).
     ``inference_settings``: ``high-precision`` (TF32 off), not fairchem's default, which trades
     accuracy for speed. Neither OC22 nor OMat24 has dispersion: ``dispersion=true`` adds D3(BJ).
-    The weights are gated on Hugging Face: request access to facebook/UMA and log in first.
-    fairchem downloads the model file on the first run into its cache, ``~/.cache/fairchem`` or
-    the folder in ``FAIRCHEM_CACHE_DIR`` (``get_predict_unit``'s ``cache_dir`` moves only the
-    reference-energy files). ``model`` may also be the path of a checkpoint file, which fairchem
-    loads without its per-element reference energies: forces, and the comparison of starts of
-    one intermediate, are unchanged; absolute energies are not. ``options`` go to
-    ``pretrained_mlip.get_predict_unit`` (``overrides``, ``workers``, ...).
+    The weights are gated on Hugging Face: request access to facebook/UMA and log in first, or
+    put the file in mechanet's models folder (:mod:`mechanet.modelfiles`), which is read without
+    the internet, as is the file ``model`` names when it is a path. Otherwise fairchem downloads
+    the model on the first run into its cache, ``~/.cache/fairchem`` or the folder in
+    ``FAIRCHEM_CACHE_DIR`` (``get_predict_unit``'s ``cache_dir`` moves only two small
+    reference-energy files). A file loaded by path goes without those two files: fairchem uses
+    them only for an isolated single atom and in its formation-energy wrapper, while the
+    energies and forces of slabs and molecules come from the model file, which carries its own
+    element references. ``options`` go to ``pretrained_mlip.get_predict_unit`` (``overrides``,
+    ``workers``, ...).
     """
     try:
         from fairchem.core import FAIRChemCalculator, pretrained_mlip
@@ -416,18 +441,25 @@ def make_uma(
             "in an environment of its own: mace-torch needs another e3nn version"
         ) from exc
     dev = resolve_device(device)
+    path, where = model_path("uma", model)
     try:
         unit = pretrained_mlip.get_predict_unit(
-            str(model), inference_settings=inference_settings, device=dev, **options
+            str(model if path is None else path), inference_settings=inference_settings, device=dev, **options
         )
-    except Exception as exc:  # noqa: BLE001 - a gated download gets a hint, anything else passes unchanged
+    except Exception as exc:  # noqa: BLE001 - a failed download gets a hint, anything else passes unchanged
         text = f"{type(exc).__name__}: {exc}"
         if any(word in text for word in ("401", "403", "gated", "Gated", "authenticat", "Authenticat")):
             raise RuntimeError(
                 f"UMA {model!r} could not be loaded ({text}). The UMA weights are gated: request access at "
-                "https://huggingface.co/facebook/UMA, then log in (hf auth login)"
+                "https://huggingface.co/facebook/UMA, then log in (hf auth login), or put the model file in "
+                "mechanet's models folder (`mechanet models` says where)"
             ) from exc
+        if path is None and isinstance(exc, OSError):  # no internet here: say where a copy would be found
+            raise not_on_this_computer("uma", model, exc) from exc
         raise
+    if path is None:
+        path, where = _uma_checkpoint(pretrained_mlip, model), "fairchem's copy"
+    _announce("uma", model if path is None else path, where)
     tasks = sorted(str(t) for t in (getattr(unit, "dataset_to_tasks", None) or ()))
     if tasks and str(task) not in tasks:
         raise ValueError(
@@ -438,7 +470,7 @@ def make_uma(
     record = {
         "name": "UMA",
         "model": str(model),
-        **_file_record(_uma_checkpoint(pretrained_mlip, model)),
+        **_file_record(path, None if where == "path" else official_filename("uma", model)),
         "task": str(task),
         "tasks": tasks,
         "inference_settings": str(inference_settings),
@@ -483,11 +515,20 @@ def make_sevennet(
             "in an environment of its own: mace-torch needs another e3nn version"
         ) from exc
     dev = resolve_device(device)
-    calc = SevenNetCalculator(model=str(model), modal=modal, device=dev, **options)
+    path, where = model_path("sevennet", model)
+    try:
+        calc = SevenNetCalculator(model=str(model if path is None else path), modal=modal, device=dev, **options)
+    except OSError as exc:
+        if path is None:  # no internet here: say where a copy would be found
+            raise not_on_this_computer("sevennet", model, exc) from exc
+        raise
+    if path is None:
+        path, where = _sevennet_checkpoint(model), "sevenn's copy"
+    _announce("sevennet", model if path is None else path, where)
     record = {
         "name": "SevenNet-Omni" if str(model) == "7net-omni" else str(model),
         "model": str(model),
-        **_file_record(_sevennet_checkpoint(model)),
+        **_file_record(path, None if where == "path" else official_filename("sevennet", model)),
         "modal": modal,
         "device": dev,
         "dispersion": None,

@@ -270,12 +270,13 @@ def _register_builtins(registry):
     oer.register(registry)
     cer.register(registry)
     coverage.register(registry)
-    from . import calculators, pathways, pourbaix, prescreen
+    from . import calculators, modelfiles, pathways, pourbaix, prescreen
 
     pathways.register_family(registry)
     registry.add_command("pourbaix", pourbaix.register_command)
     registry.add_command("pathways", pathways.register_command)
     registry.add_command("prescreen", prescreen.register_command)
+    registry.add_command("models", modelfiles.register_command)
     calculators.register(registry)
     from .literature import LITERATURE
 

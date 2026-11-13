@@ -4,8 +4,9 @@ mace-torch, fairchem-core and sevenn are not installed where the tests run (they
 environments of their own), so stand-in modules play them: each records how it was called and
 answers as the real package does, including what goes wrong (mace-torch replaces an unknown
 head by the model's last head with only a warning; gated UMA weights refuse the download).
-EMT gives the energies, so relaxations are real. One test loads the real MACE-MH-1 when asked
-(MECHANET_TEST_MACE_MH1=1; it downloads 59 MB).
+EMT gives the energies, so relaxations are real. The models folder is a fresh temporary one in
+every test. One test loads the real MACE-MH-1 when asked (MECHANET_TEST_MACE_MH1=1; it
+downloads 59 MB).
 """
 
 import hashlib
@@ -15,6 +16,7 @@ import sys
 import tempfile
 import types
 import unittest
+import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -114,13 +116,16 @@ def fake_fairchem(checkpoint, tasks=("oc20", "oc22", "omat", "omol"), fail=None,
     return {"fairchem": module("fairchem", core=core), "fairchem.core": core}, calls
 
 
-def fake_sevenn(checkpoint, modals=("mpa", "oc22", "omat24"), calls=None):
-    """sevenn 0.13: SevenNetCalculator with modal channels, matched exactly."""
+def fake_sevenn(checkpoint, modals=("mpa", "oc22", "omat24"), calls=None, fail=None):
+    """sevenn 0.13: SevenNetCalculator with modal channels, matched exactly; ``fail`` is raised for a
+    model name (a download), not for a checkpoint file."""
     calls = [] if calls is None else calls
 
     class SevenNetCalculator(EMT):
         def __init__(self, model="7net-0", file_type="checkpoint", device="auto", modal=None, **kwargs):
             calls.append(dict(model=model, device=device, modal=modal, **kwargs))
+            if fail is not None and not Path(str(model)).is_file():
+                raise fail
             if modal not in modals:
                 raise ValueError(f"unknown modal {modal} (not in {list(modals)})")
             super().__init__()
@@ -165,6 +170,10 @@ class PresetTests(unittest.TestCase):
         self.addCleanup(lambda: __import__("shutil").rmtree(self.tmp, ignore_errors=True))
         self.model_file = self.tmp / "macemh1model"
         self.model_file.write_bytes(b"stand-in MACE-MH-1 weights")
+        self.folder = self.tmp / "models"  # the models folder: empty unless a test fills it
+        environ = patch.dict(os.environ, {"MECHANET_MODELS": str(self.folder)})
+        environ.start()
+        self.addCleanup(environ.stop)
         calculators._SHA256.clear()
 
     def mace(self, **kwargs):
@@ -286,6 +295,71 @@ class PresetTests(unittest.TestCase):
         model = calc.describe()["model"]
         self.assertEqual((model["name"], model["modal"]), ("SevenNet-Omni", "oc22"))
         self.assertEqual(model["sha256"], hashlib.sha256(b"stand-in SevenNet-Omni weights").hexdigest())
+
+    def test_each_preset_takes_its_file_from_the_models_folder_without_downloading(self):
+        self.folder.mkdir()
+        (self.folder / "mace-mh-1.model").write_bytes(b"stand-in MACE-MH-1 weights")
+        context, calls = self.mace()
+        with context:
+            calc = load_calculator("mace-mh1", {"device": "cpu"})
+        self.assertNotIn({"download": "mh-1"}, calls)
+        self.assertEqual(calls[0]["model"], str(self.folder / "mace-mh-1.model"))
+        model = calc.describe()["model"]
+        self.assertEqual((model["model"], model["file"]), ("mh-1", "mace-mh-1.model"))
+        # the same bytes that mace-torch downloaded and saved as macemh1model are the same model,
+        # so results relaxed with one copy are reused with the other
+        (self.folder / "mace-mh-1.model").unlink()
+        context, calls = self.mace()
+        with context:
+            downloaded = load_calculator("mace-mh1", {"device": "cpu"})
+        self.assertEqual(calls[0], {"download": "mh-1"})
+        self.assertEqual(downloaded.describe()["model"]["file"], "mace-mh-1.model")
+        settings = {"fmax_eVA": 0.03, "steps": 1500}
+        self.assertEqual(fingerprint(calc.describe(), settings), fingerprint(downloaded.describe(), settings))
+
+        (self.folder / "uma-s-1p2p1.pt").write_bytes(b"stand-in UMA weights")
+        modules, calls = fake_fairchem(self.tmp / "fairchem-cache.pt")
+        with patch.dict(sys.modules, modules):
+            calc = load_calculator("uma", {"device": "cpu"})
+        self.assertEqual(calls[0]["model_name"], str(self.folder / "uma-s-1p2p1.pt"))  # by path: no Hugging Face
+        model = calc.describe()["model"]
+        self.assertEqual((model["model"], model["file"]), ("uma-s-1p2p1", "uma-s-1p2p1.pt"))
+        self.assertEqual(model["sha256"], hashlib.sha256(b"stand-in UMA weights").hexdigest())
+
+        nested = self.folder / "sevennet" / "checkpoint_sevennet_omni.pth"
+        nested.parent.mkdir()
+        nested.write_bytes(b"stand-in SevenNet-Omni weights")
+        modules, calls = fake_sevenn(self.tmp / "sevenn-cache.pth")
+        with patch.dict(sys.modules, modules):
+            calc = load_calculator("sevennet", {"device": "cpu"})
+        self.assertEqual(calls[0]["model"], str(nested))
+        self.assertEqual(calc.describe()["model"]["file"], "checkpoint_sevennet_omni.pth")
+
+    def test_without_internet_the_error_says_where_a_copy_would_be_found(self):
+        offline_mace, _ = fake_mace(self.model_file)
+
+        def no_network(name):
+            raise urllib.error.URLError("[Errno 11001] getaddrinfo failed")
+
+        offline_mace["mace.calculators.foundations_models"].download_mace_mp_checkpoint = no_network
+        with (
+            patch.dict(sys.modules, offline_mace),
+            self.assertRaisesRegex(RuntimeError, r"not on this computer .* put mace-mh-1.model in the models folder"),
+        ):
+            load_calculator("mace-mh1", {"device": "cpu"})
+        not_cached = OSError("we cannot find the requested files in the local cache")
+        offline_uma, _ = fake_fairchem(self.tmp / "none.pt", fail=not_cached)
+        with (
+            patch.dict(sys.modules, offline_uma),
+            self.assertRaisesRegex(RuntimeError, r"put uma-s-1p2p1.pt in the models folder"),
+        ):
+            load_calculator("uma", {"device": "cpu"})
+        offline_sevenn, _ = fake_sevenn(self.tmp / "none.pth", fail=ConnectionError("Max retries exceeded"))
+        with (
+            patch.dict(sys.modules, offline_sevenn),
+            self.assertRaisesRegex(RuntimeError, r"put checkpoint_sevennet_omni.pth in the models folder"),
+        ):
+            load_calculator("sevennet", {"device": "cpu"})
 
     def test_missing_packages_say_what_to_install(self):
         absent = {

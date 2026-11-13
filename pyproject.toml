@@ -69,6 +69,7 @@ builtin = "mechanet.adsorbates:register"
 pourbaix = "mechanet.pourbaix:register_command"
 pathways = "mechanet.pathways:register_command"
 prescreen = "mechanet.prescreen:register_command"
+models = "mechanet.modelfiles:register_command"
 
 [project.entry-points."mechanet.calculators"]
 emt = "mechanet.calculators:make_emt"

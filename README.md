@@ -286,7 +286,10 @@ Three foundation potentials trained on surfaces with adsorbates are built in, ea
 settings it is meant to relax with (FIRE, 0.03 eV/Å, 1500 steps): `mace-mh1` (MACE-MH-1, head
 omat_pbe, float64), `uma` (UMA `uma-s-1p2p1`, task oc22, through fairchem; gated weights) and
 `sevennet` (SevenNet-Omni, modal oc22). Each records its model file and SHA-256 with every
-result, and `--option dispersion=true` adds D3(BJ). `mace-mp`, any `module:callable` returning
+result, and `--option dispersion=true` adds D3(BJ). Each reads its model file from mechanet's
+models folder when it is there, so compute nodes need no internet, and `mechanet models` checks
+what a job would find
+([docs/model-files.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/model-files.md)). `mace-mp`, any `module:callable` returning
 an ASE calculator, and calculators added by plugins work the same way; see
 [docs/prescreening.md](https://github.com/dhernandezcastillo/mechanet/blob/main/docs/prescreening.md),
 which also explains the choice of potentials and settings. Using a potential to choose which
