@@ -321,7 +321,12 @@ class InitTests(TempCase):
         meta = read_json(campaign / "states" / state_id / "state.json")
         self.assertEqual(meta["seeded_from"]["structure"], "the slab file as given")
         # next to it, the mechanism on the other metal keeps the OOH where the file has it
-        other = next(n for n in network["nodes"] if n["occupancy"].get(site) == "OOH" and len(n["occupancy"]) == 2)
+        anew = set(report["surface"]["started_anew"])  # none here; if one had no start next to the OOH, not it
+        other = next(
+            n
+            for n in network["nodes"]
+            if n["occupancy"].get(site) == "OOH" and len(n["occupancy"]) == 2 and n["state_ids"] and n["id"] not in anew
+        )
         beside = read_json(campaign / "states" / other["state_ids"][0] / "state.json")
         k = beside["atom_ids"].index(f"d_{site}")
         there = read_poscar(campaign / "states" / other["state_ids"][0] / "POSCAR").positions[k]
@@ -336,7 +341,7 @@ class InitTests(TempCase):
         self.assertIn("coverage around as-given:", found["text"])
         self.assertEqual(found["states"][site][0], "OOH")
         bare = generate(project / "project.yaml", families=["aem"], on="slab")
-        self.assertEqual(Path(bare["campaign"]), project / "on_slab")
+        self.assertEqual(Path(bare["campaign"]), (project / "on_slab").resolve())
         self.assertEqual(bare["surface"]["occupancy"], {})
         again = generate(project / "project.yaml", families=["aem"], on="as-given", out=self.root / "again")
         self.assertEqual(again["surface"]["occupancy"], {site: "OOH"})

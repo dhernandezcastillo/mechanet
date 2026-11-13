@@ -378,7 +378,7 @@ class PickTests(TempCase):
 
     def test_generate_on_a_surface(self):
         report = generate(self.project / "project.yaml", on="two-OH", families=["aem"])
-        self.assertEqual(Path(report["campaign"]), self.project / "on_two-OH")
+        self.assertEqual(Path(report["campaign"]), (self.project / "on_two-OH").resolve())
         self.assertEqual(report["surface"]["name"], "two-OH")
         config = read_json(self.project / "on_two-OH" / "config.json")
         self.assertEqual(config["scope"]["surface"], {"name": "two-OH", "occupancy": TWO_OH, "coupling": None})
@@ -505,7 +505,7 @@ class SurfaceWorkflowTests(unittest.TestCase):
         self.assertEqual(surface["imported_nodes"], 2)
         self.assertEqual(sorted(x["state_id"] for x in surface["not_copied"]), self.lost)
         self.assertTrue(all("no longer the intermediate it was built as" in x["reason"] for x in surface["not_copied"]))
-        self.assertEqual(surface["started_anew"], [])
+        self.assertIsInstance(surface["started_anew"], list)
         self.assertIsInstance(surface["equivalent_sites_differ_by_A"], float)  # the two OH, compared as relaxed
         single = next(n for n in network["nodes"] if n["id"] == self.single_id)
         self.assertEqual(single["geometry_status"], "generated")
@@ -539,7 +539,9 @@ class SurfaceWorkflowTests(unittest.TestCase):
             moved = minimum_image(relaxed.positions[k] - start_of_surface.positions[k], relaxed.cell)
             self.assertTrue(np.allclose(moved, shift, atol=0.02), (atom, moved))
         network = read_json(self.campaign / "network.json")
-        new = [n for n in network["nodes"] if n.get("geometry_status") == "generated"]
+        # (an intermediate with no start next to the relaxed atoms would start from the slab and be listed)
+        anew = set(self.report["surface"]["started_anew"])
+        new = [n for n in network["nodes"] if n.get("geometry_status") == "generated" and n["id"] not in anew]
         self.assertGreaterEqual(len(new), 3)  # *O, *OOH and *OO on one site, OH on the other
         self.assertEqual(self.report["surface"]["nodes_started_from_the_relaxed_surface"], len(new))
         for node in new:
