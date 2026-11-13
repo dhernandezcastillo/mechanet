@@ -1,15 +1,22 @@
-"""Nothing that mechanet 0.1.4 offered may disappear by accident.
+"""Nothing that a version of mechanet offered may disappear by accident.
 
-``tests/data/public_surface_0.1.4.json`` lists what the 0.1.4 release offered: every command
+``tests/data/public_surface_X.Y.Z.json`` lists what version X.Y.Z offered: every command
 with its options and choices, the built-in reactions, adsorbates, families and literature
 keys, and every public name each module defined (functions with their parameters, classes with
-their public members and dataclass fields, constants). The test checks that all of it is still
-there: commands and options may be added, never dropped; a function may gain parameters after
-the ones it had; a name may move to another module as long as the old module still exports it.
+their public members and dataclass fields, constants). There is one list per version, from
+0.1.4 on, and the test checks that all of each is still there: commands and options may be
+added, never dropped; a function may gain parameters after the ones it had; a name may move to
+another module as long as the old module still exports it. A name is listed under the module
+that defined it in that version, so it is the list of 0.1.4 that keeps the names which have
+since moved out of ``mechanet.analysis`` importable from there.
 
-Removing something on purpose means removing it from the snapshot too, in the same commit, so
-the removal is visible in review. ``python tests/test_public_surface.py --write FILE`` writes
-the snapshot of whatever mechanet is importable (used once, with the 0.1.4 sources).
+Removing something on purpose means removing it from every list that has it, in the same
+commit, so the removal is visible in review.
+
+A new version needs a list of its own, or the test fails. In the commit that sets the version,
+``python tests/test_public_surface.py --write`` writes the list of this checkout under the
+version it carries (it does not replace a list that exists) and prints the line to add to
+``VERSIONS``. ``--write FILE`` writes the list of whatever mechanet is importable to FILE.
 """
 
 import argparse
@@ -19,11 +26,15 @@ import importlib
 import inspect
 import json
 import pkgutil
+import re
 import sys
 import unittest
 from pathlib import Path
 
-SNAPSHOT = Path(__file__).with_name("data") / "public_surface_0.1.4.json"
+DATA = Path(__file__).with_name("data")
+PREFIX = "public_surface_"
+# Every version made since the first list, with the number of its commands.
+VERSIONS = {"0.1.4": 27, "0.1.5": 28}
 PLAIN = (str, int, float, bool, tuple, list, dict, set, frozenset, type(None))
 
 
@@ -145,21 +156,56 @@ def missing(old, new_commands, new_globals, new_registry):
     return gone
 
 
+def snapshots():
+    """The lists in tests/data as {version: file}, oldest version first."""
+    found = {path.stem[len(PREFIX) :]: path for path in DATA.glob(f"{PREFIX}*.json")}
+    return dict(sorted(found.items(), key=lambda item: [int(n) for n in re.findall(r"\d+", item[0])]))
+
+
 class PublicSurfaceTests(unittest.TestCase):
-    def test_everything_of_0_1_4_is_still_there(self):
-        old = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+    def test_everything_a_version_offered_is_still_there(self):
+        lists = snapshots()
+        self.assertEqual([v for v in VERSIONS if v not in lists], [], "lists that are gone from tests/data")
         now = surface()
-        gone = missing(old, now["commands"], now["global_options"], now["registry"])
-        self.assertEqual(gone, [], "no longer offered (see the module docstring):\n  " + "\n  ".join(gone))
-        # the snapshot is a real one: the size of the 0.1.4 release
-        self.assertEqual(len(old["commands"]), 27)
-        self.assertGreater(sum(len(v) for v in old["commands"].values()), 200)
-        self.assertGreater(sum(len(v) for v in old["modules"].values()), 500)
+        for version, path in lists.items():
+            with self.subTest(version=version):
+                old = json.loads(path.read_text(encoding="utf-8"))
+                gone = missing(old, now["commands"], now["global_options"], now["registry"])
+                self.assertEqual(
+                    gone, [], f"offered by {version} and no longer (see the module docstring):\n  " + "\n  ".join(gone)
+                )
+                # the list is a real one: the size of that release, and no version offered less than 0.1.4
+                self.assertEqual(len(old["commands"]), VERSIONS.get(version, len(old["commands"])))
+                self.assertGreaterEqual(len(old["commands"]), 27)
+                self.assertGreater(sum(len(v) for v in old["commands"].values()), 200)
+                self.assertGreater(sum(len(v) for v in old["modules"].values()), 500)
+
+    def test_the_version_has_a_list_of_its_own(self):
+        import mechanet
+
+        self.assertIn(
+            mechanet.__version__,
+            VERSIONS,
+            f"mechanet {mechanet.__version__} has no list of what it offers. In the commit that sets the version, "
+            "run `python tests/test_public_surface.py --write` and add the line it prints to VERSIONS",
+        )
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "--write":
-        Path(sys.argv[2]).write_text(json.dumps(surface(), sort_keys=True, separators=(",", ":")), encoding="utf-8")
-        print("wrote", sys.argv[2])
+    if sys.argv[1:2] == ["--write"] and len(sys.argv) in (2, 3):
+        if len(sys.argv) == 3:
+            target = Path(sys.argv[2])  # of whatever mechanet is importable
+        else:  # of this checkout, under the version it carries; the list of a version is written once
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+            import mechanet
+
+            target = DATA / f"{PREFIX}{mechanet.__version__}.json"
+            if target.exists():
+                sys.exit(f"{target} exists: the list of a version is written once, when the version is made")
+        offered = surface()
+        target.write_text(json.dumps(offered, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+        print("wrote", target)
+        if len(sys.argv) == 2 and mechanet.__version__ not in VERSIONS:
+            print(f'add to VERSIONS in {Path(__file__).name}:  "{mechanet.__version__}": {len(offered["commands"])}')
     else:
         unittest.main()

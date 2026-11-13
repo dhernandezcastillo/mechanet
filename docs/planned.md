@@ -55,8 +55,10 @@ and run on Linux in the checks of a pull request, which also build these pages w
 lies in a synchronised folder (OneDrive, Dropbox), run the suite from a copy outside it.
 
 Three tests guard what must not move. `tests/test_public_surface.py` fails when a command,
-an option or a public name of 0.1.4 disappears. `tests/test_regression_ldh.py` compares a
-fresh build of the NiFe LDH example with a frozen one. `tests/test_pending.py` fails when an
+an option or a public name that a version offered disappears (one list per version in
+`tests/data`, from 0.1.4 on), and when a new version has no list of its own.
+`tests/test_regression_ldh.py` compares a fresh build of the NiFe LDH example with a frozen
+one. `tests/test_pending.py` fails when an
 entry of `pending.md` has no `PENDING(<id>)` comment in the code, or a comment has no entry:
 when an improvement below is built, remove its entry there, its comments and its ID from the
 list in that test, and move its section from this page to the changelog.

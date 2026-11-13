@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Nothing of 0.1.5 is lost either.** The test that keeps every command, option and public name
+  of 0.1.4 now checks one list per version. The list of 0.1.5 holds its 28 commands with their
+  260 options and the 677 public names that its 45 modules define, with their parameters,
+  members and fields. A version without a list of its own fails the test, so the next one
+  cannot be made without it.
+
 ## 0.1.5 (2026-11-13)
 
 The surface before the mechanism: a coverage campaign of its own, candidates for the mechanism
