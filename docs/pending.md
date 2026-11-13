@@ -93,19 +93,3 @@ site, in its environment, and stands for the others.
 - Open: whether to compute each site by default beyond some distance, and beyond which. That
   needs relaxed surfaces from real campaigns: how large the differences are, and how much the
   step energies change between such sites.
-
-## `surface-from-discovered`
-
-**A surface that exists only as a structure another start relaxed into cannot be reused yet.**
-
-`mechanet generate --on ID` copies finished calculations and takes the relaxed surface from
-the states of that intermediate in the source campaign. A surface added by `review
---discover` (a pattern the coverage scope did not list, found because a start relaxed into
-it) has no state of its own with that atom order: its structure belongs to the start it was
-found in.
-
-- Such a surface can be picked: the campaign is built on its pattern. Nothing is copied for
-  it and its intermediates start from the slab with every adsorbate placed anew; `generate`
-  says so.
-- A fix writes the found structure as a start of the discovered surface with the builder's
-  atom order, as `review --discover` already does for a surface left behind by a release.

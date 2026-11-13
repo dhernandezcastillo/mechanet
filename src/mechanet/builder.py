@@ -382,8 +382,23 @@ class Builder:
             if len(pair) != 2 or any(aid not in self.sites for aid in pair):
                 raise ValueError(f"The coupling of the surface must name two sites, not {list(pair)}")
             self.base_coupling = pair
-        given = surface.get("given") or {}
-        if given.get("positions"):
+        # The intermediate that is the surface itself, by the key every intermediate is known by.
+        self._surface_key = self._node_key(dict(self.base), self.base_coupling)
+        given, found = surface.get("given") or {}, surface.get("found") or {}
+        if found.get("positions"):
+            # The lowest structure of this surface relaxed into it from a start built as another
+            # intermediate (a proton hopped, a water formed). The surface and what is built on it
+            # start from that structure, under the atom names of the surface.
+            self.environment = {
+                "state_id": found["state_id"],
+                "campaign": (surface.get("source") or {}).get("campaign"),
+                "positions": {aid: np.array(xyz, dtype=float) for aid, xyz in found["positions"].items()},
+                "binding_modes": {},
+                "found": {
+                    k: found.get(k) for k in ("state_id", "built_for", "energy_eV", "own_state_id", "own_energy_eV")
+                },
+            }
+        elif given.get("positions"):
             # The slab file carried these adsorbates: the surface and what is built on it start
             # with their atoms where the file had them.
             self.environment = {
@@ -501,6 +516,20 @@ class Builder:
 
         theirs = self.source_nodes.get(key)
         if theirs is None or theirs["id"] != node["id"]:
+            return False
+        found = (self.environment or {}).get("found")
+        if found and key == self._surface_key:
+            # The surface is represented by its lowest structure, which another start relaxed
+            # into: it starts from that one here. Its own calculations lie higher and stay behind.
+            for sid in theirs["state_ids"]:
+                if parse_run(self.source / "states" / sid / STAGE_FINAL)["completed"]:
+                    self.not_copied.append(
+                        {
+                            "state_id": sid,
+                            "reason": f"a lower structure of this surface was found in {found['state_id']}: "
+                            "the surface starts from that one",
+                        }
+                    )
             return False
         copied, unfinished = [], []
         for sid in theirs["state_ids"]:
@@ -1889,13 +1918,23 @@ class Builder:
             ],
         }
         if self._env_active:
+            found = self.environment.get("found")
             meta["seeded_from"] = {
                 "campaign": self.environment["campaign"],
                 "state_id": self.environment["state_id"],
-                "structure": "the relaxed surface" if self.environment["state_id"] else "the slab file as given",
+                "structure": (
+                    "the structure the surface was found in"
+                    if found
+                    else "the relaxed surface"
+                    if self.environment["state_id"]
+                    else "the slab file as given"
+                ),
                 "note": "Sites in the state they have on the surface keep the atoms of that structure; only the "
                 "other sites were built and oriented.",
             }
+            if found:
+                # a start built as another intermediate that relaxed into this surface; its atoms were renamed
+                meta["seeded_from"]["built_for_node_id"] = found["built_for"]
             if node["id"] not in self.seeded:
                 self.seeded.append(node["id"])
         if info["localized_shared_protons"]:
@@ -2380,6 +2419,8 @@ class Builder:
                 # no start fits next to the atoms of the surface: built from the slab, every adsorbate placed anew
                 "started_anew": list(self.started_anew),
                 "equivalent_sites_differ_by_A": self.images_apart,
+                # the structure the surface starts from, when a start built as another intermediate relaxed into it
+                "found_in": (self.environment or {}).get("found"),
             }
         if self.limited_searches:
             report["limited_orientation_search"] = {

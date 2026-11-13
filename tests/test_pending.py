@@ -36,7 +36,6 @@ class PendingTests(unittest.TestCase):
             [
                 "many-site-placement",
                 "relaxed-surface-images",
-                "surface-from-discovered",
                 "tie-break",
                 "two-site-adsorbates",
             ],
@@ -46,7 +45,6 @@ class PendingTests(unittest.TestCase):
         self.assertIn("adsorbates.py", marked["two-site-adsorbates"])
         self.assertIn("carried.py", marked["two-site-adsorbates"])
         self.assertIn("builder.py", marked["many-site-placement"])
-        self.assertIn("surfaces.py", marked["surface-from-discovered"])
 
     def test_generate_says_when_the_processor_may_order_ties_differently(self):
         self.assertIn("amd64", X86_MACHINES)

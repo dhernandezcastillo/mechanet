@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="196" viewBox="0 0 760 196" role="img" aria-labelledby="t d">
+<title id="t">The cycle of a site that rests in OOH</title>
+<desc id="d">A site that holds OOH on the surface the Pourbaix diagram gives goes from OOH to OO, releases O2 to an empty site, and returns through OH and O to OOH. Four of the five steps release a proton and an electron. Every other site keeps the state it has on that surface.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8d8b84"/></marker></defs>
+<rect x="0.5" y="0.5" width="759" height="195" rx="14" fill="#fbfbf9" stroke="#e1e0d9"/>
+<rect x="23.0" y="74.0" width="84.0" height="56.0" rx="8" fill="#ebf2fb" stroke="#d3e2f4"/>
+<text x="65.0" y="98.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">*OOH</text>
+<text x="65.0" y="115.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">the surface</text>
+<path d="M111 102H144" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<text x="128.0" y="64.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#1f62b4" text-anchor="middle" font-weight="600">− H⁺ − e⁻</text>
+<rect x="149.0" y="74.0" width="84.0" height="56.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="191.0" y="106.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">*OO</text>
+<path d="M237 102H270" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<text x="254.0" y="64.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">− O₂</text>
+<rect x="275.0" y="74.0" width="84.0" height="56.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="317.0" y="98.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">*</text>
+<text x="317.0" y="115.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">empty site</text>
+<path d="M363 102H396" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<text x="380.0" y="64.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#1f62b4" text-anchor="middle" font-weight="600">− H⁺ − e⁻</text>
+<text x="380.0" y="48.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">+ H₂O</text>
+<rect x="401.0" y="74.0" width="84.0" height="56.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="443.0" y="106.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">*OH</text>
+<path d="M489 102H522" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<text x="506.0" y="64.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#1f62b4" text-anchor="middle" font-weight="600">− H⁺ − e⁻</text>
+<rect x="527.0" y="74.0" width="84.0" height="56.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="569.0" y="106.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">*O</text>
+<path d="M615 102H648" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<text x="632.0" y="64.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#1f62b4" text-anchor="middle" font-weight="600">− H⁺ − e⁻</text>
+<text x="632.0" y="48.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">+ H₂O</text>
+<rect x="653.0" y="74.0" width="84.0" height="56.0" rx="8" fill="#ebf2fb" stroke="#d3e2f4"/>
+<text x="695.0" y="98.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">*OOH</text>
+<text x="695.0" y="115.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">the surface</text>
+<text x="380.0" y="158.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12" fill="#0b0b0b" text-anchor="middle">Four steps release a proton and an electron; one releases O₂.</text>
+<text x="380.0" y="177.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">Every other site keeps the state it has on that surface.</text>
+</svg>

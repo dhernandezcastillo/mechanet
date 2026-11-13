@@ -520,7 +520,9 @@ the structure then counts for it, and `mechanet pathways` proposes the balanced 
 cycles through it. As in automated reaction-network exploration, where a new minimum found
 along the way becomes a member of the network [Unsleber 2022], the node is defined by what
 the relaxed structure is; here the user decides, because a single accidental structure is
-thin evidence: no orientation search and no spin variants of its own.
+thin evidence: no orientation search and no spin variants of its own. A campaign built on
+such a surface (`mechanet generate --on`) starts from that structure, with its atoms renamed
+by the place each one holds in it ([surface first](surface-first.md#3-pick-the-surfaces-and-build-the-mechanism-on-each)).
 
 **No bound minimum.** A relaxation in which a molecule leaves the surface (an O₂ that lost
 its metal, a water that drifted off) is reported in chemical terms ("O₂ (O a0065, O d_a0065)

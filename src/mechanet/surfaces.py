@@ -558,12 +558,18 @@ def given_positions(carried):
     }
 
 
-def relaxed_surface(campaign, node_id, registry=None):
-    """The relaxed structure of a surface of a campaign, or None.
+def structures_of(campaign, node_id, registry=None):
+    """The finished structures of a campaign that are the surface ``node_id``, lowest energy first.
 
-    Of the states of the intermediate whose 02_final relaxation finished and whose relaxed
-    structure still is that intermediate, the one of lowest energy:
-    {"state_id", "geometry" (path inside the state folder), "energy_eV"}.
+    A structure is the surface when its 02_final relaxation finished and its relaxed atoms show
+    the pattern of that surface (or review assigned it to it). Each entry:
+    {"state_id", "geometry" (path inside the state folder), "energy_eV", "own", "built_for"}.
+    ``own`` structures were built as this surface and kept it. The others were built as another
+    intermediate (``built_for``) and relaxed into this one: a proton hopped, a water formed. For a
+    surface added by ``mechanet review --discover`` there are no others.
+
+    A structure that shows a lattice-translation image of the surface is left out: its energy
+    counts for the surface, but its atoms sit on the sites of the image.
     """
     from .plugins import campaign_registry
     from .results import parse_run
@@ -573,25 +579,225 @@ def relaxed_surface(campaign, node_id, registry=None):
     campaign = Path(campaign)
     config = read_json(campaign / "config.json")
     registry = registry or campaign_registry(campaign, config=config)
-    node = next((n for n in read_json(campaign / "network.json")["nodes"] if n["id"] == node_id), None)
-    # PENDING(surface-from-discovered): a surface added by `review --discover` has no state of its
-    # own, so nothing is found here and nothing is copied for it (docs/pending.md).
-    best = None
-    for sid in (node or {}).get("state_ids", []):
-        state_dir = campaign / "states" / sid
+    found = []
+    for state_dir in sorted((campaign / "states").iterdir()):
+        if not (state_dir / "state.json").is_file():
+            continue
         final = parse_run(state_dir / STAGE_FINAL)
         if not final["completed"] or final.get("energy_e0_eV") is None:
             continue
-        topology = topology_check(state_dir, read_json(state_dir / "state.json"), config, STAGE_FINAL, registry)
+        meta = read_json(state_dir / "state.json")
+        topology = topology_check(state_dir, meta, config, STAGE_FINAL, registry)
         if topology.get("assigned_node_id") != node_id or not topology.get("geometry"):
             continue
-        if best is None or final["energy_e0_eV"] < best["energy_eV"]:
-            best = {
-                "state_id": sid,
+        if (topology.get("microstate") or {}).get("matched_node_id", node_id) != node_id:
+            continue
+        found.append(
+            {
+                "state_id": state_dir.name,
                 "geometry": Path(topology["geometry"]).as_posix(),
                 "energy_eV": float(final["energy_e0_eV"]),
+                "own": node_id in {meta.get("node_id"), *meta.get("node_aliases", [])},
+                "built_for": meta.get("node_id"),
             }
-    return best
+        )
+    return sorted(found, key=lambda x: (x["energy_eV"], not x["own"], x["state_id"]))
+
+
+def relaxed_surface(campaign, node_id, registry=None):
+    """The relaxed structure that stands for a surface of a campaign, or None.
+
+    The lowest of its finished structures (:func:`structures_of`), as in the Pourbaix diagram,
+    where the lowest structure of a surface gives its energy. A structure built as the surface
+    itself is preferred unless one that arrived from another start is lower by more than what
+    ``mechanet select`` calls the same minimum (5 meV); the result then also carries the best of
+    its own as ``own_structure``.
+    """
+    from .selection import DUPLICATE_ENERGY_EV
+
+    found = structures_of(campaign, node_id, registry)
+    own = next((x for x in found if x["own"]), None)
+    arrived = next((x for x in found if not x["own"]), None)
+    if own is None or arrived is None:
+        return own or arrived
+    if arrived["energy_eV"] < own["energy_eV"] - DUPLICATE_ENERGY_EV:
+        return {**arrived, "own_structure": own}
+    return own
+
+
+def _roles_by_bonds(structure, ids, states, hysteresis, registry):
+    """Who holds what in a structure, read from its distances and not from the names of its atoms.
+
+    Returns ({site: {role label: atom index}}, {atom index: [H indices]}): the atoms of the
+    adsorbate of every occupied site by the roles the builder uses (h, w, d, p, or the labels of
+    a template), and the H of every other atom that holds some. ``states`` gives the state of
+    every site. Raises ValueError when the atoms on a site are not bonded the way its state is
+    written.
+    """
+    from .adsorbates import extra_elements
+    from .carried import assign_roles
+    from .structure import distance_matrix
+    from .topology import _NATIVE_ID, _limits, _pair_type
+
+    symbols = structure.symbols
+    index = {aid: k for k, aid in enumerate(ids)}
+    extra = extra_elements(registry.adsorbates.values())
+    distances = distance_matrix(structure)
+    hosts = [k for k, s in enumerate(symbols) if s == "O" or s in extra]
+    bonded = {k: set() for k in range(len(symbols))}
+    for h in (k for k, s in enumerate(symbols) if s == "H"):
+        near = min(((float(distances[h, x]), x) for x in hosts), default=None)
+        if near is None:
+            continue
+        kind = "O-H" if symbols[near[1]] == "O" else _pair_type(symbols[near[1]], "H", set(), extra)
+        if near[0] <= _limits(kind, hysteresis)[2]:
+            bonded[h].add(near[1])
+            bonded[near[1]].add(h)
+    heavy = [k for k, s in enumerate(symbols) if s in ("O", "Cl") or s in extra]
+    for position, a in enumerate(heavy):
+        for b in heavy[position + 1 :]:
+            kind = _pair_type(symbols[a], symbols[b], set(), extra)
+            if (
+                kind is not None
+                and not kind.startswith("M-")
+                and float(distances[a, b]) <= _limits(kind, hysteresis)[1]
+            ):
+                bonded[a].add(b)
+                bonded[b].add(a)
+    site_atoms = {index[site] for site in states if site in index}
+    roles, grouped = {}, set(site_atoms)
+    for site, state in sorted(states.items()):
+        if state == "empty":
+            if site in index:
+                raise ValueError(f"{site} is empty on the surface, but the structure has an atom there")
+            continue
+        if site not in index:
+            raise ValueError(f"the structure has no atom on {site}, which holds {state} on the surface")
+        proximal = index[site]
+        members, frontier = {proximal}, [proximal]
+        while frontier:
+            current = frontier.pop()
+            for other in bonded[current]:
+                lattice = symbols[other] != "H" and _NATIVE_ID.match(ids[other])
+                if other in members or other in site_atoms or lattice:
+                    continue
+                members.add(other)
+                frontier.append(other)
+        found = assign_roles(registry.adsorbate(state), proximal, members, bonded, symbols)
+        if found is None:
+            raise ValueError(f"the atoms on {site} are not bonded the way {state} is written")
+        roles[site] = found
+        grouped |= members
+    held = {}
+    for h in (k for k, s in enumerate(symbols) if s == "H" and k not in grouped):
+        for host in bonded[h]:
+            held.setdefault(host, []).append(h)
+    return roles, held
+
+
+def found_positions(campaign, state_id, geometry, changes, coupling=None, registry=None):
+    """A relaxed structure of a campaign under the atom names the builder gives the surface ``changes``.
+
+    The structure was built as another intermediate and relaxed into this surface, so its atoms
+    carry the names of that other one: an H that hopped from one site to the next is still
+    named after the site it left. Here every atom gets the name of the place it holds now. The
+    atoms of the slab and the atom of each site keep theirs; the atoms of each adsorbate take
+    the names of its roles; an H goes with the atom that holds it. The renamed structure is
+    then read back, and must show exactly the pattern of the surface.
+
+    Returns {atom name: [x, y, z]} for every atom of the surface. Raises ValueError with the
+    reason when the structure cannot be written this way.
+    """
+    import tempfile
+
+    from .builder import Builder
+    from .plugins import campaign_registry
+    from .structure import Structure, distance_matrix, read_poscar
+    from .topology import DEFAULT_HYSTERESIS, classify_microstate
+
+    campaign = Path(campaign)
+    state_dir = campaign / "states" / state_id
+    config = read_json(campaign / "config.json")
+    registry = registry or campaign_registry(campaign, config=config)
+    ids = list(read_json(state_dir / "state.json")["atom_ids"])
+    relaxed = read_poscar(state_dir / geometry)
+    pair = tuple(coupling) if coupling else None
+    with tempfile.TemporaryDirectory() as scratch:  # the builder writes its reference when it is set up
+        builder = Builder(config, Path(scratch) / "build", base_dir=campaign, registry=registry)
+        native = dict(builder.native)
+        wanted = {site: state for site, state in changes.items() if state != native[site]}
+        built = builder.structure(dict(wanted), pair)[0]
+    states = {**native, **wanted}
+    if sorted(built.symbols) != sorted(relaxed.symbols):
+        raise ValueError("it does not have the atoms of the surface")
+    hysteresis = {
+        k: tuple(v) for k, v in {**DEFAULT_HYSTERESIS, **(config.get("topology") or {}).get("hysteresis_A", {})}.items()
+    }
+    theirs, their_h = _roles_by_bonds(relaxed, ids, states, hysteresis, registry)
+    ours, our_h = _roles_by_bonds(built, list(built.ids), states, hysteresis, registry)
+    place = {aid: k for k, aid in enumerate(built.ids)}
+    name = {}  # atom of the relaxed structure -> the name of its place on the surface
+    for site, found in theirs.items():
+        if set(found) != set(ours[site]):
+            raise ValueError(f"the atoms on {site} do not match the roles of {states[site]}")
+        for label, k in found.items():
+            name[k] = built.ids[ours[site][label]]
+    for host, hydrogens in their_h.items():
+        slots = sorted(built.ids[k] for k in our_h.get(place.get(ids[host], -1), []))
+        if len(slots) != len(hydrogens):
+            raise ValueError(f"{ids[host]} holds {len(hydrogens)} H; on the surface as built it holds {len(slots)}")
+        keep = [k for k in hydrogens if ids[k] in slots]  # an H that still sits where its name says
+        free = [slot for slot in slots if slot not in {ids[k] for k in keep}]
+        for k in keep:
+            name[k] = ids[k]
+        for k, slot in zip(sorted((k for k in hydrogens if k not in keep), key=lambda k: ids[k]), free):
+            name[k] = slot
+    for k, aid in enumerate(ids):
+        name.setdefault(k, aid)
+    back = {aid: k for k, aid in name.items()}
+    if len(back) != len(ids) or set(back) != set(built.ids):
+        missing = sorted(set(built.ids) - set(back))[:4]
+        raise ValueError(f"its atoms cannot all be placed on the surface (no atom for {', '.join(missing) or 'some'})")
+    order = [back[aid] for aid in built.ids]
+    if [relaxed.symbols[k] for k in order] != list(built.symbols):
+        raise ValueError("an atom would take the place of another element")
+    renamed = Structure(
+        list(built.symbols), relaxed.positions[order].copy(), relaxed.cell.copy(), built.mobile, list(built.ids)
+    )
+    read, read_pair, reason = classify_microstate(
+        renamed, list(built.ids), distance_matrix(renamed), {"native": native}, hysteresis, registry=registry
+    )
+    if read is None or read != wanted or sorted(read_pair or []) != sorted(pair or []):
+        raise ValueError(reason or "read back, it does not show the pattern of the surface")
+    return {aid: [float(x) for x in renamed.positions[k]] for k, aid in enumerate(built.ids)}
+
+
+def _found(source, name, best, occupancy, coupling, registry, notes):
+    """``scope.surface.found`` for a structure that relaxed into the surface from another start, or
+    None when its atoms cannot be renamed (``notes`` says which structure, and why)."""
+    which = f"The lowest structure of {name} in {source} is {best['state_id']}, a start built as {best['built_for']}"
+    own = best.get("own_structure")
+    try:
+        positions = found_positions(source, best["state_id"], best["geometry"], occupancy, coupling, registry)
+    except ValueError as error:
+        notes.append(f"{which} that relaxed into it. It cannot be used as the start of the surface: {error}.")
+        return None
+    lower = (
+        f", {own['energy_eV'] - best['energy_eV']:.3f} eV below its own calculation ({own['state_id']})" if own else ""
+    )
+    notes.append(
+        f"{which} that relaxed into it{lower}. The surface starts from that structure here and is relaxed "
+        "again: the calculation itself belongs to the other intermediate and is not copied."
+    )
+    return {
+        "state_id": best["state_id"],
+        "built_for": best["built_for"],
+        "geometry": best["geometry"],
+        "energy_eV": best["energy_eV"],
+        "own_state_id": own["state_id"] if own else None,
+        "own_energy_eV": own["energy_eV"] if own else None,
+        "positions": positions,
+    }
 
 
 def _same_inputs(source, config):
@@ -611,14 +817,17 @@ def _same_inputs(source, config):
             )
 
 
-def pick(project, config, registry, on, source=None):
+def pick(project, config, registry, on, source=None, structure=True):
     """The surface ``mechanet generate --on`` builds a campaign on: the ``scope.surface`` of its config.
 
     ``on`` is a name of the ``surfaces`` block of project.yaml or the ID of an intermediate of
     the source campaign (``source``; default ``<project>/coverage`` when it exists; "none" for
     no source). The result names the surface, the sites that differ from the slab, the source
-    campaign whose finished calculations are reused, and the relaxed structure of the surface
-    in it when there is one. ``notes`` says what could not be done.
+    campaign whose finished calculations are reused, and the structure that stands for the
+    surface in it: ``relaxed`` (a calculation of its own) or ``found`` (the lowest structure
+    relaxed into it from a start built as another intermediate, with its atoms renamed, see
+    :func:`found_positions`). ``notes`` says what could not be done. ``structure=False`` reads
+    the pattern only (for a count).
     """
     project_dir = Path(project["_dir"])
     native = {str(s["id"]): str(s["native"]) for s in project["sites"]}
@@ -685,20 +894,25 @@ def pick(project, config, registry, on, source=None):
                 if not candidate.get("computed_by") and (theirs, sorted(candidate.get("coupling") or [])) == wanted:
                     node = candidate
                     break
-        relaxed = relaxed_surface(source_dir, node["id"], registry) if node is not None else None
-        if relaxed is not None:
-            surface["relaxed"] = {"state_id": relaxed["state_id"], "geometry": relaxed["geometry"]}
-        elif carried and name == carried["name"]:
+        best = relaxed_surface(source_dir, node["id"], registry) if node is not None and structure else None
+        if best is not None and not best["own"]:
+            # The lowest structure of this surface started as another intermediate.
+            surface["found"] = _found(source_dir, name, best, occupancy, surface["coupling"], registry, notes)
+            if surface["found"] is None:  # not usable: its own calculation, when it has one
+                del surface["found"]
+                best = best.get("own_structure")
+        if best is not None and "found" not in surface:
+            surface["relaxed"] = {"state_id": best["state_id"], "geometry": best["geometry"]}
+        if structure and "relaxed" not in surface and "found" not in surface:
             notes.append(
                 f"{source_dir} has no finished relaxation of the surface {name} that kept it: new intermediates "
-                "start from the slab file as it was given."
+                + (
+                    "start from the slab file as it was given."
+                    if carried and name == carried["name"]
+                    else "start from the slab as given, with every adsorbate placed anew."
+                )
             )
-        else:
-            notes.append(
-                f"{source_dir} has no finished relaxation of the surface {name} that kept it: new intermediates "
-                "start from the slab as given, with every adsorbate placed anew."
-            )
-    if carried and name == carried["name"] and "relaxed" not in surface:
+    if carried and name == carried["name"] and "relaxed" not in surface and "found" not in surface:
         surface["given"] = {"positions": given_positions(carried)}  # the atoms where the slab file had them
     surface["notes"] = notes
     return surface

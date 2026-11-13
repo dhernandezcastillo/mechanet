@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="154" viewBox="0 0 760 154" role="img" aria-labelledby="t d">
+<title id="t">Placement orders for a starting structure with several adsorbates to orient</title>
+<desc id="d">With two or three adsorbates to orient there are 2 and 6 placement orders, and every one is tried. With four there are 24 and with eight 40,320: from four on, two orders are tried, the listed one and its reverse.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8d8b84"/></marker></defs>
+<rect x="0.5" y="0.5" width="759" height="153" rx="14" fill="#fbfbf9" stroke="#e1e0d9"/>
+<rect x="26" y="18" width="342" height="118" rx="12" fill="#ecf6ec" stroke="#d2e8d3"/>
+<rect x="40" y="30" width="4" height="15" rx="2" fill="#17761a"/>
+<text x="51.0" y="42.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="13.5" fill="#0b0b0b" text-anchor="start" font-weight="650">Every order is tried</text>
+<rect x="40.0" y="62.0" width="150.0" height="56.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="115.0" y="86.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">2 to place</text>
+<text x="115.0" y="103.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">2 orders</text>
+<rect x="204.0" y="62.0" width="150.0" height="56.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="279.0" y="86.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">3 to place</text>
+<text x="279.0" y="103.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">6 orders</text>
+<rect x="392" y="18" width="342" height="118" rx="12" fill="#fdf3e0" stroke="#f1dcae"/>
+<rect x="406" y="30" width="4" height="15" rx="2" fill="#8a5200"/>
+<text x="417.0" y="42.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="13.5" fill="#0b0b0b" text-anchor="start" font-weight="650">Two orders are tried</text>
+<rect x="406.0" y="62.0" width="150.0" height="56.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="481.0" y="86.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">4 to place</text>
+<text x="481.0" y="103.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">24 orders</text>
+<rect x="570.0" y="62.0" width="150.0" height="56.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="645.0" y="86.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">8 to place</text>
+<text x="645.0" y="103.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">40,320 orders</text>
+</svg>

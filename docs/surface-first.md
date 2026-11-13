@@ -66,16 +66,49 @@ Three things keep the count affordable:
 
 `generate --coverage` warns above 400 distinct surfaces.
 
-A surface with many adsorbates that need an orientation (OH, OOH, water) is placed with a
-shorter search than an intermediate of a mechanism: two placement orders instead of all of
-them, which would be 40,320 for eight sites ([science §3](science.md#3-starting-structures)).
-The build report says for how many surfaces this was done.
+### Surfaces with many adsorbates
 
-After the relaxations, `mechanet review` tells which structures still are the surface they
-were built as. This matters more here than anywhere else: with many adsorbates next to each
-other, protons move, water forms and O–O bonds close during relaxation, and a structure that
-became another surface must not be counted under the name of the one it started as.
-`mechanet pourbaix` uses each structure for the surface it has become
+When a starting structure is built, the adsorbates that have a direction to choose (the H of
+OH and OOH, the tilt of water) are placed one after another, and each takes the best free
+orientation given the ones already there. The result depends on the order, so the builder
+tries every order and keeps the best starts
+([science §3](science.md#3-starting-structures)).
+
+![With two or three adsorbates to orient every placement order is tried; from four on, two orders are tried](images/surface-orders.svg)
+
+The number of orders grows as a factorial. Up to three adsorbates to orient, every order is
+tried, as for every intermediate of a mechanism. From four on, two are tried: the listed
+order and its reverse, which builds a surface with OOH on four sites in seconds instead of
+minutes. Every start still passes the clash and bond checks and is relaxed by DFT. What the
+shorter search can miss is a better hydrogen-bond arrangement in the starting structure, and
+how often it does has not been measured ([open points](pending.md)). The build report says
+for how many surfaces it was used, and `geometry.orientation_search.all_orders_up_to` moves
+the limit. In the example above no surface needs it: a site that keeps the state it has in
+the slab is not oriented anew, and at most two sites change to a state with a direction.
+
+### Structures that change during relaxation
+
+With many adsorbates next to each other, protons hop, water forms and O–O bonds close during
+relaxation. A structure that became another surface is a result, not a failure: it is a real
+minimum, and it has to count for the surface it has become, not for the one it was started
+as. MechaNet reads every relaxed structure for what it is:
+
+![A start built as surface A is relaxed and read again: it counts for A, counts for another surface B of the campaign, or is reported as a new surface C](images/surface-changed.svg)
+
+* **Still the surface it was built as.** It counts for it.
+* **Another surface of the campaign.** It counts for that one, and `mechanet review` names
+  the change (`μ-OH₁₆ · *O₃₈ -> *OH₃₈`). A surface can then have several structures: the
+  lowest stands for it in the diagram, and `mechanet select` merges those that are the same
+  minimum (within 5 meV and 0.1 Å). A structure that arrived this way can lie below the one
+  built for the surface, because it found a better arrangement of the protons.
+* **A surface the campaign did not list** (a terminal water, when only O and OH were probed).
+  `review` reports it, and `mechanet review --discover STATE "why"` adds it to the campaign.
+  From then on it is in the diagram and can be a candidate. The decision is yours: one
+  structure that got there by accident has had no orientation search of its own. When such
+  surfaces keep appearing, list that state in `scope.coverage` and build them properly.
+
+A structure that fits no pattern of the sites (a molecule left, a bond the sites do not
+describe) waits for your decision in `mechanet review`
 ([checking results](checking-results.md)).
 
 ## 2. Read the diagram and list the candidates
@@ -219,6 +252,19 @@ What the campaign contains:
   surface leans over the site so that no start fits next to it, that one intermediate is
   started as in a campaign without the relaxed surface, from the slab with every adsorbate
   placed anew; `generate` says how many, and `surface.started_anew` lists them.
+* **The surface is represented by its lowest structure**, as in the diagram. Usually that is
+  a calculation built as the surface itself, which is copied. It can also be a structure that
+  another start relaxed into (section 1), and for a surface added with `review --discover`
+  it always is. The atoms of such a structure carry the names of the intermediate it was
+  built as, so MechaNet renames them by the place each one holds now (an H that hopped onto
+  a hydroxyl is an H of that water), reads the renamed structure back to make sure it shows
+  the surface, and starts the surface and its intermediates from it. That start is relaxed
+  again here, which takes a few steps: the finished calculation belongs to the other
+  intermediate and is not copied, and a higher calculation of the surface itself is left
+  behind too. `generate` says which structure it used (`surface.found_in` in the build
+  report, `seeded_from` in state.json). If the atoms cannot be renamed, the note says why and
+  the surface falls back to its own calculation, or to the slab with every adsorbate placed
+  anew.
 
 Symmetry follows the surface: of the lattice translations of the slab, only those that map
 the surface onto itself merge intermediates. A surface with OH on every second site has
@@ -235,6 +281,32 @@ translation puts it (`surface.equivalent_sites_differ_by_A`), and `generate` say
 `mechanet pourbaix` on such a campaign labels its intermediates by what differs from the
 surface (`the surface`, `m0046:OOH`), so the diagram reads as the neighbourhood of the
 surface you picked.
+
+### A site that rests in an intermediate
+
+The diagram can give a surface on which a metal holds OOH, or O. That site is not blocked. It
+is an active site in the state it rests in at that potential, and its catalytic cycle is the
+usual one, read from there:
+
+![A site that holds OOH on the surface goes to OO, releases O2, and returns through OH and O to OOH: four steps release a proton and an electron](images/surface-resting.svg)
+
+MechaNet writes it that way. On a surface with OOH on a metal, the adsorbate evolution on
+that metal runs through empty, OH, O, OOH and OO as on any site; the surface you picked is
+the \*OOH of that cycle, and its finished calculation is copied into it. The same family also
+writes the cycle on the neighbouring metal, where the OOH is a spectator. Both are in the
+campaign, so the two readings can be compared.
+
+Where a cycle is started does not change its steps, so the limiting potential is the same
+whether it is written from the empty site or from \*OOH. What the resting state changes is
+the climb the reaction faces at a given potential. `mechanet thermo` reports for every cycle
+its lowest intermediate at each potential (`lowest_intermediate_node`), Exner's G_max(U), and
+the span over the repeating cycle (`cyclic_span_eV`), which counts a climb that runs from the
+end of one turnover into the next ([science §5](science.md#5-descriptors)).
+
+A surface that the candidates table marks as giving the product off downhill is such a case.
+It is stable among the surfaces that only exchange protons and electrons, yet the reaction
+proceeds from it: it is an intermediate under turnover, and the site that holds the
+adsorbate is where to look for the mechanism.
 
 ### A surface you already know
 
@@ -273,6 +345,15 @@ campaign goes to `<project>/coverage_on_NAME`; surfaces the first pass has relax
 The slab file you start from may be a surface with adsorbates on it: the relaxed structure of
 a termination from an earlier study, with an OOH on a metal or a chloride next to the active
 site. `mechanet init` reads such a group as what it is, the state of a site:
+
+![An OOH on a metal and a Cl on a metal are read as states of sites and their outer atoms leave the slab the project keeps; an O2 across two metals stays in the slab](images/surface-carried.svg)
+
+The figure shows the three cases. An OOH on a metal: the oxygen bound to the metal stays and
+becomes a site, the outer O and H leave the slab the project keeps, and the site is recorded
+in state OOH. A Cl on a metal: the Cl leaves, and the metal becomes a site in state Cl. An O2
+lying across two metals holds on through two atoms; no single site has that state, so it stays
+in the slab untouched, and `init` names its atoms and the reason. For the first two, `init`
+prints:
 
 ```text
   adsorbates the slab carries (1): OOH on a0040 (a0033, a0034, a0051)

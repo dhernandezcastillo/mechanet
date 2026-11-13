@@ -30,7 +30,7 @@ from mechanet.plugins import default_registry
 from mechanet.project import coverage_count, generate, load_project, resolve_config, validate_project
 from mechanet.runner import run_state
 from mechanet.structure import minimum_image, read_poscar, write_poscar
-from mechanet.surfaces import pick, relaxed_surface
+from mechanet.surfaces import found_positions, pick, relaxed_surface, structures_of
 
 ROOT = Path(__file__).resolve().parents[1]
 RUO2 = ROOT / "examples" / "ruo2_110"
@@ -648,6 +648,255 @@ class SurfaceWorkflowTests(unittest.TestCase):
         code, out, err = run("generate", self.project, "--on", self.surface_id, "--on", "ref", "--out", self.tmp / "x")
         self.assertEqual(code, 2)
         self.assertIn("--out names one folder", err)
+
+
+@unittest.skipIf(os.environ.get("MECHANET_SKIP_SLOW"), "slow workflow test disabled by environment")
+class FoundSurfaceTests(unittest.TestCase):
+    """Surfaces that another start relaxed into. Coverage of the bridging O a0016 (O, OH) and the
+    metal m0038 (empty, OH, O) on RuO2(110), relaxed with the synthetic VASP. Two relaxed
+    structures are then changed by hand, as a relaxation changes them:
+
+    * built with OH on both sites, the H of the bridge hops onto the OH of the metal: water on
+      the metal, a pattern the coverage does not list (added with ``review --discover``);
+    * built with OH on the bridge and O on the metal, the H of the bridge hops onto that O: OH
+      on the metal, a surface of the campaign, 0.1 eV below that surface's own calculation.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        cls.env = patch.dict(os.environ, {"MECHANET_CONFIG_DIR": str(cls.tmp / "config")})
+        cls.env.start()
+        project = cls.tmp / "ruo2"
+        shutil.copytree(RUO2, project)
+        data = yaml.safe_load((project / "project.yaml").read_text())
+        fake = cls.tmp / "fake_vasp.py"
+        fake.write_text(FAKE_VASP)
+        data["scope"]["families"] = ["aem"]
+        data["scope"]["coverage"] = {
+            "sites": ["a0016", "m0038"],
+            "max_changed_sites": None,
+            "states": {"bridge": ["O", "OH"], "open_metal": ["empty", "OH", "O"]},
+        }
+        data["vasp"] = {
+            "potcars": write_potcars(cls.tmp, ("Ru", "O", "H")),
+            "magmom_by_element": None,
+            "command": [sys.executable, "-I", str(fake)],
+        }
+        data["frequency"] = {"central": "final"}
+        (project / "project.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+        cls.project, cls.coverage = project, project / "coverage"
+        code, _, err = run("--json", "generate", project, "--coverage")
+        assert code == 0, err
+        network = read_json(cls.coverage / "network.json")
+        by_pattern = {tuple(sorted(n["occupancy"].items())): n for n in network["nodes"]}
+        for state in sorted((cls.coverage / "states").iterdir()):
+            positions = read_poscar(state / "POSCAR").positions
+            (state / "harmonic.json").write_text(
+                json.dumps({"x0": positions.reshape(-1).tolist(), "K": (10.0 * np.eye(positions.size)).tolist()})
+            )
+        assert run("prepare", cls.coverage)[0] == 0
+        loaded = load_project(project / "project.yaml")
+        cls.plain = Builder(
+            resolve_config(loaded, cluster=False),
+            cls.tmp / "plain",
+            base_dir=loaded["_dir"],
+            registry=default_registry(),
+        )
+
+        def relax_into(state_id, pattern, rename, energy_shift=None):
+            """The state relaxes into another pattern: its atoms end where the builder puts that pattern."""
+            state = cls.coverage / "states" / state_id
+            if energy_shift is not None:
+                (state / "ctl").mkdir(exist_ok=True)
+                (state / "ctl" / "eshift_02_final").write_text(f"{energy_shift:.6f}")
+            assert run_state(state, through="final", execute=True)["status"] == "complete", state_id
+            target = cls.plain.structure(pattern, None)[0]
+            where = dict(zip(target.ids, target.positions))
+            ids = read_json(state / "state.json")["atom_ids"]
+            contcar = state / "02_final" / "CONTCAR"
+            relaxed = read_poscar(contcar)
+            for k, atom in enumerate(ids):
+                relaxed.positions[k] = where[rename.get(atom, atom)]
+            write_poscar(contcar, relaxed)
+            attempt = read_json(state / "02_final" / "attempt.json")
+            recorded = attempt["output_hashes"]
+            if isinstance(recorded.get("CONTCAR"), dict):
+                recorded["CONTCAR"]["sha256"] = file_hash(contcar)
+            else:
+                recorded["CONTCAR"] = file_hash(contcar)
+            write_json(state / "02_final" / "attempt.json", attempt)
+
+        both = by_pattern[(("a0016", "OH"), ("m0038", "OH"))]
+        oxo = by_pattern[(("a0016", "OH"), ("m0038", "O"))]
+        cls.both_id, cls.oxo_id = both["id"], oxo["id"]
+        cls.hydroxo_id = by_pattern[(("m0038", "OH"),)]["id"]
+        cls.hydroxo_states = sorted(by_pattern[(("m0038", "OH"),)]["state_ids"])  # one or two starts of its own
+        cls.water_state, cls.hop_state = both["state_ids"][0], oxo["state_ids"][0]
+        relax_into(cls.water_state, {"m0038": "H2O"}, {"h_a0016": "w_m0038"})
+        relax_into(cls.hop_state, {"m0038": "OH"}, {"h_a0016": "h_m0038"}, energy_shift=-0.1)
+        for state in sorted((cls.coverage / "states").iterdir()):
+            if state.name not in (cls.water_state, cls.hop_state):
+                assert run_state(state, through="final", execute=True)["status"] == "complete", state.name
+        code, out, err = run("review", cls.coverage, "--discover", cls.water_state, "the bridge H moved: water")
+        assert code == 0, out + err
+        network = read_json(cls.coverage / "network.json")
+        cls.water_id = next(n["id"] for n in network["nodes"] if n.get("discovered_from") and not n.get("computed_by"))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.env.stop()
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def relaxed_atoms(self, state_id):
+        state = self.coverage / "states" / state_id
+        return dict(
+            zip(read_json(state / "state.json")["atom_ids"], read_poscar(state / "02_final" / "CONTCAR").positions)
+        )
+
+    def farthest(self, start, atoms):
+        """Largest distance from an atom of ``start`` to the nearest atom of its element in ``atoms``."""
+        symbol_of = dict(zip(self.plain.seed.ids, self.plain.seed.symbols))
+        worst = 0.0
+        for symbol, position in zip(start.symbols, start.positions):
+            near = min(
+                float(np.linalg.norm(minimum_image(position - other, start.cell)))
+                for name, other in atoms.items()
+                if symbol_of.get(name, "H" if name[0] in "hwp" else "O") == symbol
+            )
+            worst = max(worst, near)
+        return worst
+
+    def test_the_lowest_structure_stands_for_the_surface(self):
+        found = structures_of(self.coverage, self.hydroxo_id)
+        self.assertEqual(
+            (found[0]["state_id"], found[0]["own"], found[0]["built_for"]), (self.hop_state, False, self.oxo_id)
+        )
+        self.assertEqual([x["state_id"] for x in found[1:]], self.hydroxo_states)  # its own, all higher
+        self.assertTrue(all(x["own"] for x in found[1:]))
+        self.assertAlmostEqual(found[1]["energy_eV"] - found[0]["energy_eV"], 0.1, places=4)
+        best = relaxed_surface(self.coverage, self.hydroxo_id)
+        self.assertEqual((best["state_id"], best["own"]), (self.hop_state, False))
+        self.assertEqual(best["own_structure"]["state_id"], self.hydroxo_states[0])
+        # the surface that review --discover added has no calculation of its own
+        (only,) = structures_of(self.coverage, self.water_id)
+        self.assertEqual((only["state_id"], only["own"], only["built_for"]), (self.water_state, False, self.both_id))
+        # within what select calls the same minimum (5 meV), the surface's own calculation stands for it
+        arrived = {"state_id": "x__v1", "geometry": "02_final/CONTCAR", "own": False, "built_for": "x"}
+        own = {"state_id": "s__v1", "geometry": "02_final/CONTCAR", "energy_eV": -1.0, "own": True, "built_for": "s"}
+        for energy, chosen in ((-1.004, "s__v1"), (-1.006, "x__v1")):
+            with patch("mechanet.surfaces.structures_of", return_value=[{**arrived, "energy_eV": energy}, own]):
+                self.assertEqual(relaxed_surface(self.coverage, "s")["state_id"], chosen)
+
+    def test_the_atoms_get_the_names_of_the_places_they_hold(self):
+        best = structures_of(self.coverage, self.water_id)[0]
+        positions = found_positions(self.coverage, best["state_id"], best["geometry"], {"m0038": "H2O"})
+        self.assertEqual(sorted(positions), sorted(self.plain.structure({"m0038": "H2O"}, None)[0].ids))
+        self.assertNotIn("h_a0016", positions)  # the H that came from the bridge is an H of the water now
+        relaxed = self.relaxed_atoms(self.water_state)
+
+        def places(atoms, names):
+            return sorted(tuple(np.round(atoms[name], 6)) for name in names)
+
+        self.assertEqual(places(positions, ("h_m0038", "w_m0038")), places(relaxed, ("h_m0038", "h_a0016")))
+        for name, position in positions.items():  # every other atom keeps its name and its place
+            if name not in ("h_m0038", "w_m0038"):
+                self.assertTrue(np.allclose(position, relaxed[name]), name)
+        # a structure that is not the surface asked for is refused, and the reason is said
+        with self.assertRaisesRegex(ValueError, "does not have the atoms of the surface"):
+            found_positions(self.coverage, best["state_id"], best["geometry"], {"m0038": "OH"})
+        with self.assertRaisesRegex(ValueError, "a0016 are not bonded the way OH is written"):
+            found_positions(self.coverage, best["state_id"], best["geometry"], {"a0016": "OH", "m0038": "OH"})
+
+    def test_a_campaign_on_a_discovered_surface_starts_from_the_structure_it_was_found_in(self):
+        code, out, err = run("generate", self.project, "--on", self.water_id)
+        self.assertEqual(code, 0, err)
+        self.assertIn(
+            f"start from the structure it was found in ({self.water_state}, a start built as {self.both_id}", out
+        )
+        campaign = self.project / f"on_{self.water_id}"
+        report = read_json(campaign / "build_report.json")
+        surface = report["surface"]
+        self.assertEqual(surface["found_in"]["state_id"], self.water_state)
+        self.assertIsNone(surface["found_in"]["own_state_id"])
+        self.assertEqual(report["nodes_without_viable_start"], [])
+        picked = read_json(campaign / "config.json")["scope"]["surface"]
+        self.assertEqual(picked["found"]["built_for"], self.both_id)
+        self.assertNotIn("relaxed", picked)
+        network = read_json(campaign / "network.json")
+        node = next(n for n in network["nodes"] if n["id"] == self.water_id)
+        self.assertEqual(node["geometry_status"], "generated")
+        (start_id,) = node["state_ids"]
+        meta = read_json(campaign / "states" / start_id / "state.json")
+        self.assertEqual(meta["seeded_from"]["structure"], "the structure the surface was found in")
+        self.assertEqual(meta["seeded_from"]["built_for_node_id"], self.both_id)
+        self.assertEqual(meta["seeded_from"]["state_id"], self.water_state)
+        start = read_poscar(campaign / "states" / start_id / "POSCAR")
+        found = self.relaxed_atoms(self.water_state)
+        self.assertLess(self.farthest(start, found), 1e-6)  # the start is the found structure, atom for atom
+        here = dict(zip(meta["atom_ids"], start.positions))
+        # next to it, the water stays where it relaxed: only the other metal is edited
+        anew = set(surface["started_anew"])
+        other = next(
+            n
+            for n in network["nodes"]
+            if n["occupancy"].get("m0038") == "H2O"
+            and n["occupancy"].get("m0046")
+            and n["state_ids"]
+            and n["id"] not in anew
+        )
+        beside_meta = read_json(campaign / "states" / other["state_ids"][0] / "state.json")
+        beside = dict(
+            zip(beside_meta["atom_ids"], read_poscar(campaign / "states" / other["state_ids"][0] / "POSCAR").positions)
+        )
+        for name in ("m0038", "h_m0038", "w_m0038", "a0016"):
+            self.assertTrue(np.allclose(beside[name], here[name]), name)
+        # the campaign is planned and run like any other; relaxed, the surface has a calculation of its own
+        self.assertEqual(run("validate", campaign)[0], 0)
+        self.assertEqual(run("prepare", campaign)[0], 0)
+        state = campaign / "states" / start_id
+        (state / "harmonic.json").write_text(
+            json.dumps(
+                {"x0": start.positions.reshape(-1).tolist(), "K": (10.0 * np.eye(start.positions.size)).tolist()}
+            )
+        )
+        self.assertEqual(run_state(state, through="final", execute=True)["status"], "complete")
+        own = relaxed_surface(campaign, self.water_id)
+        self.assertEqual((own["state_id"], own["own"]), (start_id, True))
+
+    def test_a_lower_structure_from_another_start_takes_the_place_of_the_surface_s_own(self):
+        code, out, err = run("generate", self.project, "--on", self.hydroxo_id)
+        self.assertEqual(code, 0, err)
+        own = len(self.hydroxo_states)
+        self.assertIn(
+            f"{own} finished {'calculation' if own == 1 else 'calculations'} of the surface itself "
+            f"{'was' if own == 1 else 'were'} not copied",
+            out,
+        )
+        self.assertIn(f"({self.hop_state}, a start built as {self.oxo_id} that relaxed into it)", out)
+        campaign = self.project / f"on_{self.hydroxo_id}"
+        surface = read_json(campaign / "build_report.json")["surface"]
+        found_in = surface["found_in"]
+        self.assertEqual((found_in["state_id"], found_in["own_state_id"]), (self.hop_state, self.hydroxo_states[0]))
+        self.assertAlmostEqual(found_in["own_energy_eV"] - found_in["energy_eV"], 0.1, places=4)
+        reason = f"a lower structure of this surface was found in {self.hop_state}: the surface starts from that one"
+        self.assertEqual(
+            surface["not_copied"], [{"state_id": state_id, "reason": reason} for state_id in self.hydroxo_states]
+        )
+        network = read_json(campaign / "network.json")
+        node = next(n for n in network["nodes"] if n["id"] == self.hydroxo_id)
+        self.assertEqual(node["geometry_status"], "generated")
+        (start_id,) = node["state_ids"]
+        self.assertFalse((campaign / "states" / start_id / "02_final").exists())  # a start, not the copied calculation
+        start = read_poscar(campaign / "states" / start_id / "POSCAR")
+        self.assertLess(self.farthest(start, self.relaxed_atoms(self.hop_state)), 1e-6)
+        origin = read_json(campaign / "states" / start_id / "state.json")["seeded_from"]
+        self.assertEqual((origin["state_id"], origin["built_for_node_id"]), (self.hop_state, self.oxo_id))
+
+    def test_counting_reads_the_pattern_only(self):
+        with patch("mechanet.surfaces.structures_of", side_effect=AssertionError("a count needs no structure")):
+            found = coverage_count(self.project / "project.yaml", on=self.water_id)
+        self.assertIn(f"coverage around {self.water_id}:", found["text"])
 
 
 @unittest.skipIf(os.environ.get("MECHANET_SKIP_SLOW"), "slow workflow test disabled by environment")

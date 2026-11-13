@@ -634,7 +634,7 @@ def coverage_count(project_path=None, on=None, source=None):
     if on is not None:
         from .surfaces import pick
 
-        surface = pick(project, config, registry, on, source)
+        surface = pick(project, config, registry, on, source, structure=False)
         # Counting needs the pattern only: no calculation is copied and no start is made.
         config["scope"]["surface"] = {k: surface[k] for k in ("name", "occupancy", "coupling")}
     elif config["slab"].get("carried"):

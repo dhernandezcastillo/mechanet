@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="312" viewBox="0 0 760 312" role="img" aria-labelledby="t d">
+<title id="t">What happens to a start whose relaxed structure is another surface</title>
+<desc id="d">A start built as surface A is relaxed and read again. If it still is A, it counts for A. If it became surface B, which the campaign has, it counts for B: review names it and the lowest structure stands for B. If it became surface C, which the campaign did not list, it is reported as new and you add it with review --discover.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8d8b84"/></marker></defs>
+<rect x="0.5" y="0.5" width="759" height="311" rx="14" fill="#fbfbf9" stroke="#e1e0d9"/>
+<rect x="250.0" y="22.0" width="260.0" height="56.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="380.0" y="46.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">A start built as surface A</text>
+<text x="380.0" y="63.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">is relaxed, then read again</text>
+<path d="M380 82V104H136V122" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M380 82V122" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M380 82V104H624V122" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="26.0" y="128.0" width="220.0" height="56.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="136.0" y="152.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">Still surface A</text>
+<text x="136.0" y="169.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">nothing changed</text>
+<rect x="270.0" y="128.0" width="220.0" height="56.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="380.0" y="152.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">Became surface B</text>
+<text x="380.0" y="169.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">which the campaign has</text>
+<rect x="514.0" y="128.0" width="220.0" height="56.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="624.0" y="152.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">Became surface C</text>
+<text x="624.0" y="169.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">which the campaign did not list</text>
+<path d="M136 188V210" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M380 188V210" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M624 188V210" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="26.0" y="216.0" width="220.0" height="74.0" rx="8" fill="#ffffff" stroke="#d4d2ca"/>
+<text x="136.0" y="257.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">Counts for A</text>
+<rect x="270.0" y="216.0" width="220.0" height="74.0" rx="8" fill="#ebf2fb" stroke="#d3e2f4"/>
+<text x="380.0" y="240.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">Counts for B</text>
+<text x="380.0" y="257.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">review names it;</text>
+<text x="380.0" y="274.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">the lowest structure stands for B</text>
+<rect x="514.0" y="216.0" width="220.0" height="74.0" rx="8" fill="#ecf6ec" stroke="#d2e8d3"/>
+<text x="624.0" y="240.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">Reported as new</text>
+<text x="624.0" y="257.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">you add it with</text>
+<text x="624.0" y="274.5" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">review --discover</text>
+</svg>

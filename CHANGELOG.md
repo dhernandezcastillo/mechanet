@@ -51,7 +51,12 @@ test now checks it.
   start next to the atoms of the surface (an adsorbate of the surface is in the way) starts
   from the slab instead, with every adsorbate placed anew, and is listed. The build report
   says how far the relaxed surface differs between sites its pattern makes equivalent, which
-  are computed once (`docs/pending.md`). `--from` names another
+  are computed once (`docs/pending.md`). The surface is represented by its lowest structure,
+  as in the diagram: when that is a structure another start relaxed into (always for a
+  surface added with `review --discover`), its atoms are renamed by the place each one holds
+  now, the renamed structure is read back, and the surface and its intermediates start from
+  it (`surface.found_in`; `surfaces.structures_of`, `found_positions`). Before, such a
+  surface started from the slab with every adsorbate placed anew. `--from` names another
   source campaign or `none`; a campaign built from another slab or run with other INCAR or
   KPOINTS files is refused. Only the lattice translations that map the surface onto itself merge
   intermediates. `--coverage --on` builds the coverage states around a surface (a second pass
@@ -87,6 +92,10 @@ test now checks it.
   `geometry.orientation_search.all_orders_up_to` moves the limit. Two computations the search
   repeated for every candidate (the inverse of the cell, a metal–oxygen distance) are now done
   once, with the same digits: three sites take a third less time.
+- **Four schemes in the guide.** `docs/surface-first.md` shows how `init` reads a slab that
+  carries adsorbates, what happens to a start that relaxes into another surface, how many
+  placement orders are tried, and the cycle of a site that rests in \*OOH on the surface the
+  diagram gives (`docs/images/surface_first.py` draws them).
 - **A surface that takes over at the first point of a potential range is found.** The exact
   transitions (`lower_envelope`) started from the line that is lowest at the lower end of the
   range; a line that crosses below it within 10⁻¹² V of that end was never taken up, and the

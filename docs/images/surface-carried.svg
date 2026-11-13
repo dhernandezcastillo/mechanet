@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="476" viewBox="0 0 760 476" role="img" aria-labelledby="t d">
+<title id="t">How mechanet init reads adsorbates that a slab file carries</title>
+<desc id="d">Three columns. An OOH on a metal and a Cl on a metal are each read as the state of a site: the outer atoms of the OOH and the Cl are taken out of the slab the project keeps, and the campaign is built on the surface as given, with the atoms where the file has them. An O2 lying across two metals holds on through two atoms, cannot be the state of one site, and stays in the slab.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8d8b84"/></marker></defs>
+<rect x="0.5" y="0.5" width="759" height="475" rx="14" fill="#fbfbf9" stroke="#e1e0d9"/>
+<text x="300.0" y="32.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12" fill="#5f5e59" text-anchor="middle">OOH on a metal</text>
+<text x="470.0" y="32.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12" fill="#5f5e59" text-anchor="middle">Cl on a metal</text>
+<text x="640.0" y="32.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12" fill="#5f5e59" text-anchor="middle">O₂ across two metals</text>
+<rect x="238" y="106" width="124" height="26" rx="5" fill="#e4e2da" stroke="#c9c7be"/>
+<circle cx="300.0" cy="106.0" r="13" fill="#c9c7be" stroke="#8d8b84"/>
+<circle cx="300.0" cy="84.0" r="9" fill="#ef8a6f" stroke="#b8452f"/>
+<circle cx="313.0" cy="71.6" r="9" fill="#ef8a6f" stroke="#b8452f"/>
+<circle cx="324.0" cy="62.9" r="5" fill="#ffffff" stroke="#8d8b84"/>
+<rect x="408" y="106" width="124" height="26" rx="5" fill="#e4e2da" stroke="#c9c7be"/>
+<circle cx="470.0" cy="106.0" r="13" fill="#c9c7be" stroke="#8d8b84"/>
+<circle cx="470.0" cy="82.0" r="11" fill="#59c2a4" stroke="#1f7a62"/>
+<rect x="578" y="106" width="124" height="26" rx="5" fill="#e4e2da" stroke="#c9c7be"/>
+<circle cx="620.0" cy="106.0" r="13" fill="#c9c7be" stroke="#8d8b84"/>
+<circle cx="660.0" cy="106.0" r="13" fill="#c9c7be" stroke="#8d8b84"/>
+<circle cx="631.0" cy="85.0" r="9" fill="#ef8a6f" stroke="#b8452f"/>
+<circle cx="649.0" cy="85.0" r="9" fill="#ef8a6f" stroke="#b8452f"/>
+<rect x="238" y="222" width="124" height="26" rx="5" fill="#e4e2da" stroke="#c9c7be"/>
+<circle cx="300.0" cy="222.0" r="13" fill="#c9c7be" stroke="#8d8b84"/>
+<circle cx="300.0" cy="200.0" r="9" fill="#ef8a6f" stroke="#b8452f"/>
+<circle cx="313.0" cy="187.6" r="9" fill="none" stroke="#8d8b84" stroke-width="1.2" stroke-dasharray="3 3"/>
+<circle cx="324.0" cy="178.9" r="5" fill="none" stroke="#8d8b84" stroke-width="1.2" stroke-dasharray="3 3"/>
+<rect x="408" y="222" width="124" height="26" rx="5" fill="#e4e2da" stroke="#c9c7be"/>
+<circle cx="470.0" cy="222.0" r="13" fill="#c9c7be" stroke="#8d8b84"/>
+<circle cx="470.0" cy="198.0" r="11" fill="none" stroke="#8d8b84" stroke-width="1.2" stroke-dasharray="3 3"/>
+<rect x="578" y="222" width="124" height="26" rx="5" fill="#e4e2da" stroke="#c9c7be"/>
+<circle cx="620.0" cy="222.0" r="13" fill="#c9c7be" stroke="#8d8b84"/>
+<circle cx="660.0" cy="222.0" r="13" fill="#c9c7be" stroke="#8d8b84"/>
+<circle cx="631.0" cy="201.0" r="9" fill="#ef8a6f" stroke="#b8452f"/>
+<circle cx="649.0" cy="201.0" r="9" fill="#ef8a6f" stroke="#b8452f"/>
+<text x="26.0" y="104.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="13.5" fill="#0b0b0b" text-anchor="start" font-weight="650">Your slab file</text>
+<text x="26.0" y="212.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="13.5" fill="#0b0b0b" text-anchor="start" font-weight="650">Slab kept in</text>
+<text x="26.0" y="229.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="13.5" fill="#0b0b0b" text-anchor="start" font-weight="650">the project</text>
+<text x="26.0" y="317.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="13.5" fill="#0b0b0b" text-anchor="start" font-weight="650">Read as</text>
+<rect x="222.0" y="284.0" width="156.0" height="56.0" rx="8" fill="#ebf2fb" stroke="#d3e2f4"/>
+<text x="300.0" y="308.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">State OOH</text>
+<text x="300.0" y="325.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">on an oxygen site</text>
+<rect x="392.0" y="284.0" width="156.0" height="56.0" rx="8" fill="#ebf2fb" stroke="#d3e2f4"/>
+<text x="470.0" y="308.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">State Cl</text>
+<text x="470.0" y="325.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">on a metal site</text>
+<rect x="562.0" y="284.0" width="156.0" height="56.0" rx="8" fill="#f1f0ec" stroke="#e1e0d9"/>
+<text x="640.0" y="308.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">Stays in the slab</text>
+<text x="640.0" y="325.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">holds on through two atoms</text>
+<path d="M300 344V366" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M470 344V366" stroke="#8d8b84" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="222.0" y="372.0" width="326.0" height="56.0" rx="8" fill="#ebf2fb" stroke="#d3e2f4"/>
+<text x="385.0" y="396.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="12.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">The campaign is built on your surface</text>
+<text x="385.0" y="413.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="middle">these states, the atoms where your file has them</text>
+<circle cx="228.0" cy="452.0" r="6" fill="#c9c7be" stroke="#8d8b84"/>
+<text x="240.0" y="456.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="start">metal</text>
+<circle cx="293.0" cy="452.0" r="6" fill="#ef8a6f" stroke="#b8452f"/>
+<text x="305.0" y="456.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="start">oxygen</text>
+<circle cx="365.0" cy="452.0" r="6" fill="#ffffff" stroke="#8d8b84"/>
+<text x="377.0" y="456.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="start">hydrogen</text>
+<circle cx="451.0" cy="452.0" r="6" fill="#59c2a4" stroke="#1f7a62"/>
+<text x="463.0" y="456.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="start">chlorine</text>
+<circle cx="537.0" cy="452.0" r="6" fill="none" stroke="#8d8b84" stroke-width="1.2" stroke-dasharray="3 3"/>
+<text x="549.0" y="456.0" font-family="system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif" font-size="11.5" fill="#5f5e59" text-anchor="start">taken out of the slab</text>
+</svg>

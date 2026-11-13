@@ -323,9 +323,14 @@ def cmd_generate(args, registry):
                 "given: the adsorbates it carried sit where the file had them"
             )
         if on_surface["source_campaign"]:
+            found = on_surface.get("found_in")
             started = (
-                f"{on_surface['nodes_started_from_the_relaxed_surface']} new intermediates start from the relaxed "
-                f"surface ({on_surface['relaxed_surface_state']})"
+                f"the surface and {on_surface['nodes_started_from_the_relaxed_surface'] - 1} new intermediates "
+                f"start from the structure it was found in ({found['state_id']}, a start built as "
+                f"{found['built_for']} that relaxed into it)"
+                if found
+                else f"{on_surface['nodes_started_from_the_relaxed_surface']} new intermediates start from the "
+                f"relaxed surface ({on_surface['relaxed_surface_state']})"
                 if on_surface["relaxed_surface_state"]
                 else "the surface has no relaxed structure there yet, so new intermediates start from the slab"
             )
@@ -341,7 +346,14 @@ def cmd_generate(args, registry):
                     "copied: the relaxed structure is no longer the intermediate it was built as "
                     "(build_report.json: surface.not_copied)"
                 )
-            unfinished = len(not_copied) - became_other
+            higher = sum(1 for entry in not_copied if entry.get("reason", "").startswith("a lower structure"))
+            if higher:
+                text.append(
+                    f"  {higher} finished {_plural(higher, 'calculation', 'calculations')} of the surface itself "
+                    f"{_plural(higher, 'was', 'were')} not copied: the structure it starts from here lies lower "
+                    "(surface.not_copied)"
+                )
+            unfinished = len(not_copied) - became_other - higher
             if unfinished:
                 text.append(
                     f"  {unfinished} {_plural(unfinished, 'calculation that has', 'calculations that have')} not "
