@@ -166,5 +166,6 @@ plugins
 
 commands
 pending
+planned
 changelog
 ```

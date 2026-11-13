@@ -775,6 +775,8 @@ def found_positions(campaign, state_id, geometry, changes, coupling=None, regist
 def _found(source, name, best, occupancy, coupling, registry, notes):
     """``scope.surface.found`` for a structure that relaxed into the surface from another start, or
     None when its atoms cannot be renamed (``notes`` says which structure, and why)."""
+    # PENDING(found-surface-recomputed): the structure is taken over, not the calculation, whose
+    # folder belongs to the intermediate it was built as (docs/planned.md says what copying needs).
     which = f"The lowest structure of {name} in {source} is {best['state_id']}, a start built as {best['built_for']}"
     own = best.get("own_structure")
     try:

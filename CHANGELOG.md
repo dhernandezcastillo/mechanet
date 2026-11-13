@@ -56,7 +56,9 @@ test now checks it.
   surface added with `review --discover`), its atoms are renamed by the place each one holds
   now, the renamed structure is read back, and the surface and its intermediates start from
   it (`surface.found_in`; `surfaces.structures_of`, `found_positions`). Before, such a
-  surface started from the slab with every adsorbate placed anew. `--from` names another
+  surface started from the slab with every adsorbate placed anew. The other intermediates are
+  still copied from their own calculations; the same rule for them is decided and written
+  out step by step in the new page `docs/planned.md`. `--from` names another
   source campaign or `none`; a campaign built from another slab or run with other INCAR or
   KPOINTS files is refused. Only the lattice translations that map the surface onto itself merge
   intermediates. `--coverage --on` builds the coverage states around a surface (a second pass

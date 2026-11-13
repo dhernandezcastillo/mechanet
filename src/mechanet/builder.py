@@ -514,6 +514,9 @@ class Builder:
         from .topology import topology_check
         from .vasp import STAGE_FINAL
 
+        # PENDING(copied-intermediates): only the calculations built as this intermediate are
+        # looked at. A lower structure of it that another start relaxed into is used for the
+        # picked surface alone (docs/planned.md has the steps for every intermediate).
         theirs = self.source_nodes.get(key)
         if theirs is None or theirs["id"] != node["id"]:
             return False

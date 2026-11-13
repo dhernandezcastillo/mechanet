@@ -34,6 +34,8 @@ class PendingTests(unittest.TestCase):
         self.assertEqual(
             sorted(listed),
             [
+                "copied-intermediates",
+                "found-surface-recomputed",
                 "many-site-placement",
                 "relaxed-surface-images",
                 "tie-break",
@@ -41,6 +43,12 @@ class PendingTests(unittest.TestCase):
             ],
         )
         self.assertIn("builder.py", marked["relaxed-surface-images"])
+        self.assertIn("builder.py", marked["copied-intermediates"])
+        self.assertIn("surfaces.py", marked["found-surface-recomputed"])
+        # what is decided and not built yet has its steps in docs/planned.md, under the same ID
+        planned = ENTRY.findall((ROOT / "docs" / "planned.md").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(planned), ["copied-intermediates", "found-surface-recomputed"])
+        self.assertLessEqual(set(planned), set(listed))
         self.assertIn("builder.py", marked["tie-break"])
         self.assertIn("adsorbates.py", marked["two-site-adsorbates"])
         self.assertIn("carried.py", marked["two-site-adsorbates"])

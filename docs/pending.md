@@ -11,6 +11,9 @@ grep -rn "PENDING(" src tests
 `tests/test_pending.py` fails when an entry here has no comment in the code, or a comment has
 no entry here. Settle a question by removing its entry together with its comments.
 
+What is decided and waits to be built is written out step by step, for someone who was not
+part of the work, in [planned improvements](planned.md).
+
 ## `tie-break`
 
 **Which of two equally scored orientations is kept depends on the processor.**
@@ -72,6 +75,40 @@ structures kept, which builds a coverage state with OOH on four sites in 10 s in
   (`geometry.orientation_search.all_orders_up_to: 4`).
 - A coverage campaign is the case that needs it. Mechanism campaigns on a picked surface start
   from the relaxed surface and orient only the sites that differ, so they do not depend on it.
+
+## `copied-intermediates`
+
+**Only the picked surface is represented by its lowest structure. The other intermediates of
+a campaign on a surface are copied from their own calculations.**
+
+A campaign built with `mechanet generate --on` copies, for every intermediate the source
+campaign has, the finished calculations that were built as that intermediate. A structure
+that another start relaxed into (a proton hopped, a water formed) is used for the picked
+surface, which starts from the lowest structure wherever it started. For the other
+intermediates it is ignored.
+
+- The energy of such an intermediate in the new campaign can lie above the lowest one the
+  source campaign has, and a step that involves it is off by the difference. The Pourbaix
+  diagram of the source campaign uses the lower structure, so the two can disagree.
+- Nothing says so today.
+- Decided: the same rule for every intermediate. An intermediate whose lowest structure came
+  from another start then costs one short relaxation in the new campaign. The steps, the
+  places in the code and the tests are in [planned improvements](planned.md).
+
+## `found-surface-recomputed`
+
+**A surface whose lowest structure came from another start is relaxed again; its finished
+calculation is not reused.**
+
+The folder of that calculation belongs to the intermediate it was built as: its atoms carry
+the names of that pattern, and the VASP files keep that atom order. A campaign on the surface
+needs a state whose names match where the atoms are, so it takes the positions, renames the
+atoms and runs the surface again.
+
+- The run starts from a relaxed structure and should take a few ionic steps. Frequencies of
+  the surface are not carried over either.
+- Not planned. What a fix would need, and the cheaper way round it, are in
+  [planned improvements](planned.md).
 
 ## `relaxed-surface-images`
 
